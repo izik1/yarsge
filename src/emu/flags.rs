@@ -7,16 +7,7 @@ pub enum Flag {
     C,
 }
 
-impl Flag {
-    pub fn to_bit(&self) -> u8 {
-        match self {
-            &Flag::Z => 7,
-            &Flag::N => 6,
-            &Flag::H => 5,
-            &Flag::C => 4,
-        }
-    }
-    
+impl Flag {    
     pub fn to_mask(&self) -> u8 {
         match self {
             &Flag::Z => 0b1000_0000,

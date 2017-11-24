@@ -1,14 +1,22 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see lisence.md for more details.
 
 use super::memory;
-use super::memory::State;
 use super::registers;
 use super::registers::Reg;
 use super::flags::Flag;
+
+pub enum State {
+    Okay,
+    Halt,
+    Stop,
+    Hang,
+}
+
 pub struct Cpu {
-     cycle_counter: i64,
+    cycle_counter: i64,
     pub mem: memory::Memory,
     pub regs: registers::Registers,
+    pub status: State,
 }
 
 impl Cpu {
@@ -36,6 +44,12 @@ impl Cpu {
         0xFF // TODO: STUB
     }
     
+    // Mnemonic: JR
+    // Full Name: Jump Relative
+    // Description: Jumps to pc + r8 if "jump" is true, otherwise it does nothing.
+    // Affected Flags: ----
+    // Remarks: This instruction stops 4 cycles short if it doesn't jump.
+    // Timing: read, <internal delay>
     fn instr_jr(&mut self, jump: bool) -> i64{
         let val = self.read_ipc_cycle() as i8;
         if !jump {
@@ -47,6 +61,12 @@ impl Cpu {
         }
     }
     
+    // Mnemonic: JP
+    // Full Name: Jump
+    // Description: Jumps to a16 if "jump" is true, otherwise it does nothing.
+    // Affected Flags: ----
+    // Remarks: This instruction stops 4 cycles short if it doesn't jump.
+    // Timing: read, read, <internal delay>
     fn instr_jp(&mut self, jump: bool) -> i64 {
         let low = self.read_ipc_cycle();
         let high = self.read_ipc_cycle();
@@ -54,16 +74,22 @@ impl Cpu {
             8 
         } else{
             self.mem.update(4);
-            self.regs.pc =  ((high as u16) <<  8) | (low as u16);
+            self.regs.pc = ((high as u16) << 8) | (low as u16);
             12
         }
     }
     
+    // Mnemonic: LD
+    // Full Name: Load
+    // Description: Loads dest into src, either one of which can be HL but not both.
+    // Affected Flags: ----
+    // Remarks: I really like how this function came out. I think it looks nice.
+    // Timing: either "write", "read" or instant.
     fn instr_ld(&mut self, dest: Reg, src: Reg) -> i64 {
         match (dest, src) {
             (Reg::HL, Reg::HL) => panic!(),
             (Reg::HL, src) =>     {let val = self.regs.get_reg(&src); self.write_hl_cycle(val); 4}
-            (dest, Reg::HL) =>    {let val = self.read_hl_cycle(); self.regs.set_reg(dest, val); 0}
+            (dest, Reg::HL) =>    {let val = self.read_hl_cycle(); self.regs.set_reg(dest, val); 4}
             (dest, src) =>        {let val = self.regs.get_reg(&src); self.regs.set_reg(dest, val); 0}
         }
     }
@@ -87,17 +113,14 @@ impl Cpu {
             0x44 => self.instr_ld(Reg::B, Reg::H), 0x45 => self.instr_ld(Reg::B, Reg::L), 0x46 => self.instr_ld(Reg::B, Reg::HL), 0x47 => self.instr_ld(Reg::B, Reg::A),
             0x48 => self.instr_ld(Reg::C, Reg::B), 0x49 => self.instr_ld(Reg::C, Reg::C), 0x4A => self.instr_ld(Reg::C, Reg::D) , 0x4B => self.instr_ld(Reg::C, Reg::E),
             0x4C => self.instr_ld(Reg::C, Reg::H), 0x4D => self.instr_ld(Reg::C, Reg::L), 0x4E => self.instr_ld(Reg::C, Reg::HL), 0x4F => self.instr_ld(Reg::C, Reg::A),
-            
             0x50 => self.instr_ld(Reg::D, Reg::B), 0x51 => self.instr_ld(Reg::D, Reg::C), 0x52 => self.instr_ld(Reg::D, Reg::D) , 0x53 => self.instr_ld(Reg::D, Reg::E),
             0x54 => self.instr_ld(Reg::D, Reg::H), 0x55 => self.instr_ld(Reg::D, Reg::L), 0x56 => self.instr_ld(Reg::D, Reg::HL), 0x57 => self.instr_ld(Reg::D, Reg::A),
             0x58 => self.instr_ld(Reg::E, Reg::B), 0x59 => self.instr_ld(Reg::E, Reg::C), 0x5A => self.instr_ld(Reg::E, Reg::D) , 0x5B => self.instr_ld(Reg::E, Reg::E),
             0x5C => self.instr_ld(Reg::E, Reg::B), 0x5D => self.instr_ld(Reg::E, Reg::C), 0x5E => self.instr_ld(Reg::E, Reg::D) , 0x5F => self.instr_ld(Reg::E, Reg::E),
-            
             0x60 => self.instr_ld(Reg::H, Reg::B), 0x61 => self.instr_ld(Reg::H, Reg::C), 0x62 => self.instr_ld(Reg::H, Reg::D) , 0x63 => self.instr_ld(Reg::H, Reg::E),
             0x64 => self.instr_ld(Reg::H, Reg::B), 0x65 => self.instr_ld(Reg::H, Reg::L), 0x66 => self.instr_ld(Reg::H, Reg::HL), 0x67 => self.instr_ld(Reg::H, Reg::A),
             0x68 => self.instr_ld(Reg::L, Reg::B), 0x69 => self.instr_ld(Reg::L, Reg::C), 0x6A => self.instr_ld(Reg::L, Reg::D) , 0x6B => self.instr_ld(Reg::L, Reg::E),
             0x6C => self.instr_ld(Reg::L, Reg::B), 0x6D => self.instr_ld(Reg::L, Reg::L), 0x6E => self.instr_ld(Reg::L, Reg::HL), 0x6F => self.instr_ld(Reg::L, Reg::A),
-            
             0x70 => self.instr_ld(Reg::HL, Reg::B), 0x71 => self.instr_ld(Reg::HL, Reg::C), 0x72 => self.instr_ld(Reg::HL, Reg::D) , 0x73 => self.instr_ld(Reg::HL, Reg::E),
             0x74 => self.instr_ld(Reg::HL, Reg::H), 0x75 => self.instr_ld(Reg::HL, Reg::L), 0x76 => panic!() /*HALT*/              , 0x77 => self.instr_ld(Reg::HL, Reg::A),
             0x78 => self.instr_ld(Reg::A, Reg::B) , 0x79 => self.instr_ld(Reg::A,  Reg::C), 0x7A => self.instr_ld(Reg::A,  Reg::D) , 0x7B => self.instr_ld(Reg::A , Reg::E),
@@ -109,6 +132,8 @@ impl Cpu {
             0xCB => self.run_extended(),
             0xD2 => {let j = !self.regs.get_flag(Flag::C); self.instr_jp(j)}
             0xDA => {let j = self.regs.get_flag(Flag::C); self.instr_jp(j)}
+            
+            0xD3 | 0xDA | 0xDD | 0xE2 | 0xE3 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {self.status = State::Hang; 0}, 
             _ => panic!(),
         }
     }
@@ -116,6 +141,18 @@ impl Cpu {
     fn run_extended(&mut self) -> i64 {
         let op = self.read_ipc_cycle();
         4 + match op {
+            0x00 => self.instr_rlc(Reg::B), 0x01 => self.instr_rlc(Reg::C), 0x02 => self.instr_rlc(Reg::D) , 0x03 => self.instr_rlc(Reg::E),
+            0x04 => self.instr_rlc(Reg::H), 0x05 => self.instr_rlc(Reg::L), 0x06 => self.instr_rlc(Reg::HL), 0x07 => self.instr_rlc(Reg::A),
+            
+            0x08 => self.instr_rrc(Reg::B), 0x09 => self.instr_rrc(Reg::C), 0x0A => self.instr_rrc(Reg::D) , 0x0B => self.instr_rrc(Reg::E),
+            0x0C => self.instr_rrc(Reg::H), 0x0D => self.instr_rrc(Reg::L), 0x0E => self.instr_rrc(Reg::HL), 0x0F => self.instr_rrc(Reg::A),
+            
+            0x10 => self.instr_rl(Reg::B), 0x11 => self.instr_rl(Reg::C), 0x02 => self.instr_rl(Reg::D) , 0x03 => self.instr_rl(Reg::E),
+            0x14 => self.instr_rl(Reg::H), 0x15 => self.instr_rl(Reg::L), 0x06 => self.instr_rl(Reg::HL), 0x07 => self.instr_rl(Reg::A),
+            
+            0x18 => self.instr_rr(Reg::B), 0x19 => self.instr_rr(Reg::C), 0x1A => self.instr_rr(Reg::D) , 0x1B => self.instr_rr(Reg::E),
+            0x1C => self.instr_rr(Reg::H), 0x1D => self.instr_rr(Reg::L), 0x1E => self.instr_rr(Reg::HL), 0x1F => self.instr_rr(Reg::A),
+
             0x40 => self.instr_bit(Reg::B , 0x01), 0x41 => self.instr_bit(Reg::B , 0x02), 0x42 => self.instr_bit(Reg::B , 0x04), 0x43 => self.instr_bit(Reg::B , 0x08),
             0x44 => self.instr_bit(Reg::B , 0x10), 0x45 => self.instr_bit(Reg::B , 0x20), 0x46 => self.instr_bit(Reg::B , 0x40), 0x47 => self.instr_bit(Reg::B , 0x80),
             0x48 => self.instr_bit(Reg::C , 0x01), 0x49 => self.instr_bit(Reg::C , 0x02), 0x4A => self.instr_bit(Reg::C , 0x04), 0x4B => self.instr_bit(Reg::C , 0x08),
@@ -171,15 +208,106 @@ impl Cpu {
         
     }
     
-    // Affected flags: Z (set|res), N (res), H (set)
-    fn instr_bit(&mut self, reg: Reg, mask: u8) -> i64 {
-        self.regs.af = (self.regs.af & 0b1111_1111_0011) | Flag::H.to_bit() as u16;
+    // Mnemonic: RLC
+    // Full Name: Rotate Left Circular
+    // Description: Sets the given reg (or hl) r to, (r << 1) | (r >> 7)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set.  If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.
+    fn instr_rlc(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let mut cycles = 0;
+        let mut val = 0;
         match reg {
-            Reg::HL => {if (self.read_hl_cycle() & mask) == 0 {self.regs.af |= Flag::Z.to_bit() as u16}; 4}
-            r => {if (self.regs.get_reg(&r) & mask) == 0 {self.regs.af |= Flag::Z.to_bit() as u16}; 0}
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 1) | (val >> 7)); cycles = 8;}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (val >> 7));}
+        }
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) > 0 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+
+    // Mnemonic: RRC
+    // Full Name: Rotate Right Circular
+    // Description: Sets the given reg (or hl) r to, (r >> 1) | (r << 7)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 1 is set. If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.    
+    fn instr_rrc(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let mut cycles = 0;
+        let mut val = 0;
+        match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1) | (val << 7)); cycles = 8;}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (val << 7));}
+        }
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x01) == 1 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+    
+    // Mnemonic: RL
+    // Full Name: Rotate Left
+    // Description, Sets the given reg (or hl) r to, (r << 1) | (carry_in)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set. If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.    
+    fn instr_rl(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let mut cycles = 0;
+        let mut val = 0;
+        let carry_in = if self.regs.get_flag(Flag::C) {1} else {0};
+        match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 1) | (carry_in)); cycles = 8;}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (carry_in));}
+        }
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+    
+    // Mnemonic: RR
+    // Full Name: Rotate Right
+    // Description, Sets the given reg (or hl) r to, (r >> 1) | (carry_in)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 1 is set. If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.    
+    fn instr_rr(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let mut cycles = 0;
+        let mut val = 0;
+        let carry_in = if self.regs.get_flag(Flag::C) {0x80} else {0x00};
+        match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1) | (carry_in)); cycles = 8;}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (carry_in));}
+        }
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x01) == 1 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+
+    // Mnemonic: BIT
+    // Full Name: Bit Test
+    // Description: Tests the given bit (in the form of a mask --that is implementation specific,
+    // other ways to do the same thing include 1 << N where N is the bit number), of the given reg (or hl)
+    // Affected Flags: Z (set|res), N (res), H (set)
+    // Remarks: Zero is set if the bit is unset, and gets reset otherwise.
+    // Timing: "read" or instant.
+    fn instr_bit(&mut self, reg: Reg, mask: u8) -> i64 {
+        self.regs.af = (self.regs.af & 0b1111_1111_0011) | Flag::H.to_mask() as u16;
+        match reg {
+            Reg::HL => {if (self.read_hl_cycle() & mask) == 0 {self.regs.af |= Flag::Z.to_mask() as u16}; 4}
+            r => {if (self.regs.get_reg(&r) & mask) == 0 {self.regs.af |= Flag::Z.to_mask() as u16}; 0}
         }
     }
     
+    // Mnemonic: RES
+    // Full Name: Reset
+    // Description: Resets the given bit (in the form of a mask --that is implementation specific,
+    // other ways to do the same thing include 1 << N where N is the bit number), of the given reg (or hl)
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: "read, write" or instant.
     fn instr_res(&mut self, reg: Reg, mask: u8) -> i64 {
         match reg {
             Reg::HL => {let val = self.read_hl_cycle(); self.write_hl_cycle(val & mask); 8}
@@ -187,6 +315,13 @@ impl Cpu {
         }
     }
     
+    // Mnemonic: SET
+    // Full Name: Set
+    // Description: Sets the given bit (in the form of a mask --that is implementation specific,
+    // other ways to do the same thing include 1 << N where N is the bit number), of the given reg (or hl)
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: "read, write" or instant.
     fn instr_set(&mut self, reg: Reg, mask: u8) -> i64 {
         match reg {
             Reg::HL => {let val = self.read_hl_cycle(); self.write_hl_cycle(val | mask); 8}
@@ -208,14 +343,15 @@ impl Cpu {
         Cpu {
             cycle_counter: 0,
             mem: memory::Memory::new(),
-            regs: registers::Registers::new()
+            regs: registers::Registers::new(),
+            status: State::Okay,
         }
     }
     
     pub fn run(&mut self, ticks: i64) {
         self.cycle_counter += ticks;
         while self.cycle_counter > 0 {
-            self.cycle_counter += match self.mem.status {
+            self.cycle_counter += match self.status {
                 State::Okay => self.handle_okay(),
                 _ => panic!()
             }

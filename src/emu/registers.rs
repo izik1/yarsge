@@ -55,7 +55,4 @@ impl Registers{
     pub fn get_flag(&self, flag: Flag) -> bool {
         (self.af & (flag.to_mask() as u16)) > 0
     }
-    
-    
-    
 }

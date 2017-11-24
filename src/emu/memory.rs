@@ -1,20 +1,11 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see lisence.md for more details.
 
-pub enum State {
-    Okay,
-    Halt,
-    Stop,
-    Hang,
-}
-
 pub struct Memory {
-    pub status: State,
 }
 
 impl Memory {
     pub fn new() -> Memory {
         Memory {
-            status: State::Okay,
         }
     }
     
