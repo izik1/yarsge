@@ -103,6 +103,8 @@ impl Cpu {
                 
         2 + match op {
             0x00 => 0,
+            0x07 => self.instr_rlca(),
+            0x0F => self.instr_rrca(),
             0x18 => self.instr_jr(true),
             0x20 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x28 => {let j =  self.regs.get_flag(Flag::Z); self.instr_jr(j)}
@@ -136,6 +138,30 @@ impl Cpu {
             0xD3 | 0xDB | 0xDD | 0xE2 | 0xE3 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {self.status = State::Hang; 0}, 
             _ => panic!(),
         }
+    }
+    
+    // Mnemonic: RLCA
+    // Full Name: Rotate Left Circular A
+    // Description: Sets A to, (A << 1) | (A >> 7)
+    // Affected Flags: Z (res), N (res), H (res), C (set|res)
+    // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
+    // Timing: Instant.
+    fn instr_rlca(&mut self) -> i64 {
+        self.regs.af = (((self.regs.af << 1) | (self.regs.af >> 7)) & 0xFF00) | 
+        if (self.regs.af & 0x8000) > 0 {Flag::C.to_mask() as u16} else {0};
+        0
+    }
+
+    // Mnemonic: RRCA
+    // Full Name: Rotate Right Circular A
+    // Description: Sets A to, (A >> 1) | (A << 7)
+    // Affected Flags: Z (res), N (res), H (res), C (set|res)
+    // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
+    // Timing: Instant.
+    fn instr_rrca(&mut self) -> i64 {
+        self.regs.af = (((self.regs.af >> 1) | (self.regs.af << 7)) & 0xFF00) | 
+        if (self.regs.af & 0x0001) == 1 {Flag::C.to_mask() as u16} else {0};
+        0
     }
     
     fn run_extended(&mut self) -> i64 {
