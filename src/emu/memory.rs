@@ -9,11 +9,11 @@ impl Memory {
         }
     }
     
-    pub fn update(&mut self, ticks: i64) {
+    pub fn update(&mut self, _ticks: i64) {
         // TODO: STUB
     }
     
-    pub fn read_byte(&self, address: u16) -> u8 {
+    pub fn read_byte(&self, _address: u16) -> u8 {
         0xFF // TODO:  STUB
     }
     
