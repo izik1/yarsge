@@ -150,6 +150,11 @@ impl Cpu {
             0x14 => self.instr_rl (Reg::H), 0x15 => self.instr_rl (Reg::L), 0x16 => self.instr_rl (Reg::HL), 0x17 => self.instr_rl (Reg::A),
             0x18 => self.instr_rr (Reg::B), 0x19 => self.instr_rr (Reg::C), 0x1A => self.instr_rr (Reg::D) , 0x1B => self.instr_rr (Reg::E),
             0x1C => self.instr_rr (Reg::H), 0x1D => self.instr_rr (Reg::L), 0x1E => self.instr_rr (Reg::HL), 0x1F => self.instr_rr (Reg::A),
+
+            0x20 => self.instr_sla(Reg::B), 0x21 => self.instr_sla(Reg::C), 0x22 => self.instr_sla(Reg::D) , 0x23 => self.instr_sla(Reg::E),
+            0x24 => self.instr_sla(Reg::H), 0x25 => self.instr_sla(Reg::L), 0x26 => self.instr_sla(Reg::HL), 0x27 => self.instr_sla(Reg::A),
+            0x28 => self.instr_sra(Reg::B), 0x29 => self.instr_sra(Reg::C), 0x2A => self.instr_sra(Reg::D) , 0x2B => self.instr_sra(Reg::E),
+            0x2C => self.instr_sra(Reg::H), 0x2D => self.instr_sra(Reg::L), 0x2E => self.instr_sra(Reg::HL), 0x2F => self.instr_sra(Reg::A),
             
             0x40 => self.instr_bit(Reg::B , 0x01), 0x41 => self.instr_bit(Reg::B , 0x02), 0x42 => self.instr_bit(Reg::B , 0x04), 0x43 => self.instr_bit(Reg::B , 0x08),
             0x44 => self.instr_bit(Reg::B , 0x10), 0x45 => self.instr_bit(Reg::B , 0x20), 0x46 => self.instr_bit(Reg::B , 0x40), 0x47 => self.instr_bit(Reg::B , 0x80),
@@ -279,7 +284,43 @@ impl Cpu {
         self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x01) == 1 {Flag::C.to_mask() as u16} else {0};
         cycles
     }
-
+    
+    // Mnemonic: SlA
+    // Full Name: Shift Left Arithmetic
+    // Description, Sets the given reg (or hl) r to (r << 1)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set. If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.    
+    fn instr_sla(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let val;
+        let cycles = match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 1));8}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1));0}
+        };
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+    
+    // Mnemonic: SRA
+    // Full Name: Shift Rightt Arithmetic
+    // Description, Sets the given reg (or hl) r to (r >> 1) | (r & 0x80)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.    
+    fn instr_sra(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let val;
+        let cycles = match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1) | (val & 0x80));8}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (val & 0x80));0}
+        };
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+    
     // Mnemonic: BIT
     // Full Name: Bit Test
     // Description: Tests the given bit (in the form of a mask --that is implementation specific,
