@@ -22,16 +22,16 @@ pub struct Registers {
 }
 
 impl Registers{
-    pub fn get_reg(&self, reg: Reg) -> u8 {
+    pub fn get_reg(&self, reg: &Reg) -> u8 {
         match reg {
-            Reg::B => (self.bc >> 8) as u8,
-            Reg::C => (self.bc >> 0) as u8,
-            Reg::D => (self.de >> 8) as u8,
-            Reg::E => (self.de >> 0) as u8,
-            Reg::H => (self.hl >> 8) as u8,
-            Reg::L => (self.hl >> 0) as u8,
-            Reg::HL => panic!(),
-            Reg::A => (self.af >> 8) as u8,
+            &Reg::B => (self.bc >> 8) as u8,
+            &Reg::C => (self.bc >> 0) as u8,
+            &Reg::D => (self.de >> 8) as u8,
+            &Reg::E => (self.de >> 0) as u8,
+            &Reg::H => (self.hl >> 8) as u8,
+            &Reg::L => (self.hl >> 0) as u8,
+            &Reg::HL => panic!(),
+            &Reg::A => (self.af >> 8) as u8,
         }
     }
     
