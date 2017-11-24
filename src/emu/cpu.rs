@@ -116,6 +116,22 @@ impl Cpu {
     fn run_extended(&mut self) -> i64 {
         let op = self.read_ipc_cycle();
         4 + match op {
+            0x40 => self.instr_bit(Reg::B , 0x01), 0x41 => self.instr_bit(Reg::B , 0x02), 0x42 => self.instr_bit(Reg::B , 0x04), 0x43 => self.instr_bit(Reg::B , 0x08),
+            0x44 => self.instr_bit(Reg::B , 0x10), 0x45 => self.instr_bit(Reg::B , 0x20), 0x46 => self.instr_bit(Reg::B , 0x40), 0x47 => self.instr_bit(Reg::B , 0x80),
+            0x48 => self.instr_bit(Reg::C , 0x01), 0x49 => self.instr_bit(Reg::C , 0x02), 0x4A => self.instr_bit(Reg::C , 0x04), 0x4B => self.instr_bit(Reg::C , 0x08),
+            0x4C => self.instr_bit(Reg::C , 0x10), 0x4D => self.instr_bit(Reg::C , 0x20), 0x4E => self.instr_bit(Reg::C , 0x40), 0x4F => self.instr_bit(Reg::C , 0x80),
+            0x50 => self.instr_bit(Reg::D , 0x01), 0x51 => self.instr_bit(Reg::D , 0x02), 0x52 => self.instr_bit(Reg::D , 0x04), 0x53 => self.instr_bit(Reg::D , 0x08),
+            0x54 => self.instr_bit(Reg::D , 0x10), 0x55 => self.instr_bit(Reg::D , 0x20), 0x56 => self.instr_bit(Reg::D , 0x40), 0x57 => self.instr_bit(Reg::D , 0x80),
+            0x58 => self.instr_bit(Reg::E , 0x01), 0x59 => self.instr_bit(Reg::E , 0x02), 0x5A => self.instr_bit(Reg::E , 0x04), 0x5B => self.instr_bit(Reg::E , 0x08),
+            0x5C => self.instr_bit(Reg::E , 0x10), 0x5D => self.instr_bit(Reg::E , 0x20), 0x5E => self.instr_bit(Reg::E , 0x40), 0x5F => self.instr_bit(Reg::E , 0x80),
+            0x60 => self.instr_bit(Reg::H , 0x01), 0x61 => self.instr_bit(Reg::H , 0x02), 0x62 => self.instr_bit(Reg::H , 0x04), 0x63 => self.instr_bit(Reg::H , 0x08),
+            0x64 => self.instr_bit(Reg::H , 0x10), 0x65 => self.instr_bit(Reg::H , 0x20), 0x66 => self.instr_bit(Reg::H , 0x40), 0x67 => self.instr_bit(Reg::H , 0x80),
+            0x68 => self.instr_bit(Reg::L , 0x01), 0x69 => self.instr_bit(Reg::L , 0x02), 0x6A => self.instr_bit(Reg::L , 0x04), 0x6B => self.instr_bit(Reg::L , 0x08),
+            0x6C => self.instr_bit(Reg::L , 0x10), 0x6D => self.instr_bit(Reg::L , 0x20), 0x6E => self.instr_bit(Reg::L , 0x40), 0x6F => self.instr_bit(Reg::L , 0x80),
+            0x70 => self.instr_bit(Reg::HL, 0x01), 0x71 => self.instr_bit(Reg::HL, 0x02), 0x72 => self.instr_bit(Reg::HL, 0x04), 0x73 => self.instr_bit(Reg::HL, 0x08),
+            0x74 => self.instr_bit(Reg::HL, 0x10), 0x75 => self.instr_bit(Reg::HL, 0x20), 0x76 => self.instr_bit(Reg::HL, 0x40), 0x77 => self.instr_bit(Reg::HL, 0x80),
+            0x78 => self.instr_bit(Reg::A , 0x01), 0x79 => self.instr_bit(Reg::A , 0x02), 0x7A => self.instr_bit(Reg::A , 0x04), 0x7B => self.instr_bit(Reg::A , 0x08),
+            0x7C => self.instr_bit(Reg::A , 0x10), 0x7D => self.instr_bit(Reg::A , 0x20), 0x7E => self.instr_bit(Reg::A , 0x40), 0x7F => self.instr_bit(Reg::A , 0x80),
             
             0x80 => self.instr_res(Reg::B , 0x01), 0x81 => self.instr_res(Reg::B , 0x02), 0x82 => self.instr_res(Reg::B , 0x04), 0x83 => self.instr_res(Reg::B , 0x08),
             0x84 => self.instr_res(Reg::B , 0x10), 0x85 => self.instr_res(Reg::B , 0x20), 0x86 => self.instr_res(Reg::B , 0x40), 0x87 => self.instr_res(Reg::B , 0x80),
@@ -153,6 +169,15 @@ impl Cpu {
             _ => panic!(),
         }
         
+    }
+    
+    // Affected flags: Z (set|res), N (res), H (set)
+    fn instr_bit(&mut self, reg: Reg, mask: u8) -> i64 {
+        self.regs.af = (self.regs.af & 0b1111_1111_0011) | Flag::H.to_bit() as u16;
+        match reg {
+            Reg::HL => {if (self.read_hl_cycle() & mask) == 0 {self.regs.af |= Flag::Z.to_bit() as u16}; 4}
+            r => {if (self.regs.get_reg(&r) & mask) == 0 {self.regs.af |= Flag::Z.to_bit() as u16}; 0}
+        }
     }
     
     fn instr_res(&mut self, reg: Reg, mask: u8) -> i64 {
