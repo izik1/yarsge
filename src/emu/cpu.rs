@@ -108,6 +108,7 @@ impl Cpu {
             0x18 => self.instr_jr(true),
             0x20 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x28 => {let j =  self.regs.get_flag(Flag::Z); self.instr_jr(j)}
+            0x2F => self.instr_cpl(),
             0x30 => {let j = !self.regs.get_flag(Flag::C); self.instr_jr(j)}
             0x38 => {let j =  self.regs.get_flag(Flag::C); self.instr_jr(j)}
             
@@ -161,6 +162,17 @@ impl Cpu {
     fn instr_rrca(&mut self) -> i64 {
         self.regs.af = (((self.regs.af >> 1) | (self.regs.af << 7)) & 0xFF00) | 
         if (self.regs.af & 0x0001) == 1 {Flag::C.to_mask() as u16} else {0};
+        0
+    }
+    
+    // Mnemonic: CPL
+    // Full Name: Complement
+    // Description: Bitwise complements A
+    // Affected Flags: N (set), H (set)
+    // Remarks: ----
+    // Timing: Instant.
+    fn instr_cpl(&mut self) -> i64 {
+        self.regs.af = (!self.regs.af & 0xFF00) | (self.regs.af & 0xFF) | 0b0110_0000;
         0
     }
     
