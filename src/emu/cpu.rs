@@ -147,8 +147,8 @@ impl Cpu {
             0x08 => self.instr_rrc(Reg::B), 0x09 => self.instr_rrc(Reg::C), 0x0A => self.instr_rrc(Reg::D) , 0x0B => self.instr_rrc(Reg::E),
             0x0C => self.instr_rrc(Reg::H), 0x0D => self.instr_rrc(Reg::L), 0x0E => self.instr_rrc(Reg::HL), 0x0F => self.instr_rrc(Reg::A),
             
-            0x10 => self.instr_rl(Reg::B), 0x11 => self.instr_rl(Reg::C), 0x02 => self.instr_rl(Reg::D) , 0x03 => self.instr_rl(Reg::E),
-            0x14 => self.instr_rl(Reg::H), 0x15 => self.instr_rl(Reg::L), 0x06 => self.instr_rl(Reg::HL), 0x07 => self.instr_rl(Reg::A),
+            0x10 => self.instr_rl(Reg::B), 0x11 => self.instr_rl(Reg::C), 0x12 => self.instr_rl(Reg::D) , 0x13 => self.instr_rl(Reg::E),
+            0x14 => self.instr_rl(Reg::H), 0x15 => self.instr_rl(Reg::L), 0x16 => self.instr_rl(Reg::HL), 0x17 => self.instr_rl(Reg::A),
             
             0x18 => self.instr_rr(Reg::B), 0x19 => self.instr_rr(Reg::C), 0x1A => self.instr_rr(Reg::D) , 0x1B => self.instr_rr(Reg::E),
             0x1C => self.instr_rr(Reg::H), 0x1D => self.instr_rr(Reg::L), 0x1E => self.instr_rr(Reg::HL), 0x1F => self.instr_rr(Reg::A),
@@ -216,12 +216,11 @@ impl Cpu {
     // Timing: "read, write" or instant.
     fn instr_rlc(&mut self, reg: Reg) -> i64 {
         self.regs.af &= 0b1111_1111_0000_0000;
-        let mut cycles = 0;
-        let mut val = 0;
-        match reg {
-            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 1) | (val >> 7)); cycles = 8;}
-            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (val >> 7));}
-        }
+        let val;
+        let cycles = match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 1) | (val >> 7));8}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (val >> 7));0}
+        };
         
         self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) > 0 {Flag::C.to_mask() as u16} else {0};
         cycles
@@ -235,11 +234,11 @@ impl Cpu {
     // Timing: "read, write" or instant.    
     fn instr_rrc(&mut self, reg: Reg) -> i64 {
         self.regs.af &= 0b1111_1111_0000_0000;
-        let mut cycles = 0;
-        let mut val = 0;
+        let cycles;
+        let val;
         match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1) | (val << 7)); cycles = 8;}
-            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (val << 7));}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (val << 7)); cycles = 0;}
         }
         
         self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x01) == 1 {Flag::C.to_mask() as u16} else {0};
@@ -254,12 +253,12 @@ impl Cpu {
     // Timing: "read, write" or instant.    
     fn instr_rl(&mut self, reg: Reg) -> i64 {
         self.regs.af &= 0b1111_1111_0000_0000;
-        let mut cycles = 0;
-        let mut val = 0;
+        let cycles;
+        let val;
         let carry_in = if self.regs.get_flag(Flag::C) {1} else {0};
         match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 1) | (carry_in)); cycles = 8;}
-            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (carry_in));}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (carry_in)); cycles = 0;}
         }
         
         self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
@@ -274,12 +273,12 @@ impl Cpu {
     // Timing: "read, write" or instant.    
     fn instr_rr(&mut self, reg: Reg) -> i64 {
         self.regs.af &= 0b1111_1111_0000_0000;
-        let mut cycles = 0;
-        let mut val = 0;
+        let cycles;
+        let val;
         let carry_in = if self.regs.get_flag(Flag::C) {0x80} else {0x00};
         match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1) | (carry_in)); cycles = 8;}
-            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (carry_in));}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (carry_in)); cycles = 0;}
         }
         
         self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x01) == 1 {Flag::C.to_mask() as u16} else {0};
