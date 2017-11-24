@@ -1,0 +1,1 @@
+In the future this should contain useful stuff, for now... Well... The licence is MIT (in license.md) This is a rewrite of my other GB emulator, JAGBE.
