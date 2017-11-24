@@ -108,7 +108,7 @@ impl Cpu {
             0x28 => {let j =  self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x30 => {let j = !self.regs.get_flag(Flag::C); self.instr_jr(j)}
             0x38 => {let j =  self.regs.get_flag(Flag::C); self.instr_jr(j)}
-                        
+            
             0x40 => self.instr_ld(Reg::B , Reg::B), 0x41 => self.instr_ld(Reg::B , Reg::C), 0x42 => self.instr_ld(Reg::B , Reg::D) , 0x43 => self.instr_ld(Reg::B , Reg::E),
             0x44 => self.instr_ld(Reg::B , Reg::H), 0x45 => self.instr_ld(Reg::B , Reg::L), 0x46 => self.instr_ld(Reg::B , Reg::HL), 0x47 => self.instr_ld(Reg::B , Reg::A),
             0x48 => self.instr_ld(Reg::C , Reg::B), 0x49 => self.instr_ld(Reg::C , Reg::C), 0x4A => self.instr_ld(Reg::C , Reg::D) , 0x4B => self.instr_ld(Reg::C , Reg::E),
@@ -143,16 +143,14 @@ impl Cpu {
         4 + match op {
             0x00 => self.instr_rlc(Reg::B), 0x01 => self.instr_rlc(Reg::C), 0x02 => self.instr_rlc(Reg::D) , 0x03 => self.instr_rlc(Reg::E),
             0x04 => self.instr_rlc(Reg::H), 0x05 => self.instr_rlc(Reg::L), 0x06 => self.instr_rlc(Reg::HL), 0x07 => self.instr_rlc(Reg::A),
-            
             0x08 => self.instr_rrc(Reg::B), 0x09 => self.instr_rrc(Reg::C), 0x0A => self.instr_rrc(Reg::D) , 0x0B => self.instr_rrc(Reg::E),
             0x0C => self.instr_rrc(Reg::H), 0x0D => self.instr_rrc(Reg::L), 0x0E => self.instr_rrc(Reg::HL), 0x0F => self.instr_rrc(Reg::A),
             
-            0x10 => self.instr_rl(Reg::B), 0x11 => self.instr_rl(Reg::C), 0x12 => self.instr_rl(Reg::D) , 0x13 => self.instr_rl(Reg::E),
-            0x14 => self.instr_rl(Reg::H), 0x15 => self.instr_rl(Reg::L), 0x16 => self.instr_rl(Reg::HL), 0x17 => self.instr_rl(Reg::A),
+            0x10 => self.instr_rl (Reg::B), 0x11 => self.instr_rl (Reg::C), 0x12 => self.instr_rl (Reg::D) , 0x13 => self.instr_rl (Reg::E),
+            0x14 => self.instr_rl (Reg::H), 0x15 => self.instr_rl (Reg::L), 0x16 => self.instr_rl (Reg::HL), 0x17 => self.instr_rl (Reg::A),
+            0x18 => self.instr_rr (Reg::B), 0x19 => self.instr_rr (Reg::C), 0x1A => self.instr_rr (Reg::D) , 0x1B => self.instr_rr (Reg::E),
+            0x1C => self.instr_rr (Reg::H), 0x1D => self.instr_rr (Reg::L), 0x1E => self.instr_rr (Reg::HL), 0x1F => self.instr_rr (Reg::A),
             
-            0x18 => self.instr_rr(Reg::B), 0x19 => self.instr_rr(Reg::C), 0x1A => self.instr_rr(Reg::D) , 0x1B => self.instr_rr(Reg::E),
-            0x1C => self.instr_rr(Reg::H), 0x1D => self.instr_rr(Reg::L), 0x1E => self.instr_rr(Reg::HL), 0x1F => self.instr_rr(Reg::A),
-
             0x40 => self.instr_bit(Reg::B , 0x01), 0x41 => self.instr_bit(Reg::B , 0x02), 0x42 => self.instr_bit(Reg::B , 0x04), 0x43 => self.instr_bit(Reg::B , 0x08),
             0x44 => self.instr_bit(Reg::B , 0x10), 0x45 => self.instr_bit(Reg::B , 0x20), 0x46 => self.instr_bit(Reg::B , 0x40), 0x47 => self.instr_bit(Reg::B , 0x80),
             0x48 => self.instr_bit(Reg::C , 0x01), 0x49 => self.instr_bit(Reg::C , 0x02), 0x4A => self.instr_bit(Reg::C , 0x04), 0x4B => self.instr_bit(Reg::C , 0x08),
@@ -230,7 +228,7 @@ impl Cpu {
     // Full Name: Rotate Right Circular
     // Description: Sets the given reg (or hl) r to, (r >> 1) | (r << 7)
     // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
-    // Remarks: Zero is set if the input was 0, Carry is set if bit 1 is set. If their conditions aren't satisfied, they are reset.
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_rrc(&mut self, reg: Reg) -> i64 {
         self.regs.af &= 0b1111_1111_0000_0000;
@@ -267,7 +265,7 @@ impl Cpu {
     // Full Name: Rotate Right
     // Description, Sets the given reg (or hl) r to, (r >> 1) | (carry_in)
     // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
-    // Remarks: Zero is set if the input was 0, Carry is set if bit 1 is set. If their conditions aren't satisfied, they are reset.
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_rr(&mut self, reg: Reg) -> i64 {
         self.regs.af &= 0b1111_1111_0000_0000;
