@@ -141,20 +141,25 @@ impl Cpu {
     fn run_extended(&mut self) -> i64 {
         let op = self.read_ipc_cycle();
         4 + match op {
-            0x00 => self.instr_rlc(Reg::B), 0x01 => self.instr_rlc(Reg::C), 0x02 => self.instr_rlc(Reg::D) , 0x03 => self.instr_rlc(Reg::E),
-            0x04 => self.instr_rlc(Reg::H), 0x05 => self.instr_rlc(Reg::L), 0x06 => self.instr_rlc(Reg::HL), 0x07 => self.instr_rlc(Reg::A),
-            0x08 => self.instr_rrc(Reg::B), 0x09 => self.instr_rrc(Reg::C), 0x0A => self.instr_rrc(Reg::D) , 0x0B => self.instr_rrc(Reg::E),
-            0x0C => self.instr_rrc(Reg::H), 0x0D => self.instr_rrc(Reg::L), 0x0E => self.instr_rrc(Reg::HL), 0x0F => self.instr_rrc(Reg::A),
+            0x00 => self.instr_rlc (Reg::B), 0x01 => self.instr_rlc (Reg::C), 0x02 => self.instr_rlc (Reg::D) , 0x03 => self.instr_rlc (Reg::E),
+            0x04 => self.instr_rlc (Reg::H), 0x05 => self.instr_rlc (Reg::L), 0x06 => self.instr_rlc (Reg::HL), 0x07 => self.instr_rlc (Reg::A),
+            0x08 => self.instr_rrc (Reg::B), 0x09 => self.instr_rrc (Reg::C), 0x0A => self.instr_rrc (Reg::D) , 0x0B => self.instr_rrc (Reg::E),
+            0x0C => self.instr_rrc (Reg::H), 0x0D => self.instr_rrc (Reg::L), 0x0E => self.instr_rrc (Reg::HL), 0x0F => self.instr_rrc (Reg::A),
             
-            0x10 => self.instr_rl (Reg::B), 0x11 => self.instr_rl (Reg::C), 0x12 => self.instr_rl (Reg::D) , 0x13 => self.instr_rl (Reg::E),
-            0x14 => self.instr_rl (Reg::H), 0x15 => self.instr_rl (Reg::L), 0x16 => self.instr_rl (Reg::HL), 0x17 => self.instr_rl (Reg::A),
-            0x18 => self.instr_rr (Reg::B), 0x19 => self.instr_rr (Reg::C), 0x1A => self.instr_rr (Reg::D) , 0x1B => self.instr_rr (Reg::E),
-            0x1C => self.instr_rr (Reg::H), 0x1D => self.instr_rr (Reg::L), 0x1E => self.instr_rr (Reg::HL), 0x1F => self.instr_rr (Reg::A),
+            0x10 => self.instr_rl  (Reg::B), 0x11 => self.instr_rl  (Reg::C), 0x12 => self.instr_rl  (Reg::D) , 0x13 => self.instr_rl  (Reg::E),
+            0x14 => self.instr_rl  (Reg::H), 0x15 => self.instr_rl  (Reg::L), 0x16 => self.instr_rl  (Reg::HL), 0x17 => self.instr_rl  (Reg::A),
+            0x18 => self.instr_rr  (Reg::B), 0x19 => self.instr_rr  (Reg::C), 0x1A => self.instr_rr  (Reg::D) , 0x1B => self.instr_rr  (Reg::E),
+            0x1C => self.instr_rr  (Reg::H), 0x1D => self.instr_rr  (Reg::L), 0x1E => self.instr_rr  (Reg::HL), 0x1F => self.instr_rr  (Reg::A),
 
-            0x20 => self.instr_sla(Reg::B), 0x21 => self.instr_sla(Reg::C), 0x22 => self.instr_sla(Reg::D) , 0x23 => self.instr_sla(Reg::E),
-            0x24 => self.instr_sla(Reg::H), 0x25 => self.instr_sla(Reg::L), 0x26 => self.instr_sla(Reg::HL), 0x27 => self.instr_sla(Reg::A),
-            0x28 => self.instr_sra(Reg::B), 0x29 => self.instr_sra(Reg::C), 0x2A => self.instr_sra(Reg::D) , 0x2B => self.instr_sra(Reg::E),
-            0x2C => self.instr_sra(Reg::H), 0x2D => self.instr_sra(Reg::L), 0x2E => self.instr_sra(Reg::HL), 0x2F => self.instr_sra(Reg::A),
+            0x20 => self.instr_sla (Reg::B), 0x21 => self.instr_sla (Reg::C), 0x22 => self.instr_sla (Reg::D) , 0x23 => self.instr_sla (Reg::E),
+            0x24 => self.instr_sla (Reg::H), 0x25 => self.instr_sla (Reg::L), 0x26 => self.instr_sla (Reg::HL), 0x27 => self.instr_sla (Reg::A),
+            0x28 => self.instr_sra (Reg::B), 0x29 => self.instr_sra (Reg::C), 0x2A => self.instr_sra (Reg::D) , 0x2B => self.instr_sra (Reg::E),
+            0x2C => self.instr_sra (Reg::H), 0x2D => self.instr_sra (Reg::L), 0x2E => self.instr_sra (Reg::HL), 0x2F => self.instr_sra (Reg::A),
+            
+            0x30 => self.instr_swap(Reg::B), 0x31 => self.instr_swap(Reg::C), 0x32 => self.instr_swap(Reg::D) , 0x33 => self.instr_swap(Reg::E),
+            0x34 => self.instr_swap(Reg::H), 0x35 => self.instr_swap(Reg::L), 0x36 => self.instr_swap(Reg::HL), 0x37 => self.instr_swap(Reg::A),
+            0x38 => self.instr_srl (Reg::B), 0x39 => self.instr_srl (Reg::C), 0x3A => self.instr_srl (Reg::D) , 0x3B => self.instr_srl (Reg::E),
+            0x3C => self.instr_srl (Reg::H), 0x3D => self.instr_srl (Reg::L), 0x3E => self.instr_srl (Reg::HL), 0x3F => self.instr_srl (Reg::A),
             
             0x40 => self.instr_bit(Reg::B , 0x01), 0x41 => self.instr_bit(Reg::B , 0x02), 0x42 => self.instr_bit(Reg::B , 0x04), 0x43 => self.instr_bit(Reg::B , 0x08),
             0x44 => self.instr_bit(Reg::B , 0x10), 0x45 => self.instr_bit(Reg::B , 0x20), 0x46 => self.instr_bit(Reg::B , 0x40), 0x47 => self.instr_bit(Reg::B , 0x80),
@@ -262,7 +267,7 @@ impl Cpu {
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1) | (carry_in));0}
         };
         
-        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) > 0 {Flag::C.to_mask() as u16} else {0};
         cycles
     }
     
@@ -299,12 +304,12 @@ impl Cpu {
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 1));0}
         };
         
-        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) > 0 {Flag::C.to_mask() as u16} else {0};
         cycles
     }
     
     // Mnemonic: SRA
-    // Full Name: Shift Rightt Arithmetic
+    // Full Name: Shift Right Arithmetic
     // Description, Sets the given reg (or hl) r to (r >> 1) | (r & 0x80)
     // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
     // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
@@ -317,9 +322,46 @@ impl Cpu {
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (val & 0x80));0}
         };
         
-        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) == 1 {Flag::C.to_mask() as u16} else {0};
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 1) == 1 {Flag::C.to_mask() as u16} else {0};
         cycles
     }
+    
+    // Mnemonic: SWAP
+    // Full Name: Swap
+    // Description: Swaps the upper and lower nibbles of the given reg (or hl) r. r=((r << 4) | (r >> 4))
+    // Affected Flags: Z (set|res), N (res), H (res), C (res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set otherwise, zero is reset
+    // Timing: "read, write" or instant.
+    fn instr_swap(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let val;
+        let cycles = match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 4) | (val >> 4));8}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 4) | (val >> 4));0}
+        };
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else {0};
+        cycles
+    }
+
+    // Mnemonic: SRL
+    // Full Name: Shift Right Logical
+    // Description, Sets the given reg (or hl) r to (r >> 1)
+    // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
+    // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
+    // Timing: "read, write" or instant.    
+    fn instr_srl(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0000_0000;
+        let val;
+        let cycles = match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1));8}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1));0}
+        };
+        
+        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 1) == 1 {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+
     
     // Mnemonic: BIT
     // Full Name: Bit Test
