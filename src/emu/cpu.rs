@@ -107,22 +107,34 @@ impl Cpu {
                 
         2 + match op {
             0x00 => 0,
-            0x01 => self.ld_r16_d16(R16::BC),
-            0x02 => self.ld_r16_a(R16::BC),
+            0x01 => self.instr_ld_r16_d16(R16::BC),
+            0x02 => self.instr_ld_r16_a(R16::BC),
+            0x03 => self.instr_inc_16(R16::BC),
+            0x04 => self.instr_inc_8(Reg::B),
             0x07 => self.instr_rlca(),
+            0x0C => self.instr_inc_8(Reg::C),
             0x0F => self.instr_rrca(),
-            0x11 => self.ld_r16_d16(R16::DE),
-            0x12 => self.ld_r16_a(R16::DE),
+            0x11 => self.instr_ld_r16_d16(R16::DE),
+            0x12 => self.instr_ld_r16_a(R16::DE),
+            0x13 => self.instr_inc_16(R16::DE),
+            0x14 => self.instr_inc_8(Reg::D),
             0x18 => self.instr_jr(true),
+            0x1C => self.instr_inc_8(Reg::E),
             0x20 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jr(j)}
-            0x21 => self.ld_r16_d16(R16::HL),
-            0x22 => self.ld_r16_a(R16::HL),
+            0x21 => self.instr_ld_r16_d16(R16::HL),
+            0x22 => self.instr_ld_r16_a(R16::HL),
+            0x23 => self.instr_inc_16(R16::HL),
+            0x24 => self.instr_inc_8(Reg::H),
             0x28 => {let j =  self.regs.get_flag(Flag::Z); self.instr_jr(j)}
+            0x2C => self.instr_inc_8(Reg::L),
             0x2F => self.instr_cpl(),
             0x30 => {let j = !self.regs.get_flag(Flag::C); self.instr_jr(j)}
-            0x31 => self.ld_r16_d16(R16::SP),
-            0x32 => self.ld_r16_a(R16::SP),
+            0x31 => self.instr_ld_r16_d16(R16::SP),
+            0x32 => self.instr_ld_r16_a(R16::SP),
+            0x33 => self.instr_inc_16(R16::SP),
+            0x34 => self.instr_inc_8(Reg::HL),
             0x38 => {let j =  self.regs.get_flag(Flag::C); self.instr_jr(j)}
+            0x3C => self.instr_inc_8(Reg::A),
             
             0x40 => self.instr_ld(Reg::B , Reg::B), 0x41 => self.instr_ld(Reg::B , Reg::C), 0x42 => self.instr_ld(Reg::B , Reg::D) , 0x43 => self.instr_ld(Reg::B , Reg::E),
             0x44 => self.instr_ld(Reg::B , Reg::H), 0x45 => self.instr_ld(Reg::B , Reg::L), 0x46 => self.instr_ld(Reg::B , Reg::HL), 0x47 => self.instr_ld(Reg::B , Reg::A),
@@ -164,14 +176,9 @@ impl Cpu {
     // Affected Flags: ----
     // Remarks: ----
     // Timing: Read, Read 
-    fn ld_r16_d16(&mut self, reg: R16) -> i64 {
+    fn instr_ld_r16_d16(&mut self, reg: R16) -> i64 {
         let val = self.read_u16_cycle();
-        match reg {
-            R16::BC => self.regs.bc = val,
-            R16::DE => self.regs.de = val,
-            R16::HL => self.regs.hl = val,
-            R16::SP => self.regs.sp = val,
-        };
+        self.regs.set_reg_16(reg, val);
         8
     }
 
@@ -181,7 +188,7 @@ impl Cpu {
     // Affected Flags: ----
     // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
     // Timing: Write     
-    fn ld_r16_a(&mut self, reg: R16) -> i64 {
+    fn instr_ld_r16_a(&mut self, reg: R16) -> i64 {
         let a = (self.regs.af >> 8) as u8;
         let reg = match reg {
             R16::BC => self.regs.bc,
@@ -193,7 +200,40 @@ impl Cpu {
         self.mem.write_cycle(reg, a);
         4
     }
+    
+    // Mnemonic: INC r16
+    // Full Name: Increment r16
+    // Description: Increments the given 16-bit register.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Internal Delay. 
+    fn instr_inc_16(&mut self, reg: R16) -> i64 {
+        self.mem.update(4);
+        let v = self.regs.get_reg_16(&reg).wrapping_add(1);
+        self.regs.set_reg_16(reg, v);
+        4
+    }
+    
+    
+    // Mnemonic: INC reg8
+    // Full Name: Increment reg8
+    // Description: Increments the given 8-bit register (or hl) reg8.
+    // Affected Flags: Z (set|res), N (res), H (set|res)
+    // Remarks: Zero is set if reg8 overflows, Half carry is set if there is a half carry between reg8 and 1. If one of those flags 
+    // Timing: "Instant" or "Read, Write" 
+    fn instr_inc_8(&mut self, reg: Reg) -> i64 {
+        self.regs.af &= 0b1111_1111_0001_0000;
+        let val;
+        let cycles = match reg {
+            Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle(val.wrapping_add(1));8}
+            r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, val.wrapping_add(1));0} 
+        };
         
+        if val == 0xFF {self.regs.set_flag(Flag::Z)};
+        if get_hca(val, 1) {self.regs.set_flag(Flag::C)};
+        cycles
+    }
+    
     // Mnemonic: RLCA
     // Full Name: Rotate Left Circular A
     // Description: Sets A to, (A << 1) | (A >> 7)
@@ -205,7 +245,7 @@ impl Cpu {
         if (self.regs.af & 0x8000) > 0 {Flag::C.to_mask() as u16} else {0};
         0
     }
-
+    
     // Mnemonic: RRCA
     // Full Name: Rotate Right Circular A
     // Description: Sets A to, (A >> 1) | (A << 7)
@@ -213,8 +253,8 @@ impl Cpu {
     // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
     // Timing: Instant.
     fn instr_rrca(&mut self) -> i64 {
-        self.regs.af = (((self.regs.af >> 1) | (self.regs.af << 7)) & 0xFF00) | 
-        if (self.regs.af & 0x0001) == 1 {Flag::C.to_mask() as u16} else {0};
+        self.regs.af = ((self.regs.af >> 1) | (self.regs.af << 7)) & 0xFF00;
+        if (self.regs.af & 0x0001) == 1 {self.regs.set_flag(Flag::C)};
         0
     }
     
@@ -245,7 +285,7 @@ impl Cpu {
         
         let res = a.wrapping_add(val);
         
-        self.regs.af = ((res as u16) << 8) | (get_zf(res) as u16) | (get_hca(a,res) as u16) | if res < a {Flag::C.to_mask() as u16} else {0};
+        self.regs.af = ((res as u16) << 8) | (get_zf(res) as u16) | (get_hcaf(a,res) as u16) | if res < a {Flag::C.to_mask() as u16} else {0};
         cycles
     }
     

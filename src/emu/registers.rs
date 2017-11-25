@@ -43,6 +43,16 @@ impl Registers{
         }
     }
     
+    pub fn get_reg_16(&self, reg: &R16) -> u16 {
+        match reg {
+            &R16::BC => self.bc,
+            &R16::DE => self.de,
+            &R16::HL => self.hl,
+            &R16::SP => self.sp,
+        }
+    }
+    
+    
     pub fn set_reg(&mut self, reg: Reg, val: u8) {
         match reg {
             Reg::B => self.bc = (self.bc & 0xFF)   | ((val as u16) << 8),
@@ -54,6 +64,15 @@ impl Registers{
             Reg::HL => panic!(),
             Reg::A => self.af = (self.af & 0xFF)   | ((val as u16) << 8),
         }
+    }
+    
+    pub fn set_reg_16(&mut self, reg: R16, val: u16) {
+        match reg {
+            R16::BC => self.bc = val,
+            R16::DE => self.de = val,
+            R16::HL => self.hl = val,
+            R16::SP => self.sp = val,
+        }        
     }
     
     pub fn new() -> Registers {
