@@ -17,3 +17,11 @@ impl Flag {
         }
     }
 }
+
+pub fn get_hca(a: u8, b: u8) -> u8 {
+    if ((a & 0xF) + (b & 0xF) & 0x10) == 0x10 {Flag::H.to_mask()} else {0} 
+}
+
+pub fn get_zf(a: u8) -> u8 {
+    if a == 0 {Flag::Z.to_mask()} else {0}
+}

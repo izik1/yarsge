@@ -3,7 +3,7 @@
 use super::memory;
 use super::registers;
 use super::registers::Reg;
-use super::flags::Flag;
+use super::flags::*;
 
 pub enum State {
     Okay,
@@ -127,7 +127,12 @@ impl Cpu {
             0x70 => self.instr_ld(Reg::HL, Reg::B), 0x71 => self.instr_ld(Reg::HL, Reg::C), 0x72 => self.instr_ld(Reg::HL, Reg::D) , 0x73 => self.instr_ld(Reg::HL, Reg::E),
             0x74 => self.instr_ld(Reg::HL, Reg::H), 0x75 => self.instr_ld(Reg::HL, Reg::L), 0x76 => panic!()        /*HALT*/       , 0x77 => self.instr_ld(Reg::HL, Reg::A),
             0x78 => self.instr_ld(Reg::A , Reg::B), 0x79 => self.instr_ld(Reg::A , Reg::C), 0x7A => self.instr_ld(Reg::A , Reg::D) , 0x7B => self.instr_ld(Reg::A , Reg::E),
-            0x7C => self.instr_ld(Reg::A , Reg::H), 0x7D => self.instr_ld(Reg::A , Reg::L), 0x7E => self.instr_ld(Reg::A , Reg::HL), 0x7F => self.instr_ld(Reg::A , Reg::A),            
+            0x7C => self.instr_ld(Reg::A , Reg::H), 0x7D => self.instr_ld(Reg::A , Reg::L), 0x7E => self.instr_ld(Reg::A , Reg::HL), 0x7F => self.instr_ld(Reg::A , Reg::A),
+            
+            0x80 => self.instr_add (Reg::B), 0x81 => self.instr_add (Reg::C), 0x82 => self.instr_add (Reg::D) , 0x83 => self.instr_add (Reg::E),
+            0x84 => self.instr_add (Reg::H), 0x85 => self.instr_add (Reg::L), 0x86 => self.instr_add (Reg::HL), 0x87 => self.instr_add (Reg::A),
+            0x88 => self.instr_adc (Reg::B), 0x89 => self.instr_adc (Reg::C), 0x8A => self.instr_adc (Reg::D) , 0x8B => self.instr_adc (Reg::E),
+            0x8C => self.instr_adc (Reg::H), 0x8D => self.instr_adc (Reg::L), 0x8E => self.instr_adc (Reg::HL), 0x8F => self.instr_adc (Reg::A),
 
             0xC2 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jp(j)}
             0xC3 => self.instr_jp(true),
@@ -175,6 +180,51 @@ impl Cpu {
         self.regs.af = (!self.regs.af & 0xFF00) | (self.regs.af & 0xFF) | 0b0110_0000;
         0
     }
+    
+    // Mnemonic: ADD
+    // Full Name: Add 
+    // Description: Adds the given reg (or hl) r to A and stores the result into A
+    // Affected Flags: Z (set|res), N (res), H (set|res), C (set|res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_add(&mut self, reg: Reg) -> i64 {
+        let cycles;
+        let a = self.regs.get_reg(&Reg::A);
+        let val = match reg {
+            Reg::HL => {cycles = 4; self.read_hl_cycle()}
+            r => {cycles = 0; self.regs.get_reg(&r)}
+        };
+        
+        let res = a.wrapping_add(val);
+        
+        self.regs.af = ((res as u16) << 8) | (get_zf(res) as u16) | (get_hca(a,res) as u16) | if res < a {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+    
+    
+    // Mnemonic: ADC
+    // Full Name: Add with carry 
+    // Description: Adds the given reg (or hl) r and carry to A and stores the result into A
+    // Affected Flags: Z (set|res), N (res), H (set|res), C (set|res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_adc(&mut self, reg: Reg) -> i64 {
+        let cycles;
+        let a = self.regs.get_reg(&Reg::A);
+        let c_in = self.regs.get_flag(Flag::C);
+        let val = match reg {
+            Reg::HL => {cycles = 4; self.read_hl_cycle()}
+            r => {cycles = 0; self.regs.get_reg(&r)}
+        };
+        
+        let res = (a.wrapping_add(val) as u16).wrapping_add(c_in as u16);
+        
+        self.regs.af = (res << 8) | (get_zf(res as u8) as u16) |
+        if (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF {Flag::H.to_mask() as u16}  else {0} |
+        if res > 0xFF {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+
     
     fn run_extended(&mut self) -> i64 {
         let op = self.read_ipc_cycle();
