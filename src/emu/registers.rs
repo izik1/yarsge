@@ -13,12 +13,20 @@ pub enum Reg {
     A,
 }
 
+pub enum R16 {
+    BC,
+    DE,
+    HL,
+    SP,
+}
+
 pub struct Registers {
     pub pc: u16,
     pub af: u16,
     pub bc: u16,
     pub de: u16,
     pub hl: u16,
+    pub sp: u16,
 }
 
 impl Registers{
@@ -49,9 +57,17 @@ impl Registers{
     }
     
     pub fn new() -> Registers {
-        Registers {pc: 0, af: 0, bc: 0, de: 0, hl: 0}
+        Registers {pc: 0, af: 0, bc: 0, de: 0, hl: 0, sp: 0}
     }
     
+    pub fn res_all_flags(&mut self) {
+        self.af &= 0b1111_1111_0000_0000;
+    }
+    
+    pub fn set_flag(&mut self, flag: Flag) {
+        self.af |= flag.to_mask() as u16;
+    }
+        
     pub fn get_flag(&self, flag: Flag) -> bool {
         (self.af & (flag.to_mask() as u16)) > 0
     }

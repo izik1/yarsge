@@ -21,4 +21,13 @@ impl Memory {
         self.update(4); // Timing is supposed to be slightly different?
         self.read_byte(address)
     }
+    
+    pub fn write_byte(&mut self, _address: u16, _value: u8) {
+        // TODO: STUB.
+    }
+    
+    pub fn write_cycle(&mut self, address: u16, value: u8) {
+        self.update(4);
+        self.write_byte(address, value);
+    }
 }
