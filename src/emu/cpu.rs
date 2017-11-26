@@ -114,35 +114,35 @@ impl Cpu {
             0x05 => self.instr_dec_8(Reg::B),
             0x07 => self.instr_rlca(),
             0x0C => self.instr_inc_8(Reg::C),
-            0x05 => self.instr_dec_8(Reg::C),
+            0x0D => self.instr_dec_8(Reg::C),
             0x0F => self.instr_rrca(),
             0x11 => self.instr_ld_r16_d16(R16::DE),
             0x12 => self.instr_ld_r16_a(R16::DE),
             0x13 => self.instr_inc_16(R16::DE),
             0x14 => self.instr_inc_8(Reg::D),
-            0x05 => self.instr_dec_8(Reg::D),
+            0x15 => self.instr_dec_8(Reg::D),
             0x18 => self.instr_jr(true),
             0x1C => self.instr_inc_8(Reg::E),
-            0x05 => self.instr_dec_8(Reg::E),
+            0x1D => self.instr_dec_8(Reg::E),
             0x20 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x21 => self.instr_ld_r16_d16(R16::HL),
             0x22 => self.instr_ld_r16_a(R16::HL),
             0x23 => self.instr_inc_16(R16::HL),
             0x24 => self.instr_inc_8(Reg::H),
-            0x05 => self.instr_dec_8(Reg::H),
+            0x25 => self.instr_dec_8(Reg::H),
             0x28 => {let j =  self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x2C => self.instr_inc_8(Reg::L),
-            0x05 => self.instr_dec_8(Reg::L),
+            0x2D => self.instr_dec_8(Reg::L),
             0x2F => self.instr_cpl(),
             0x30 => {let j = !self.regs.get_flag(Flag::C); self.instr_jr(j)}
             0x31 => self.instr_ld_r16_d16(R16::SP),
             0x32 => self.instr_ld_r16_a(R16::SP),
             0x33 => self.instr_inc_16(R16::SP),
             0x34 => self.instr_inc_8(Reg::HL),
-            0x05 => self.instr_dec_8(Reg::HL),
+            0x35 => self.instr_dec_8(Reg::HL),
             0x38 => {let j =  self.regs.get_flag(Flag::C); self.instr_jr(j)}
             0x3C => self.instr_inc_8(Reg::A),
-            0x05 => self.instr_dec_8(Reg::A),
+            0x3D => self.instr_dec_8(Reg::A),
             
             0x40 => self.instr_ld(Reg::B , Reg::B), 0x41 => self.instr_ld(Reg::B , Reg::C), 0x42 => self.instr_ld(Reg::B , Reg::D) , 0x43 => self.instr_ld(Reg::B , Reg::E),
             0x44 => self.instr_ld(Reg::B , Reg::H), 0x45 => self.instr_ld(Reg::B , Reg::L), 0x46 => self.instr_ld(Reg::B , Reg::HL), 0x47 => self.instr_ld(Reg::B , Reg::A),
@@ -257,10 +257,11 @@ impl Cpu {
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, val.wrapping_sub(1));0} 
         };
         
-        self.regs.af = (self.regs.af&0b1111_1111_0001_0000);
+        self.regs.af = self.regs.af & 0b1111_1111_0001_0000;
         self.regs.set_flag(Flag::N);
         if val == 1 {self.regs.set_flag(Flag::Z)};
         if (val & 0xF) == 0 {self.regs.set_flag(Flag::C)};
+        cycles
     }
     
     // Mnemonic: RLCA
