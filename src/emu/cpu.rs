@@ -34,6 +34,11 @@ impl Cpu {
          (self.read_ipc_cycle() as u16) | ((self.read_ipc_cycle() as u16) << 8)
     }
     
+    fn write_u16_cycle(&mut self, address: u16, value: u16) {
+        self.mem.write_cycle(address, value as u8);
+        self.mem.write_cycle(address + 1, (value >> 8) as u8)
+    }
+    
     fn read_ipc_cycle(&mut self) -> u8 {
         let val = self.mem.read_cycle(self.regs.pc);
         self.regs.pc += 1;
@@ -112,27 +117,47 @@ impl Cpu {
             0x03 => self.instr_inc_16(R16::BC),
             0x04 => self.instr_inc_8(Reg::B),
             0x05 => self.instr_dec_8(Reg::B),
+            0x06 => self.instr_ld_r8_d8(Reg::B),
             0x07 => self.instr_rlca(),
+            0x08 => self.instr_ld_a16_sp(),
+            0x09 => self.instr_add_hl_reg16(R16::BC),
+            0x0A => self.instr_ld_a_r16(R16::BC),
+            0x0B => self.instr_dec_16(R16::BC),
             0x0C => self.instr_inc_8(Reg::C),
             0x0D => self.instr_dec_8(Reg::C),
+            0x0E => self.instr_ld_r8_d8(Reg::C),
             0x0F => self.instr_rrca(),
+            0x10 => panic!(), // STOP
             0x11 => self.instr_ld_r16_d16(R16::DE),
             0x12 => self.instr_ld_r16_a(R16::DE),
             0x13 => self.instr_inc_16(R16::DE),
             0x14 => self.instr_inc_8(Reg::D),
             0x15 => self.instr_dec_8(Reg::D),
+            0x16 => self.instr_ld_r8_d8(Reg::D),
+            0x17 => self.instr_rla(),
             0x18 => self.instr_jr(true),
+            0x19 => self.instr_add_hl_reg16(R16::DE),
+            0x1A => self.instr_ld_a_r16(R16::DE),
+            0x1B => self.instr_dec_16(R16::DE),
             0x1C => self.instr_inc_8(Reg::E),
             0x1D => self.instr_dec_8(Reg::E),
+            0x1E => self.instr_ld_r8_d8(Reg::E),
+            0x1F => self.instr_rra(),
             0x20 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x21 => self.instr_ld_r16_d16(R16::HL),
             0x22 => self.instr_ld_r16_a(R16::HL),
             0x23 => self.instr_inc_16(R16::HL),
             0x24 => self.instr_inc_8(Reg::H),
             0x25 => self.instr_dec_8(Reg::H),
+            0x26 => self.instr_ld_r8_d8(Reg::H),
+            0x27 => self.instr_daa(),
             0x28 => {let j =  self.regs.get_flag(Flag::Z); self.instr_jr(j)}
+            0x29 => self.instr_add_hl_reg16(R16::HL),
+            0x2A => self.instr_ld_a_r16(R16::HL),
+            0x2B => self.instr_dec_16(R16::HL),
             0x2C => self.instr_inc_8(Reg::L),
             0x2D => self.instr_dec_8(Reg::L),
+            0x2E => self.instr_ld_r8_d8(Reg::L),
             0x2F => self.instr_cpl(),
             0x30 => {let j = !self.regs.get_flag(Flag::C); self.instr_jr(j)}
             0x31 => self.instr_ld_r16_d16(R16::SP),
@@ -140,10 +165,17 @@ impl Cpu {
             0x33 => self.instr_inc_16(R16::SP),
             0x34 => self.instr_inc_8(Reg::HL),
             0x35 => self.instr_dec_8(Reg::HL),
+            0x36 => self.instr_ld_r8_d8(Reg::HL),
+            0x37 => self.instr_scf(),
             0x38 => {let j =  self.regs.get_flag(Flag::C); self.instr_jr(j)}
+            0x39 => self.instr_add_hl_reg16(R16::SP),
+            0x3A => self.instr_ld_a_r16(R16::SP),
+            0x3B => self.instr_dec_16(R16::SP),
             0x3C => self.instr_inc_8(Reg::A),
             0x3D => self.instr_dec_8(Reg::A),
-            
+            0x3E => self.instr_ld_r8_d8(Reg::A),
+            0x3F => self.instr_ccf(),
+
             0x40 => self.instr_ld(Reg::B , Reg::B), 0x41 => self.instr_ld(Reg::B , Reg::C), 0x42 => self.instr_ld(Reg::B , Reg::D) , 0x43 => self.instr_ld(Reg::B , Reg::E),
             0x44 => self.instr_ld(Reg::B , Reg::H), 0x45 => self.instr_ld(Reg::B , Reg::L), 0x46 => self.instr_ld(Reg::B , Reg::HL), 0x47 => self.instr_ld(Reg::B , Reg::A),
             0x48 => self.instr_ld(Reg::C , Reg::B), 0x49 => self.instr_ld(Reg::C , Reg::C), 0x4A => self.instr_ld(Reg::C , Reg::D) , 0x4B => self.instr_ld(Reg::C , Reg::E),
@@ -264,6 +296,20 @@ impl Cpu {
         cycles
     }
     
+    // Mnemonic: LD reg8,d8
+    // Full Name: Load reg8,d8
+    // Description: Loads 8-bit unsigned data d8 into the register (or hl) reg8.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: "Read" or "Read Write"
+    fn instr_ld_r8_d8(&mut self, reg: Reg) -> i64 {
+        let val = self.read_ipc_cycle();
+        4 + match reg {
+            Reg::HL => {self.write_hl_cycle(val);4}
+            r => {self.regs.set_reg(r, val);0}
+        }
+    }
+    
     // Mnemonic: RLCA
     // Full Name: Rotate Left Circular A
     // Description: Sets A to, (A << 1) | (A >> 7)
@@ -275,6 +321,69 @@ impl Cpu {
         if (self.regs.af & 0x8000) > 0 {Flag::C.to_mask() as u16} else {0};
         0
     }
+    
+    // Mnemonic: LD (a16),SP
+    // Full Name: Load (a16),sp
+    // Description: Loads sp into the address pointed to by 16-bit unsigned data a16.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Read, Write, Write
+    fn instr_ld_a16_sp(&mut self) -> i64 {
+        let address = self.read_u16_cycle();
+        let sp = self.regs.sp;
+        self.write_u16_cycle(address, sp);
+        16
+    }
+    
+    // Mnemonic: ADD HL,R16
+    // Full Name: Add HL,R16
+    // Description: Adds 16-bit register R16 to HL storing the result in HL
+    // Affected Flags: N (res), H (set|res), C (set|res)
+    // Remarks: Half Carry is set if there is a carry between bits 11 and 12. Carry is set if there is a carry out. Otherwise reset Half Carry or Carry respectively
+    // Timing: Internal Delay
+    fn instr_add_hl_reg16(&mut self, reg: R16) -> i64 {
+        let val = self.regs.get_reg_16(&reg);
+        let res = self.regs.hl.wrapping_add(val);
+        self.regs.af &= 0b1111_1111_1000_0000;
+        if (((self.regs.hl & 0xFFF) + (val & 0xFFF)) & 0x1000) == 0x1000 {self.regs.set_flag(Flag::H)};
+        if res < self.regs.hl {self.regs.set_flag(Flag::C)};
+        
+        self.regs.hl = res;
+        4
+    }
+    
+    // Mnemonic: LD A,(r16)
+    // Full Name: Load A, (<r16>)
+    // Description: Sets A to the address referenced by the 16 bit register r16.
+    // Affected Flags: ----
+    // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
+    // Timing: Write     
+    fn instr_ld_a_r16(&mut self, reg: R16) -> i64 {
+        let reg = match reg {
+            R16::BC => self.regs.bc,
+            R16::DE => self.regs.de,
+            R16::HL => {let v = self.regs.hl;self.regs.hl += 1;v}
+            R16::SP => {let v = self.regs.hl;self.regs.hl -= 1;v}
+        };
+        
+        let val = self.mem.read_cycle(reg);
+        self.regs.set_reg(Reg::A, val);
+        4
+    }
+    
+    // Mnemonic: DEC r16
+    // Full Name: Decrement r16
+    // Description: Decrements the given 16-bit register.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Internal Delay. 
+    fn instr_dec_16(&mut self, reg: R16) -> i64 {
+        self.mem.update(4);
+        let v = self.regs.get_reg_16(&reg).wrapping_sub(1);
+        self.regs.set_reg_16(reg, v);
+        4
+    }
+
     
     // Mnemonic: RRCA
     // Full Name: Rotate Right Circular A
@@ -288,6 +397,77 @@ impl Cpu {
         0
     }
     
+    // Mnemonic: RLA
+    // Full Name: Rotate Left A
+    // Description: Sets A to, (A << 1) | (c_in)
+    // Affected Flags: Z (res), N (res), H (res), C (set|res)
+    // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
+    // Timing: Instant.
+    fn instr_rla(&mut self) -> i64 {
+        let a_in = self.regs.get_reg(&Reg::A);
+        let a_out = (a_in << 1) | if self.regs.get_flag(Flag::C) {1} else {0};
+        self.regs.set_reg(Reg::A, a_out);
+        self.regs.res_all_flags();
+        if a_in & 0x80 == 0x80 {self.regs.set_flag(Flag::C)};
+        0
+    } 
+
+    // Mnemonic: RRA
+    // Full Name: Rotate Right A
+    // Description: Sets A to, (A >> 1) | (c_in)
+    // Affected Flags: Z (res), N (res), H (res), C (set|res)
+    // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
+    // Timing: Instant.
+    fn instr_rra(&mut self) -> i64 {
+        let a_in = self.regs.get_reg(&Reg::A);
+        let a_out = (a_in >> 1) | if self.regs.get_flag(Flag::C) {0x80} else {0};
+        self.regs.set_reg(Reg::A, a_out);
+        self.regs.res_all_flags();
+        if a_in & 0x01 == 0x01 {self.regs.set_flag(Flag::C)};
+        0
+    } 
+    
+    // Mnemonic: DAA
+    // Full Name: ???
+    // Description: ???
+    // Affected Flags: Z (set|res), H (res), C (-|set)
+    // Remarks: Confusing
+    // Timing: Instant.
+    fn instr_daa(&mut self) -> i64 {
+        let mut res = self.regs.get_reg(&Reg::A) as i32;
+        if self.regs.get_flag(Flag::N) {
+            if self.regs.get_flag(Flag::H) {
+                res = (res - 6) & 0xFF
+            };
+            
+            if self.regs.get_flag(Flag::C) {
+                res -= 0x60
+            };
+        } else {
+            if self.regs.get_flag(Flag::H) || (res & 0xF) > 9 {
+                res += 0x06
+            };
+            
+            if self.regs.get_flag(Flag::C) || res > 0x9F {
+                res += 0x60
+            };            
+        };
+        
+        self.regs.af &= 0b0000_0000_0101_0000;
+        if (res & 0x100) == 0x100 {
+            self.regs.set_flag(Flag::C)
+        };
+        
+        res &= 0xFF;
+        
+        if res == 0 {
+            self.regs.set_flag(Flag::Z)
+        };
+        
+        self.regs.af |= (res as u16) << 8;
+        0
+    }
+    
     // Mnemonic: CPL
     // Full Name: Complement
     // Description: Bitwise complements A
@@ -296,6 +476,30 @@ impl Cpu {
     // Timing: Instant.
     fn instr_cpl(&mut self) -> i64 {
         self.regs.af = (!self.regs.af & 0xFF00) | (self.regs.af & 0xFF) | 0b0110_0000;
+        0
+    }
+    
+    // Mnemonic: SCF
+    // Full Name: Set Carry Flag
+    // Description: Sets the carry flag
+    // Affected Flags: N (res), H (res), C (set)
+    // Remarks: ----
+    // Timing: Instant.
+    fn instr_scf(&mut self) -> i64 {
+        self.regs.af &= 0b1111_1111_1000_0000;
+        self.regs.set_flag(Flag::C);
+        0
+    }
+    
+    // Mnemonic: CCF
+    // Full Name: Complement Carry Flag
+    // Description: Complements the carry flag
+    // Affected Flags: N (res), H (res), C (^C)
+    // Remarks: ----
+    // Timing: Instant.
+    fn instr_ccf(&mut self) -> i64 {
+        self.regs.af &= 0b1111_1111_1001_0000;
+        self.regs.af ^= Flag::C.to_mask() as u16;
         0
     }
     

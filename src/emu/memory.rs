@@ -1,11 +1,13 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see lisence.md for more details.
 
 pub struct Memory {
+    wram: [u8; 0x2000],
 }
 
 impl Memory {
     pub fn new() -> Memory {
         Memory {
+            wram: [0; 0x2000],
         }
     }
     
@@ -13,8 +15,21 @@ impl Memory {
         // TODO: STUB
     }
     
-    pub fn read_byte(&self, _address: u16) -> u8 {
-        0xFF // TODO:  STUB
+    pub fn read_byte(&self, address: u16) -> u8 {
+        match address {
+        0x0000...0x3FFF => self.read_rom_low(address),
+        0x4000...0x7FFF => self.read_rom_high(address),
+        0xC000...0xDFFF => self.wram[(address as usize)-0xC000],
+        _ => 0xFF    
+        }
+    }
+    
+    fn read_rom_low(&self, _address: u16) -> u8 {
+        0xFF // TODO: STUB.
+    }
+    
+    fn read_rom_high(&self, _address: u16) -> u8 {
+        0xFF // TODO: STUB.
     }
     
     pub fn read_cycle(&mut self, address: u16) -> u8 {
