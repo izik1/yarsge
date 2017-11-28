@@ -12,6 +12,11 @@ pub enum State {
     Hang,
 }
 
+enum MathReg {
+    R(Reg),
+    Imm,
+}
+
 pub struct Cpu {
     cycle_counter: i64,
     pub mem: memory::Memory,
@@ -53,6 +58,20 @@ impl Cpu {
         0xFF // TODO: STUB
     }
     
+    fn get_reg(&mut self, reg: Reg) -> (i64, u8) {
+        match reg {
+            Reg::HL => (4, self.read_hl_cycle()),
+            r => (0, self.regs.get_reg(&r)),
+        }
+    }
+    
+    fn get_math_reg(&mut self, reg: MathReg) -> (i64, u8) {
+        match reg {
+            MathReg::Imm => (4, self.read_ipc_cycle()),
+            MathReg::R(r2) => self.get_reg(r2),
+        }
+    }
+
     // Mnemonic: JR
     // Full Name: Jump Relative
     // Description: Jumps to pc + r8 if "jump" is true, otherwise it does nothing.
@@ -193,11 +212,27 @@ impl Cpu {
             0x78 => self.instr_ld(Reg::A , Reg::B), 0x79 => self.instr_ld(Reg::A , Reg::C), 0x7A => self.instr_ld(Reg::A , Reg::D) , 0x7B => self.instr_ld(Reg::A , Reg::E),
             0x7C => self.instr_ld(Reg::A , Reg::H), 0x7D => self.instr_ld(Reg::A , Reg::L), 0x7E => self.instr_ld(Reg::A , Reg::HL), 0x7F => self.instr_ld(Reg::A , Reg::A),
             
-            0x80 => self.instr_add (Reg::B), 0x81 => self.instr_add (Reg::C), 0x82 => self.instr_add (Reg::D) , 0x83 => self.instr_add (Reg::E),
-            0x84 => self.instr_add (Reg::H), 0x85 => self.instr_add (Reg::L), 0x86 => self.instr_add (Reg::HL), 0x87 => self.instr_add (Reg::A),
-            0x88 => self.instr_adc (Reg::B), 0x89 => self.instr_adc (Reg::C), 0x8A => self.instr_adc (Reg::D) , 0x8B => self.instr_adc (Reg::E),
-            0x8C => self.instr_adc (Reg::H), 0x8D => self.instr_adc (Reg::L), 0x8E => self.instr_adc (Reg::HL), 0x8F => self.instr_adc (Reg::A),
+            0x80 => self.instr_add(MathReg::R(Reg::B )), 0x81 => self.instr_add(MathReg::R(Reg::C)),
+            0x82 => self.instr_add(MathReg::R(Reg::D )), 0x83 => self.instr_add(MathReg::R(Reg::E)),
+            0x84 => self.instr_add(MathReg::R(Reg::H )), 0x85 => self.instr_add(MathReg::R(Reg::L)),
+            0x86 => self.instr_add(MathReg::R(Reg::HL)), 0x87 => self.instr_add(MathReg::R(Reg::A)),
 
+            0x88 => self.instr_adc(MathReg::R(Reg::B )), 0x89 => self.instr_adc(MathReg::R(Reg::C)),
+            0x8A => self.instr_adc(MathReg::R(Reg::D )), 0x8B => self.instr_adc(MathReg::R(Reg::E)),
+            0x8C => self.instr_adc(MathReg::R(Reg::H )), 0x8D => self.instr_adc(MathReg::R(Reg::L)),
+            0x8E => self.instr_adc(MathReg::R(Reg::HL)), 0x8F => self.instr_adc(MathReg::R(Reg::A)),
+            
+            0x90 => self.instr_sub(MathReg::R(Reg::B )), 0x91 => self.instr_sub(MathReg::R(Reg::C)),
+            0x92 => self.instr_sub(MathReg::R(Reg::D )), 0x93 => self.instr_sub(MathReg::R(Reg::E)),
+            0x94 => self.instr_sub(MathReg::R(Reg::H )), 0x95 => self.instr_sub(MathReg::R(Reg::L)),
+            0x96 => self.instr_sub(MathReg::R(Reg::HL)), 0x97 => self.instr_sub(MathReg::R(Reg::A)),
+
+            0x98 => self.instr_sbc(MathReg::R(Reg::B )), 0x99 => self.instr_sbc(MathReg::R(Reg::C)),
+            0x9A => self.instr_sbc(MathReg::R(Reg::D )), 0x9B => self.instr_sbc(MathReg::R(Reg::E)),
+            0x9C => self.instr_sbc(MathReg::R(Reg::H )), 0x9D => self.instr_sbc(MathReg::R(Reg::L)),
+            0x9E => self.instr_sbc(MathReg::R(Reg::HL)), 0x9F => self.instr_sbc(MathReg::R(Reg::A)),
+
+            
             0xC2 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jp(j)}
             0xC3 => self.instr_jp(true),
             0xCA => {let j =  self.regs.get_flag(Flag::Z); self.instr_jp(j)}
@@ -502,20 +537,16 @@ impl Cpu {
         self.regs.af ^= Flag::C.to_mask() as u16;
         0
     }
-    
+        
     // Mnemonic: ADD
     // Full Name: Add 
-    // Description: Adds the given reg (or hl) r to A and stores the result into A
+    // Description: Adds the given reg (or hl, or imm) r to A and stores the result into A
     // Affected Flags: Z (set|res), N (res), H (set|res), C (set|res)
     // Remarks: ----
     // Timing: Read or Instant
-    fn instr_add(&mut self, reg: Reg) -> i64 {
-        let cycles;
+    fn instr_add(&mut self, reg: MathReg) -> i64 {
         let a = self.regs.get_reg(&Reg::A);
-        let val = match reg {
-            Reg::HL => {cycles = 4; self.read_hl_cycle()}
-            r => {cycles = 0; self.regs.get_reg(&r)}
-        };
+        let (cycles, val) = self.get_math_reg(reg);
         
         let res = a.wrapping_add(val);
         
@@ -526,24 +557,80 @@ impl Cpu {
     
     // Mnemonic: ADC
     // Full Name: Add with carry 
-    // Description: Adds the given reg (or hl) r and carry to A and stores the result into A
+    // Description: Adds the given reg (or hl, or imm) r and carry to A and stores the result into A
     // Affected Flags: Z (set|res), N (res), H (set|res), C (set|res)
     // Remarks: ----
     // Timing: Read or Instant
-    fn instr_adc(&mut self, reg: Reg) -> i64 {
-        let cycles;
+    fn instr_adc(&mut self, reg: MathReg) -> i64 {
         let a = self.regs.get_reg(&Reg::A);
         let c_in = self.regs.get_flag(Flag::C);
-        let val = match reg {
-            Reg::HL => {cycles = 4; self.read_hl_cycle()}
-            r => {cycles = 0; self.regs.get_reg(&r)}
-        };
+        let (cycles, val) = self.get_math_reg(reg);
         
         let res = (a.wrapping_add(val) as u16).wrapping_add(c_in as u16);
         
         self.regs.af = (res << 8) | (get_zf(res as u8) as u16) |
         if (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF {Flag::H.to_mask() as u16}  else {0} |
         if res > 0xFF {Flag::C.to_mask() as u16} else {0};
+        cycles
+    }
+
+    
+    // Mnemonic: SUB
+    // Full Name: Sub 
+    // Description: Subs the given reg (or hl, or imm) r from A and stores the result into A
+    // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_sub(&mut self, reg: MathReg) -> i64 {
+        let a = self.regs.get_reg(&Reg::A);
+        let (cycles, val) = self.get_math_reg(reg);
+        
+        let res = a.wrapping_sub(val);
+        self.regs.set_reg(Reg::A, res);
+        self.regs.res_all_flags();
+        self.regs.set_flag(Flag::N);
+        if res > a {
+            self.regs.set_flag(Flag::C)
+        };
+        
+        if (a & 0xF) < (val & 0xF) {
+            self.regs.set_flag(Flag::H)
+        };
+        
+        if res == 0 {
+            self.regs.set_flag(Flag::Z)
+        };
+        
+        cycles
+    }
+    
+    // Mnemonic: SBC
+    // Full Name: Sub with carry 
+    // Description: Subs the given reg (or hl, or imm) r and carry from A and stores the result into A
+    // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_sbc(&mut self, reg: MathReg) -> i64 {
+        let a = self.regs.get_reg(&Reg::A);
+        let c_in = self.regs.get_flag(Flag::C);
+        let (cycles, val) = self.get_math_reg(reg);
+        
+        let res = (a.wrapping_sub(val) as u16).wrapping_sub(c_in as u16);
+        self.regs.set_reg(Reg::A, res as u8);
+        self.regs.res_all_flags();
+        self.regs.set_flag(Flag::N);
+        if res > 0xFF {
+            self.regs.set_flag(Flag::C);
+        }
+        
+        if (a & 0xF) < ((val & 0xF) + c_in as u8) {
+            self.regs.set_flag(Flag::H);
+        }
+        
+        if (res & 0xFF) == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+        
         cycles
     }
 
