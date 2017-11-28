@@ -232,6 +232,25 @@ impl Cpu {
             0x9C => self.instr_sbc(MathReg::R(Reg::H )), 0x9D => self.instr_sbc(MathReg::R(Reg::L)),
             0x9E => self.instr_sbc(MathReg::R(Reg::HL)), 0x9F => self.instr_sbc(MathReg::R(Reg::A)),
 
+            0xA0 => self.instr_and(MathReg::R(Reg::B )), 0xA1 => self.instr_and(MathReg::R(Reg::C)),
+            0xA2 => self.instr_and(MathReg::R(Reg::D )), 0xA3 => self.instr_and(MathReg::R(Reg::E)),
+            0xA4 => self.instr_and(MathReg::R(Reg::H )), 0xA5 => self.instr_and(MathReg::R(Reg::L)),
+            0xA6 => self.instr_and(MathReg::R(Reg::HL)), 0xA7 => self.instr_and(MathReg::R(Reg::A)),
+            
+            0xA8 => self.instr_xor(MathReg::R(Reg::B )), 0xA9 => self.instr_xor(MathReg::R(Reg::C)),
+            0xAA => self.instr_xor(MathReg::R(Reg::D )), 0xAB => self.instr_xor(MathReg::R(Reg::E)),
+            0xAC => self.instr_xor(MathReg::R(Reg::H )), 0xAD => self.instr_xor(MathReg::R(Reg::L)),
+            0xAE => self.instr_xor(MathReg::R(Reg::HL)), 0xAF => self.instr_xor(MathReg::R(Reg::A)),
+
+            0xB0 => self.instr_or (MathReg::R(Reg::B )), 0xB1 => self.instr_or (MathReg::R(Reg::C)),
+            0xB2 => self.instr_or (MathReg::R(Reg::D )), 0xB3 => self.instr_or (MathReg::R(Reg::E)),
+            0xB4 => self.instr_or (MathReg::R(Reg::H )), 0xB5 => self.instr_or (MathReg::R(Reg::L)),
+            0xB6 => self.instr_or (MathReg::R(Reg::HL)), 0xB7 => self.instr_or (MathReg::R(Reg::A)),
+
+            0xB8 => self.instr_cp (MathReg::R(Reg::B )), 0xB9 => self.instr_cp (MathReg::R(Reg::C)),
+            0xBA => self.instr_cp (MathReg::R(Reg::D )), 0xBB => self.instr_cp (MathReg::R(Reg::E)),
+            0xBC => self.instr_cp (MathReg::R(Reg::H )), 0xBD => self.instr_cp (MathReg::R(Reg::L)),
+            0xBE => self.instr_cp (MathReg::R(Reg::HL)), 0xBF => self.instr_cp (MathReg::R(Reg::A)),
             
             0xC2 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jp(j)}
             0xC3 => self.instr_jp(true),
@@ -577,7 +596,7 @@ impl Cpu {
     
     // Mnemonic: SUB
     // Full Name: Sub 
-    // Description: Subs the given reg (or hl, or imm) r from A and stores the result into A
+    // Description: Subtracts the given reg (or hl, or imm) r from A and stores the result into A
     // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
     // Remarks: ----
     // Timing: Read or Instant
@@ -588,25 +607,26 @@ impl Cpu {
         let res = a.wrapping_sub(val);
         self.regs.set_reg(Reg::A, res);
         self.regs.res_all_flags();
-        self.regs.set_flag(Flag::N);
-        if res > a {
-            self.regs.set_flag(Flag::C)
-        };
-        
-        if (a & 0xF) < (val & 0xF) {
-            self.regs.set_flag(Flag::H)
-        };
-        
         if res == 0 {
-            self.regs.set_flag(Flag::Z)
-        };
+            self.regs.set_flag(Flag::Z);
+        }
+        
+        self.regs.set_flag(Flag::N);
+
+        if (a & 0xF) < (val & 0xF) {
+            self.regs.set_flag(Flag::H);
+        }
+        
+        if res > a {
+            self.regs.set_flag(Flag::C);
+        }
         
         cycles
     }
     
     // Mnemonic: SBC
     // Full Name: Sub with carry 
-    // Description: Subs the given reg (or hl, or imm) r and carry from A and stores the result into A
+    // Description: Subtracts the given reg (or hl, or imm) r and carry from A and stores the result into A
     // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
     // Remarks: ----
     // Timing: Read or Instant
@@ -618,22 +638,113 @@ impl Cpu {
         let res = (a.wrapping_sub(val) as u16).wrapping_sub(c_in as u16);
         self.regs.set_reg(Reg::A, res as u8);
         self.regs.res_all_flags();
-        self.regs.set_flag(Flag::N);
-        if res > 0xFF {
-            self.regs.set_flag(Flag::C);
+        if (res & 0xFF) == 0 {
+            self.regs.set_flag(Flag::Z);
         }
+
+        self.regs.set_flag(Flag::N);
         
         if (a & 0xF) < ((val & 0xF) + c_in as u8) {
             self.regs.set_flag(Flag::H);
         }
+
+        if res > 0xFF {
+            self.regs.set_flag(Flag::C);
+        }
         
-        if (res & 0xFF) == 0 {
+        cycles
+    }
+    
+    // Mnemonic: AND
+    // Full Name: Bitwise And
+    // Description: Preforms bitwise AND on the given reg (or hl, or imm) r and A, storing the result into A
+    // Affected Flags: Z (set|res), N (res), H (set), C (res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_and(&mut self, reg: MathReg) -> i64 {
+        let a = self.regs.get_reg(&Reg::A);
+        let (cycles, val) = self.get_math_reg(reg);
+        
+        let res = a & val;
+        self.regs.set_reg(Reg::A, res);
+        self.regs.res_all_flags();
+        if res == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+        
+        self.regs.set_flag(Flag::H);
+        cycles
+    }
+
+    // Mnemonic: XOR
+    // Full Name: Bitwise Xor
+    // Description: Preforms bitwise XOR on the given reg (or hl, or imm) r and A, storing the result into A
+    // Affected Flags: Z (set|res), N (res), H (res), C (res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_xor(&mut self, reg: MathReg) -> i64 {
+        let a = self.regs.get_reg(&Reg::A);
+        let (cycles, val) = self.get_math_reg(reg);
+        
+        let res = a ^ val;
+        self.regs.set_reg(Reg::A, res);
+        self.regs.res_all_flags();
+        if res == 0 {
             self.regs.set_flag(Flag::Z);
         }
         
         cycles
     }
+    
+    // Mnemonic: OR
+    // Full Name: Bitwise Or
+    // Description: Preforms bitwise Or on the given reg (or hl, or imm) r and A, storing the result into A
+    // Affected Flags: Z (set|res), N (res), H (res), C (res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_or(&mut self, reg: MathReg) -> i64 {
+        let a = self.regs.get_reg(&Reg::A);
+        let (cycles, val) = self.get_math_reg(reg);
+        
+        let res = a | val;
+        self.regs.set_reg(Reg::A, res);
+        self.regs.res_all_flags();
+        if res == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+        
+        cycles
+    }
+    
+    // Mnemonic: CP
+    // Full Name: Compare 
+    // Description: Subtracts the given reg (or hl, or imm) r from A discarding the result.
+    // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
+    // Remarks: ----
+    // Timing: Read or Instant
+    fn instr_cp(&mut self, reg: MathReg) -> i64 {
+        let a = self.regs.get_reg(&Reg::A);
+        let (cycles, val) = self.get_math_reg(reg);
+        
+        let res = a.wrapping_sub(val);
+        self.regs.res_all_flags();
+        if res == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+        
+        self.regs.set_flag(Flag::N);
 
+        if (a & 0xF) < (val & 0xF) {
+            self.regs.set_flag(Flag::H);
+        }
+        
+        if res > a {
+            self.regs.set_flag(Flag::C);
+        }
+        
+        cycles
+
+    }
     
     fn run_extended(&mut self) -> i64 {
         let op = self.read_ipc_cycle();
