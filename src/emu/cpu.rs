@@ -1,6 +1,5 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
-use super::memory;
 use super::registers;
 use super::registers::*;
 use super::flags::*;
@@ -21,17 +20,46 @@ enum MathReg {
 
 pub struct Cpu {
     cycle_counter: i64,
-    pub mem: memory::Memory,
+    wram: [u8; 0x2000],
     pub regs: registers::Registers,
     pub status: State,
     ime: bool,
     ie: bool,
     halt_bugged: bool,
+    r_if: u8,
+    r_ier: u8,
 }
 
 impl Cpu {
+
+    fn update(&mut self, _cycles: i64) {
+
+    }
+
+    fn read_rom_low(&self, _addr: u16) -> u8 {
+        0xFF
+    }
+
+    fn read_rom_high(&self, _addr: u16) -> u8 {
+        0xFF
+    }
+
+    fn read_byte(&self, addr: u16) -> u8 {
+        match addr {
+            0x0000...0x3FFF => self.read_rom_low(addr),
+            0x4000...0x7FFF => self.read_rom_high(addr),
+            0xC000...0xCFFF => self.wram[(addr - 0xC000) as usize],
+            _ => unimplemented!("Not yet implemented range!"),
+        }
+    }
+
+    fn read_cycle(&mut self, addr: u16) -> u8 {
+        self.update(4);
+        self.read_byte(addr)
+    }
+
     fn read_pc(&self) -> u8 {
-        self.mem.read_byte(self.regs.pc)
+        self.read_byte(self.regs.pc)
     }
     
     fn read_ipc(&mut self) -> u8{
@@ -45,17 +73,24 @@ impl Cpu {
     }
     
     fn write_u16_cycle(&mut self, address: u16, value: u16) {
-        self.mem.write_cycle(address, value as u8);
-        self.mem.write_cycle(address.wrapping_add(1), (value >> 8) as u8)
+        self.write_cycle(address, value as u8);
+        self.write_cycle(address.wrapping_add(1), (value >> 8) as u8)
     }
 
     fn read_ipc_cycle(&mut self) -> u8 {
-        let val = self.mem.read_cycle(self.regs.pc);
+        let pc = self.regs.pc;
+        let val = self.read_cycle(pc);
         self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
-    
-    fn write_hl_cycle(&mut self, _val: u8) {
+
+    fn write_cycle(&mut self, _addr: u16, _val: u8) {
+        // TODO: Stub.
+    }
+
+    fn write_hl_cycle(&mut self, val: u8) {
+        let hl = self.regs.hl;
+        self.write_cycle(hl, val);
         // TODO: STUB
     }
     
@@ -64,14 +99,16 @@ impl Cpu {
     }
     
     fn read_pop_cycle(&mut self) -> u8 {
-        let val = self.mem.read_cycle(self.regs.sp);
-        self.regs.sp = self.regs.sp.wrapping_add(1);
+        let sp = self.regs.sp;
+        let val = self.read_cycle(sp);
+        self.regs.sp = sp.wrapping_add(1);
         val
     }
     
     fn write_push_cycle(&mut self, val: u8) {
         self.regs.sp = self.regs.sp.wrapping_sub(1);
-        self.mem.write_cycle(self.regs.pc, val);
+        let sp = self.regs.sp;
+        self.write_cycle(sp, val);
     }
     
     fn read_pop_16_cycle(&mut self) -> u16 {
@@ -108,7 +145,7 @@ impl Cpu {
         if !jump {
             4
         } else {
-            self.mem.update(4);
+            self.update(4);
             self.regs.pc = self.regs.pc.wrapping_add(val as u16);
             8
         }
@@ -125,7 +162,7 @@ impl Cpu {
         if !jump {
             8 
         } else {
-            self.mem.update(4);
+            self.update(4);
             self.regs.pc = addr;
             12
         }
@@ -153,7 +190,7 @@ impl Cpu {
     // Remarks: ----
     // Timing: instant.
     fn instr_halt(&mut self) -> i64 {
-        if self.ime || (self.mem.r_if & self.mem.r_ier & 0x1F) == 0
+        if self.ime || (self.r_if & self.r_ier & 0x1F) == 0
             {
                 self.status = State::Halt;
             }
@@ -177,9 +214,9 @@ impl Cpu {
     }
 
     fn run_instruction(&mut self) -> i64 {
-        self.mem.update(1);
+        self.update(1);
         let op = self.read_ipc();
-        self.mem.update(1);
+        self.update(1);
 
         if self.halt_bugged {
             self.regs.pc = self.regs.pc.wrapping_sub(1);
@@ -409,7 +446,7 @@ impl Cpu {
             R16::SP => {let v = self.regs.hl;self.regs.hl -= 1;v}
         };
         
-        self.mem.write_cycle(reg, a);
+        self.write_cycle(reg, a);
         4
     }
     
@@ -420,7 +457,7 @@ impl Cpu {
     // Remarks: ----
     // Timing: Internal Delay. 
     fn instr_inc_16(&mut self, reg: R16) -> i64 {
-        self.mem.update(4);
+        self.update(4);
         let v = self.regs.get_reg_16(&reg).wrapping_add(1);
         self.regs.set_reg_16(reg, v);
         4
@@ -528,7 +565,7 @@ impl Cpu {
         if res < self.regs.hl {
             self.regs.set_flag(Flag::C);
         }
-        self.mem.update(4);
+        self.update(4);
         self.regs.hl = res;
         4
     }
@@ -547,7 +584,7 @@ impl Cpu {
             R16::SP => {let v = self.regs.hl;self.regs.hl -= 1;v}
         };
         
-        let val = self.mem.read_cycle(reg);
+        let val = self.read_cycle(reg);
         self.regs.set_reg(Reg::A, val);
         4
     }
@@ -559,7 +596,7 @@ impl Cpu {
     // Remarks: ----
     // Timing: Internal Delay. 
     fn instr_dec_16(&mut self, reg: R16) -> i64 {
-        self.mem.update(4);
+        self.update(4);
         let v = self.regs.get_reg_16(&reg).wrapping_sub(1);
         self.regs.set_reg_16(reg, v);
         4
@@ -909,13 +946,13 @@ impl Cpu {
     // Remarks: ----
     // Timing: Read, Read, Internal Delay
     fn instr_retc(&mut self, jump: bool) -> i64 {
-        self.mem.update(4);
+        self.update(4);
         if !jump {
             4
         } else {
             let addr = self.read_pop_16_cycle();
             self.regs.pc = addr;
-            self.mem.update(4);
+            self.update(4);
             16
         }
     }
@@ -965,7 +1002,7 @@ impl Cpu {
             R16::SP => self.regs.g_af(),
             r => self.regs.get_reg_16(&r),
         };
-        self.mem.update(4);
+        self.update(4);
         self.write_push_16_cycle(val);
         12        
     }
@@ -977,7 +1014,7 @@ impl Cpu {
     // Remarks: ----
     // Timing: Delay, Write, Write
     fn instr_rst(&mut self, addr: u16) -> i64 {
-        self.mem.update(4);
+        self.update(4);
         let pc = self.regs.pc;
         self.write_push_16_cycle(pc);
         self.regs.pc = addr;
@@ -996,7 +1033,7 @@ impl Cpu {
         if reti {
             self.ime = true;
         }
-        self.mem.update(4);
+        self.update(4);
         12
     }
 
@@ -1009,7 +1046,7 @@ impl Cpu {
     fn instr_ldh_a8_a(&mut self) -> i64 {
         let addr = 0xFF00 | self.read_ipc_cycle() as u16;
         let a = self.regs.get_reg(&Reg::A);
-        self.mem.write_cycle(addr, a);
+        self.write_cycle(addr, a);
         8
     }
 
@@ -1022,7 +1059,7 @@ impl Cpu {
     fn instr_ldh_c_a(&mut self) -> i64 {
         let addr = 0xFF00 | self.regs.get_reg(&Reg::C) as u16;
         let a = self.regs.get_reg(&Reg::A);
-        self.mem.write_cycle(addr, a);
+        self.write_cycle(addr, a);
         4
     }
 
@@ -1034,7 +1071,7 @@ impl Cpu {
     // Timing: Read, Read
     fn instr_ldh_a_a8(&mut self) -> i64 {
         let addr = 0xFF00 | self.read_ipc_cycle() as u16;
-        let val = self.mem.read_cycle(addr);
+        let val = self.read_cycle(addr);
         self.regs.set_reg(Reg::A, val);
         8
     }
@@ -1047,7 +1084,7 @@ impl Cpu {
     // Timing: Read
     fn instr_ldh_a_c(&mut self) -> i64 {
         let addr = 0xFF00 | self.regs.get_reg(&Reg::C) as u16;
-        let val = self.mem.read_cycle(addr);
+        let val = self.read_cycle(addr);
         self.regs.set_reg(Reg::A, val);
         4
     }
@@ -1093,7 +1130,7 @@ impl Cpu {
     // Timing: Read, Internal Delay
     fn instr_ld_hl_sp_r8(&mut self) -> i64 {
         let r8 = self.read_ipc_cycle() as i8;
-        self.mem.update(4);
+        self.update(4);
         self.regs.res_all_flags();
 
         if ((self.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F {
@@ -1116,7 +1153,7 @@ impl Cpu {
     // Timing: Read, Read, Read
     fn instr_ld_a_a16(&mut self) -> i64 {
         let addr = self.read_u16_cycle();
-        let val = self.mem.read_cycle(addr);
+        let val = self.read_cycle(addr);
         self.regs.set_reg(Reg::A, val);
         12
     }
@@ -1130,7 +1167,7 @@ impl Cpu {
     fn instr_ld_a16_a(&mut self) -> i64 {
         let addr = self.read_u16_cycle();
         let a = self.regs.get_reg(&Reg::A);
-        self.mem.write_cycle(addr, a);
+        self.write_cycle(addr, a);
         12
     }
 
@@ -1142,7 +1179,7 @@ impl Cpu {
     // Timing: Internal delay
     fn instr_ld_sp_hl(&mut self) -> i64 {
         let hl = self.regs.hl;
-        self.mem.update(4);
+        self.update(4);
         self.regs.sp = hl;
         4
     }
@@ -1155,7 +1192,7 @@ impl Cpu {
     // Timing: Read, Internal Delay, Internal Delay
     fn instr_add_sp_r8(&mut self) -> i64 {
         let r8 = self.read_ipc_cycle() as i8;
-        self.mem.update(4*2);
+        self.update(8);
         self.regs.res_all_flags();
         if ((self.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F {
             self.regs.set_flag(Flag::H);
@@ -1495,19 +1532,21 @@ impl Cpu {
     
     
     fn handle_okay(&mut self) -> i64 {
-        self.mem.update(2);
+        self.update(2);
         2 + self.handle_interrupts() + self.run_instruction()
     }
     
     pub fn new() -> Cpu {
         Cpu {
             cycle_counter: 0,
-            mem: memory::Memory::new(),
+            wram: [0; 0x2000],
             regs: registers::Registers::new(),
             status: State::Okay,
             ime: false,
             ie: false,
             halt_bugged: false,
+            r_ier: 0,
+            r_if: 0,
         }
     }
     
