@@ -36,7 +36,7 @@ impl Cpu {
     
     fn read_ipc(&mut self) -> u8{
         let val = self.read_pc();
-        self.regs.pc += 1;
+        self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
     
@@ -46,12 +46,12 @@ impl Cpu {
     
     fn write_u16_cycle(&mut self, address: u16, value: u16) {
         self.mem.write_cycle(address, value as u8);
-        self.mem.write_cycle(address + 1, (value >> 8) as u8)
+        self.mem.write_cycle(address.wrapping_add(1), (value >> 8) as u8)
     }
 
     fn read_ipc_cycle(&mut self) -> u8 {
         let val = self.mem.read_cycle(self.regs.pc);
-        self.regs.pc += 1;
+        self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
     
@@ -70,7 +70,7 @@ impl Cpu {
     }
     
     fn write_push_cycle(&mut self, val: u8) {
-        self.regs.sp =self.regs.sp.wrapping_sub(1);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
         self.mem.write_cycle(self.regs.pc, val);
     }
     
@@ -104,7 +104,7 @@ impl Cpu {
     // Remarks: This instruction stops 4 cycles short if it doesn't jump.
     // Timing: read, <internal delay>
     fn instr_jr(&mut self, jump: bool) -> i64 {
-        let val = self.read_ipc_cycle() as i8;
+        let val = self.read_ipc_cycle();
         if !jump {
             4
         } else {
@@ -121,13 +121,12 @@ impl Cpu {
     // Remarks: This instruction stops 4 cycles short if it doesn't jump.
     // Timing: read, read, <internal delay>
     fn instr_jp(&mut self, jump: bool) -> i64 {
-        let low = self.read_ipc_cycle();
-        let high = self.read_ipc_cycle();
+        let addr = self.read_u16_cycle();
         if !jump {
             8 
         } else {
             self.mem.update(4);
-            self.regs.pc = ((high as u16) << 8) | (low as u16);
+            self.regs.pc = addr;
             12
         }
     }
@@ -183,7 +182,7 @@ impl Cpu {
         self.mem.update(1);
 
         if self.halt_bugged {
-            self.regs.pc -= 1;
+            self.regs.pc = self.regs.pc.wrapping_sub(1);
         }
 
         2 + match op {
@@ -1515,7 +1514,7 @@ impl Cpu {
     pub fn run(&mut self, ticks: i64) {
         self.cycle_counter += ticks;
         while self.cycle_counter > 0 {
-            self.cycle_counter -= match self.status {
+            self.cycle_counter += match self.status {
                 State::Okay => self.handle_okay(),
                 State::Stop => unimplemented!("Implement CPU stop behavior!"),
                 State::Halt => unimplemented!("Implement CPU halt behavior!"),
