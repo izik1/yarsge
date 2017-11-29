@@ -1,15 +1,18 @@
-// Copyright Zachery Gyurkovitz 2017 MIT License, see lisence.md for more details.
+// Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
 pub struct Memory {
-    pub ime: bool,
     wram: [u8; 0x2000],
+    pub r_if: u8,
+    pub r_ier: u8,
 }
 
 impl Memory {
     pub fn new() -> Memory {
         Memory {
-            ime: false,
+            r_ier: 0,
             wram: [0; 0x2000],
+            r_if: 0,
+
         }
     }
     

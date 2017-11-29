@@ -1,4 +1,4 @@
-// Copyright Zachery Gyurkovitz 2017 MIT License, see lisence.md for more details.
+// Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
 use super::memory;
 use super::registers;
@@ -22,6 +22,9 @@ pub struct Cpu {
     pub mem: memory::Memory,
     pub regs: registers::Registers,
     pub status: State,
+    ime: bool,
+    ie: bool,
+    halt_bugged: bool,
 }
 
 impl Cpu {
@@ -141,14 +144,46 @@ impl Cpu {
             (dest, src) =>        {let val = self.regs.get_reg(&src); self.regs.set_reg(dest, val); 0}
         }
     }
-        
+
+    // Mnemonic: HALT
+    // Full Name: Halt
+    // Description: Halts the cpu.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: instant.
+    fn instr_halt(&mut self) -> i64 {
+        if self.ime || (self.mem.r_if & self.mem.r_ier & 0x1F) == 0
+            {
+                self.status = State::Halt;
+            }
+            else
+            {
+                self.halt_bugged = true;
+            }
+
+        0
+    }
+
+    // Mnemonic: STOP
+    // Full Name: Stop
+    // Description: Stops the cpu.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: NA.
+    fn instr_stop(&mut self) -> i64 {
+        self.status = State::Stop;
+        0
+    }
+
     fn run_instruction(&mut self) -> i64 {
         self.mem.update(1);
         let op = self.read_ipc();
         self.mem.update(1);
-        
-        // TODO: HALT bug missing here.
-                
+
+        if self.halt_bugged {
+            self.regs.pc -= 1;
+        }
+
         2 + match op {
             0x00 => 0,
             0x01 => self.instr_ld_r16_d16(R16::BC),
@@ -166,7 +201,7 @@ impl Cpu {
             0x0D => self.instr_dec_8(Reg::C),
             0x0E => self.instr_ld_r8_d8(Reg::C),
             0x0F => self.instr_rrca(),
-            0x10 => panic!(), // STOP
+            0x10 => self.instr_stop(),
             0x11 => self.instr_ld_r16_d16(R16::DE),
             0x12 => self.instr_ld_r16_a(R16::DE),
             0x13 => self.instr_inc_16(R16::DE),
@@ -182,6 +217,7 @@ impl Cpu {
             0x1D => self.instr_dec_8(Reg::E),
             0x1E => self.instr_ld_r8_d8(Reg::E),
             0x1F => self.instr_rra(),
+            
             0x20 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jr(j)}
             0x21 => self.instr_ld_r16_d16(R16::HL),
             0x22 => self.instr_ld_r16_a(R16::HL),
@@ -228,7 +264,7 @@ impl Cpu {
             0x68 => self.instr_ld(Reg::L , Reg::B), 0x69 => self.instr_ld(Reg::L , Reg::C), 0x6A => self.instr_ld(Reg::L , Reg::D) , 0x6B => self.instr_ld(Reg::L , Reg::E),
             0x6C => self.instr_ld(Reg::L , Reg::B), 0x6D => self.instr_ld(Reg::L , Reg::L), 0x6E => self.instr_ld(Reg::L , Reg::HL), 0x6F => self.instr_ld(Reg::L , Reg::A),
             0x70 => self.instr_ld(Reg::HL, Reg::B), 0x71 => self.instr_ld(Reg::HL, Reg::C), 0x72 => self.instr_ld(Reg::HL, Reg::D) , 0x73 => self.instr_ld(Reg::HL, Reg::E),
-            0x74 => self.instr_ld(Reg::HL, Reg::H), 0x75 => self.instr_ld(Reg::HL, Reg::L), 0x76 => panic!()        /*HALT*/       , 0x77 => self.instr_ld(Reg::HL, Reg::A),
+            0x74 => self.instr_ld(Reg::HL, Reg::H), 0x75 => self.instr_ld(Reg::HL, Reg::L), 0x76 => self.instr_halt()              , 0x77 => self.instr_ld(Reg::HL, Reg::A),
             0x78 => self.instr_ld(Reg::A , Reg::B), 0x79 => self.instr_ld(Reg::A , Reg::C), 0x7A => self.instr_ld(Reg::A , Reg::D) , 0x7B => self.instr_ld(Reg::A , Reg::E),
             0x7C => self.instr_ld(Reg::A , Reg::H), 0x7D => self.instr_ld(Reg::A , Reg::L), 0x7E => self.instr_ld(Reg::A , Reg::HL), 0x7F => self.instr_ld(Reg::A , Reg::A),
             
@@ -241,7 +277,7 @@ impl Cpu {
             0x8A => self.instr_adc(MathReg::R(Reg::D )), 0x8B => self.instr_adc(MathReg::R(Reg::E)),
             0x8C => self.instr_adc(MathReg::R(Reg::H )), 0x8D => self.instr_adc(MathReg::R(Reg::L)),
             0x8E => self.instr_adc(MathReg::R(Reg::HL)), 0x8F => self.instr_adc(MathReg::R(Reg::A)),
-            
+
             0x90 => self.instr_sub(MathReg::R(Reg::B )), 0x91 => self.instr_sub(MathReg::R(Reg::C)),
             0x92 => self.instr_sub(MathReg::R(Reg::D )), 0x93 => self.instr_sub(MathReg::R(Reg::E)),
             0x94 => self.instr_sub(MathReg::R(Reg::H )), 0x95 => self.instr_sub(MathReg::R(Reg::L)),
@@ -256,7 +292,7 @@ impl Cpu {
             0xA2 => self.instr_and(MathReg::R(Reg::D )), 0xA3 => self.instr_and(MathReg::R(Reg::E)),
             0xA4 => self.instr_and(MathReg::R(Reg::H )), 0xA5 => self.instr_and(MathReg::R(Reg::L)),
             0xA6 => self.instr_and(MathReg::R(Reg::HL)), 0xA7 => self.instr_and(MathReg::R(Reg::A)),
-            
+
             0xA8 => self.instr_xor(MathReg::R(Reg::B )), 0xA9 => self.instr_xor(MathReg::R(Reg::C)),
             0xAA => self.instr_xor(MathReg::R(Reg::D )), 0xAB => self.instr_xor(MathReg::R(Reg::E)),
             0xAC => self.instr_xor(MathReg::R(Reg::H )), 0xAD => self.instr_xor(MathReg::R(Reg::L)),
@@ -279,6 +315,7 @@ impl Cpu {
             0xC4 => {let j = !self.regs.get_flag(Flag::Z); self.instr_call(j)}
             0xC5 => self.instr_push(R16::BC),
             0xC6 => self.instr_add(MathReg::Imm),
+            0xC7 => self.instr_rst(0x00),
             0xC8 => {let j =  self.regs.get_flag(Flag::Z); self.instr_retc(j)} 
             0xC9 => self.instr_ret(false),
             0xCA => {let j =  self.regs.get_flag(Flag::Z); self.instr_jp  (j)}
@@ -286,6 +323,7 @@ impl Cpu {
             0xCC => {let j = self.regs.get_flag(Flag::Z); self.instr_call(j)}
             0xCD => self.instr_call(true),
             0xCE => self.instr_adc(MathReg::Imm),
+            0xCF => self.instr_rst(0x08),
             0xD0 => {let j = !self.regs.get_flag(Flag::C); self.instr_retc(j)}
             0xD1 => self.instr_pop(R16::DE),
             0xD2 => {let j = !self.regs.get_flag(Flag::C); self.instr_jp  (j)}
@@ -293,6 +331,7 @@ impl Cpu {
             0xD4 => {let j =  self.regs.get_flag(Flag::C); self.instr_call(j)}
             0xD5 => self.instr_push(R16::DE),
             0xD6 => self.instr_sub(MathReg::Imm),
+            0xD7 => self.instr_rst(0x10),
             0xD8 => {let j =  self.regs.get_flag(Flag::C); self.instr_retc(j)}
             0xD9 => self.instr_ret(true ),
             0xDA => {let j =  self.regs.get_flag(Flag::C); self.instr_jp  (j)}
@@ -300,22 +339,40 @@ impl Cpu {
             0xDC => {let j =  self.regs.get_flag(Flag::C); self.instr_call(j)}
             0xDD => self.instr_invalid(),
             0xDE => self.instr_sbc(MathReg::Imm),
+            0xDF => self.instr_rst(0x18),
+            
+            0xE0 => self.instr_ldh_a8_a(),
             0xE1 => self.instr_pop(R16::HL),
-            0xE2 => self.instr_invalid(),
+            0xE2 => self.instr_ldh_c_a(),
             0xE3 => self.instr_invalid(),
+            0xE4 => self.instr_invalid(),
             0xE5 => self.instr_push(R16::HL),
             0xE6 => self.instr_and(MathReg::Imm),
+            0xE7 => self.instr_rst(0x20),
+            0xE8 => self.instr_add_sp_r8(),
+            0xE9 => self.instr_jp_hl(),
+            0xEA => self.instr_ld_a16_a(),
             0xEB => self.instr_invalid(),
             0xEC => self.instr_invalid(),
             0xED => self.instr_invalid(),
             0xEE => self.instr_xor(MathReg::Imm),
+            0xEF => self.instr_rst(0x28),
+            0xF0 => self.instr_ldh_a_a8(),
             0xF1 => self.instr_pop(R16::SP),
+            0xF2 => self.instr_ldh_a_c(),
+            0xF3 => self.instr_di(),
             0xF4 => self.instr_invalid(),
             0xF5 => self.instr_push(R16::SP),
             0xF6 => self.instr_or(MathReg::Imm),
+            0xF7 => self.instr_rst(0x30),
+            0xF8 => self.instr_ld_hl_sp_r8(),
+            0xF9 => self.instr_ld_sp_hl(),
+            0xFA => self.instr_ld_a_a16(),
+            0xFB => self.instr_ie(),
             0xFC => self.instr_invalid(),
             0xFD => self.instr_invalid(),
             0xFE => self.instr_cp(MathReg::Imm),
+            0xFF => self.instr_rst(0x38),
             _ => panic!(),
         }
     }
@@ -874,6 +931,20 @@ impl Cpu {
         12        
     }
     
+    // Mnemonic: RST <addr>
+    // Full Name: Reset <addr>
+    // Description: calls <addr>.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Delay, Write, Write
+    fn instr_rst(&mut self, addr: u16) -> i64 {
+        self.mem.update(4);
+        let pc = self.regs.pc;
+        self.write_push_16_cycle(pc);
+        self.regs.pc = addr;
+        12
+    }
+    
     // Mnemonic: RET/RETI
     // Full Name: Return / Return enable Interrupts
     // Description: Returns unconditionally, if it's a reti instruction it will also enable IME.
@@ -884,12 +955,180 @@ impl Cpu {
         let addr = self.read_pop_16_cycle();
         self.regs.pc = addr;
         if reti {
-            self.mem.ime = true;
+            self.ime = true;
         }
         self.mem.update(4);
         12
     }
-    
+
+    // Mnemonic: ldh (a8),A
+    // Full Name: Load High (a8),A
+    // Description: loads A into (0xFF00 | a8).
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Write
+    fn instr_ldh_a8_a(&mut self) -> i64 {
+        let addr = 0xFF00 | self.read_ipc_cycle() as u16;
+        let a = self.regs.get_reg(&Reg::A);
+        self.mem.write_cycle(addr, a);
+        8
+    }
+
+    // Mnemonic: ldh (c),A
+    // Full Name: Load High (c),A
+    // Description: loads A into (0xFF00 | c).
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Write
+    fn instr_ldh_c_a(&mut self) -> i64 {
+        let addr = 0xFF00 | self.regs.get_reg(&Reg::C) as u16;
+        let a = self.regs.get_reg(&Reg::A);
+        self.mem.write_cycle(addr, a);
+        4
+    }
+
+    // Mnemonic: ldh (a8),A
+    // Full Name: Load High (a8),A
+    // Description: loads A into (0xFF00 | a8).
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Read
+    fn instr_ldh_a_a8(&mut self) -> i64 {
+        let addr = 0xFF00 | self.read_ipc_cycle() as u16;
+        let val = self.mem.read_cycle(addr);
+        self.regs.set_reg(Reg::A, val);
+        8
+    }
+
+    // Mnemonic: ldh (c),A
+    // Full Name: Load High (c),A
+    // Description: loads A into (0xFF00 | c).
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read
+    fn instr_ldh_a_c(&mut self) -> i64 {
+        let addr = 0xFF00 | self.regs.get_reg(&Reg::C) as u16;
+        let val = self.mem.read_cycle(addr);
+        self.regs.set_reg(Reg::A, val);
+        4
+    }
+
+    // Mnemonic: DI
+    // Full Name: Disable Interrupts
+    // Description: Disables interrupts.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Instant
+    fn instr_di(&mut self) -> i64 {
+        self.ime = false;
+        0
+    }
+
+    // Mnemonic: EI
+    // Full Name: Enable Interrupts
+    // Description: Enables interrupts.
+    // Affected Flags: ----
+    // Remarks: Interrupt enabling is delayed by 4-TCycles.
+    // Timing: Instant (delayed affect)
+    fn instr_ie(&mut self) -> i64 {
+        self.ie = true;
+        0
+    }
+
+    // Mnemonic: JP (HL)
+    // Full Name: Jump (HL)
+    // Description: Jumps to HL.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Instant
+    fn instr_jp_hl(&mut self) -> i64 {
+        self.regs.pc = self.regs.hl;
+        0
+    }
+
+    // Mnemonic: LD (HL),SP+r8
+    // Full Name: Load (HL), SP+r8
+    // Description: Loads SP+signed 8-bit value r8 into HL
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Internal Delay
+    fn instr_ld_hl_sp_r8(&mut self) -> i64 {
+        let r8 = self.read_ipc_cycle() as i8;
+        self.mem.update(4);
+        self.regs.res_all_flags();
+
+        if ((self.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F {
+            self.regs.set_flag(Flag::H);
+        }
+
+        if (((self.regs.sp) & 0xFF) + (r8 as u16 & 0xFF)) > 0xFF {
+            self.regs.set_flag(Flag::C);
+        }
+
+        self.regs.sp = r8 as u16;
+        8
+    }
+
+    // Mnemonic: LD A,(a16)
+    // Full Name: Load A,(a16)
+    // Description: Load the value pointed at by 16-bit unsigned data a16 into A
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Read, Read
+    fn instr_ld_a_a16(&mut self) -> i64 {
+        let addr = self.read_u16_cycle();
+        let val = self.mem.read_cycle(addr);
+        self.regs.set_reg(Reg::A, val);
+        12
+    }
+
+    // Mnemonic: LD (a16),A
+    // Full Name: Load (a16),A
+    // Description: Load A into the value pointed at by 16-bit unsigned data a16.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Read, Write
+    fn instr_ld_a16_a(&mut self) -> i64 {
+        let addr = self.read_u16_cycle();
+        let a = self.regs.get_reg(&Reg::A);
+        self.mem.write_cycle(addr, a);
+        12
+    }
+
+    // Mnemonic: LD SP,HL
+    // Full Name: Load sp,hl
+    // Description: Load hl into sp.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Internal delay
+    fn instr_ld_sp_hl(&mut self) -> i64 {
+        let hl = self.regs.hl;
+        self.mem.update(4);
+        self.regs.sp = hl;
+        4
+    }
+
+    // Mnemonic: ADD SP,r8
+    // Full Name: Add sp, r8
+    // Description: Add 8-bit signed data r8 into sp
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Internal Delay, Internal Delay
+    fn instr_add_sp_r8(&mut self) -> i64 {
+        let r8 = self.read_ipc_cycle() as i8;
+        self.mem.update(4*2);
+        self.regs.res_all_flags();
+        if ((self.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F {
+            self.regs.set_flag(Flag::H);
+        }
+        if ((self.regs.sp & 0xFF) + (r8 as u16 & 0xFF)) > 0xFF {
+            self.regs.set_flag(Flag::C);
+        }
+        self.regs.sp += r8 as u16;
+
+        12
+    }
+
     fn run_extended(&mut self) -> i64 {
         let op = self.read_ipc_cycle();
         4 + match op {
@@ -1144,7 +1383,7 @@ impl Cpu {
     }
     
     // Mnemonic: RES
-    // Full Name: Reset
+    // Full Name: Reset Bit
     // Description: Resets the given bit (in the form of a mask --that is implementation specific,
     // other ways to do the same thing include 1 << N where N is the bit number), of the given reg (or hl)
     // Affected Flags: ----
@@ -1187,6 +1426,9 @@ impl Cpu {
             mem: memory::Memory::new(),
             regs: registers::Registers::new(),
             status: State::Okay,
+            ime: false,
+            ie: false,
+            halt_bugged: false,
         }
     }
     
