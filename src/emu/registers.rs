@@ -2,6 +2,7 @@
 
 use super::flags::Flag;
 
+#[derive(Clone, Copy)]
 pub enum Reg {
     B,
     C,
@@ -13,6 +14,7 @@ pub enum Reg {
     A,
 }
 
+#[derive(Clone, Copy)]
 pub enum R16 {
     BC,
     DE,
@@ -22,7 +24,8 @@ pub enum R16 {
 
 pub struct Registers {
     pub pc: u16,
-    pub af: u16,
+    pub a:  u8 ,
+    pub f:  u8 ,
     pub bc: u16,
     pub de: u16,
     pub hl: u16,
@@ -39,7 +42,7 @@ impl Registers{
             &Reg::H => (self.hl >> 8) as u8,
             &Reg::L => (self.hl >> 0) as u8,
             &Reg::HL => panic!(),
-            &Reg::A => (self.af >> 8) as u8,
+            &Reg::A =>  self.a,
         }
     }
     
@@ -62,10 +65,19 @@ impl Registers{
             Reg::H => self.hl = (self.hl & 0xFF)   | ((val as u16) << 8),
             Reg::L => self.hl = (self.hl & 0xFF00) |  (val as u16),
             Reg::HL => panic!(),
-            Reg::A => self.af = (self.af & 0xFF)   | ((val as u16) << 8),
+            Reg::A => self.a = val,
         }
     }
-    
+
+    pub fn g_af(&self) -> u16 {
+        ((self.a as u16) << 8) | self.f as u16
+    }
+
+    pub fn s_af(&mut self, val: u16) {
+        self.f = (val as u8) & 0b1111_0000;
+        self.a = (val >> 8) as u8;
+    }
+
     pub fn set_reg_16(&mut self, reg: R16, val: u16) {
         match reg {
             R16::BC => self.bc = val,
@@ -76,18 +88,18 @@ impl Registers{
     }
     
     pub fn new() -> Registers {
-        Registers {pc: 0, af: 0, bc: 0, de: 0, hl: 0, sp: 0}
+        Registers {pc: 0, a: 0, f: 0, bc: 0, de: 0, hl: 0, sp: 0}
     }
     
     pub fn res_all_flags(&mut self) {
-        self.af &= 0b1111_1111_0000_0000;
+        self.f = 0b0000_0000;
     }
     
     pub fn set_flag(&mut self, flag: Flag) {
-        self.af |= flag.to_mask() as u16;
+        self.f |= flag.to_mask();
     }
         
     pub fn get_flag(&self, flag: Flag) -> bool {
-        (self.af & (flag.to_mask() as u16)) > 0
+        (self.f & flag.to_mask()) > 0
     }
 }

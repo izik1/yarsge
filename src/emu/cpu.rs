@@ -5,6 +5,7 @@ use super::registers;
 use super::registers::*;
 use super::flags::*;
 
+#[derive(Clone, Copy)]
 pub enum State {
     Okay,
     Halt,
@@ -12,6 +13,7 @@ pub enum State {
     Hang,
 }
 
+#[derive(Clone, Copy)]
 enum MathReg {
     R(Reg),
     Imm,
@@ -46,7 +48,7 @@ impl Cpu {
         self.mem.write_cycle(address, value as u8);
         self.mem.write_cycle(address + 1, (value >> 8) as u8)
     }
-    
+
     fn read_ipc_cycle(&mut self) -> u8 {
         let val = self.mem.read_cycle(self.regs.pc);
         self.regs.pc += 1;
@@ -63,12 +65,12 @@ impl Cpu {
     
     fn read_pop_cycle(&mut self) -> u8 {
         let val = self.mem.read_cycle(self.regs.sp);
-        self.regs.sp += 1;
+        self.regs.sp = self.regs.sp.wrapping_add(1);
         val
     }
     
     fn write_push_cycle(&mut self, val: u8) {
-        self.regs.sp -= 1;
+        self.regs.sp =self.regs.sp.wrapping_sub(1);
         self.mem.write_cycle(self.regs.pc, val);
     }
     
@@ -138,7 +140,7 @@ impl Cpu {
     // Timing: either "write", "read" or instant.
     fn instr_ld(&mut self, dest: Reg, src: Reg) -> i64 {
         match (dest, src) {
-            (Reg::HL, Reg::HL) => panic!(),
+            (Reg::HL, Reg::HL) => unreachable!("This while theoretically reachable, should *never* be reached, since this instruction is instead HALT"),
             (Reg::HL, src) =>     {let val = self.regs.get_reg(&src); self.write_hl_cycle(val); 4}
             (dest, Reg::HL) =>    {let val = self.read_hl_cycle(); self.regs.set_reg(dest, val); 4}
             (dest, src) =>        {let val = self.regs.get_reg(&src); self.regs.set_reg(dest, val); 0}
@@ -373,7 +375,7 @@ impl Cpu {
             0xFD => self.instr_invalid(),
             0xFE => self.instr_cp(MathReg::Imm),
             0xFF => self.instr_rst(0x38),
-            _ => panic!(),
+            _ => unreachable!("Unimplemented instruction?"),
         }
     }
     
@@ -400,7 +402,7 @@ impl Cpu {
     // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
     // Timing: Write     
     fn instr_ld_r16_a(&mut self, reg: R16) -> i64 {
-        let a = (self.regs.af >> 8) as u8;
+        let a = self.regs.a;
         let reg = match reg {
             R16::BC => self.regs.bc,
             R16::DE => self.regs.de,
@@ -434,7 +436,7 @@ impl Cpu {
     // If a flags conditions aren't met, it is instead reset. 
     // Timing: "Instant" or "Read, Write" 
     fn instr_inc_8(&mut self, reg: Reg) -> i64 {
-        self.regs.af &= 0b1111_1111_0001_0000;
+        self.regs.f &= Flag::C.to_mask();
         let val;
         let cycles = match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle(val.wrapping_add(1));8}
@@ -442,7 +444,7 @@ impl Cpu {
         };
         
         if val == 0xFF {self.regs.set_flag(Flag::Z)};
-        if get_hca(val, 1) {self.regs.set_flag(Flag::C)};
+        if get_hca(val, 1) {self.regs.set_flag(Flag::H)};
         cycles
     }
     
@@ -460,10 +462,10 @@ impl Cpu {
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, val.wrapping_sub(1));0} 
         };
         
-        self.regs.af = self.regs.af & 0b1111_1111_0001_0000;
-        self.regs.set_flag(Flag::N);
+        self.regs.f = self.regs.f & Flag::C.to_mask();
         if val == 1 {self.regs.set_flag(Flag::Z)};
-        if (val & 0xF) == 0 {self.regs.set_flag(Flag::C)};
+        self.regs.set_flag(Flag::N);
+        if (val & 0xF) == 0 {self.regs.set_flag(Flag::H)};
         cycles
     }
     
@@ -488,8 +490,12 @@ impl Cpu {
     // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
     // Timing: Instant.
     fn instr_rlca(&mut self) -> i64 {
-        self.regs.af = (((self.regs.af << 1) | (self.regs.af >> 7)) & 0xFF00) | 
-        if (self.regs.af & 0x8000) > 0 {Flag::C.to_mask() as u16} else {0};
+        self.regs.a = (self.regs.a << 1) | (self.regs.a >> 7);
+        self.regs.res_all_flags();
+
+        if (self.regs.a & 0x80) > 0 {
+            self.regs.set_flag(Flag::C);
+        }
         0
     }
     
@@ -515,10 +521,15 @@ impl Cpu {
     fn instr_add_hl_reg16(&mut self, reg: R16) -> i64 {
         let val = self.regs.get_reg_16(&reg);
         let res = self.regs.hl.wrapping_add(val);
-        self.regs.af &= 0b1111_1111_1000_0000;
-        if (((self.regs.hl & 0xFFF) + (val & 0xFFF)) & 0x1000) == 0x1000 {self.regs.set_flag(Flag::H)};
-        if res < self.regs.hl {self.regs.set_flag(Flag::C)};
-        
+        self.regs.f &= Flag::Z.to_mask();
+        if (((self.regs.hl & 0xFFF) + (val & 0xFFF)) & 0x1000) == 0x1000 {
+            self.regs.set_flag(Flag::H);
+        }
+
+        if res < self.regs.hl {
+            self.regs.set_flag(Flag::C);
+        }
+        self.mem.update(4);
         self.regs.hl = res;
         4
     }
@@ -563,8 +574,12 @@ impl Cpu {
     // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
     // Timing: Instant.
     fn instr_rrca(&mut self) -> i64 {
-        self.regs.af = ((self.regs.af >> 1) | (self.regs.af << 7)) & 0xFF00;
-        if (self.regs.af & 0x0001) == 1 {self.regs.set_flag(Flag::C)};
+        self.regs.a = (self.regs.a >> 1) | (self.regs.a << 7);
+        self.regs.res_all_flags();
+        if (self.regs.a & 0x01) == 0x01 {
+            self.regs.set_flag(Flag::C);
+        }
+
         0
     }
     
@@ -575,11 +590,13 @@ impl Cpu {
     // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
     // Timing: Instant.
     fn instr_rla(&mut self) -> i64 {
-        let a_in = self.regs.get_reg(&Reg::A);
-        let a_out = (a_in << 1) | if self.regs.get_flag(Flag::C) {1} else {0};
-        self.regs.set_reg(Reg::A, a_out);
+        let a = self.regs.a;
+        self.regs.a = (a << 1) | if self.regs.get_flag(Flag::C) {1} else {0};
         self.regs.res_all_flags();
-        if a_in & 0x80 == 0x80 {self.regs.set_flag(Flag::C)};
+        if a & 0x80 == 0x80 {
+            self.regs.set_flag(Flag::C);
+        }
+
         0
     } 
 
@@ -590,11 +607,13 @@ impl Cpu {
     // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
     // Timing: Instant.
     fn instr_rra(&mut self) -> i64 {
-        let a_in = self.regs.get_reg(&Reg::A);
-        let a_out = (a_in >> 1) | if self.regs.get_flag(Flag::C) {0x80} else {0};
-        self.regs.set_reg(Reg::A, a_out);
+        let a = self.regs.a;
+        self.regs.a=  (a >> 1) | if self.regs.get_flag(Flag::C) {0x80} else {0};
         self.regs.res_all_flags();
-        if a_in & 0x01 == 0x01 {self.regs.set_flag(Flag::C)};
+        if a & 0x01 == 0x01 {
+            self.regs.set_flag(Flag::C);
+        }
+
         0
     } 
     
@@ -605,37 +624,36 @@ impl Cpu {
     // Remarks: Confusing
     // Timing: Instant.
     fn instr_daa(&mut self) -> i64 {
-        let mut res = self.regs.get_reg(&Reg::A) as i32;
+        let mut res = self.regs.a as i32;
         if self.regs.get_flag(Flag::N) {
             if self.regs.get_flag(Flag::H) {
-                res = (res - 6) & 0xFF
-            };
+                res = (res - 6) & 0xFF;
+            }
             
             if self.regs.get_flag(Flag::C) {
-                res -= 0x60
-            };
+                res -= 0x60;
+            }
         } else {
             if self.regs.get_flag(Flag::H) || (res & 0xF) > 9 {
-                res += 0x06
-            };
+                res += 0x06;
+            }
             
             if self.regs.get_flag(Flag::C) || res > 0x9F {
-                res += 0x60
-            };            
+                res += 0x60;
+            }
         };
         
-        self.regs.af &= 0b0000_0000_0101_0000;
+        self.regs.f &= Flag::Z.to_mask() | Flag::C.to_mask();
         if (res & 0x100) == 0x100 {
-            self.regs.set_flag(Flag::C)
-        };
+            self.regs.set_flag(Flag::C);
+        }
+
+        self.regs.a = res as u8;
         
-        res &= 0xFF;
-        
-        if res == 0 {
-            self.regs.set_flag(Flag::Z)
-        };
-        
-        self.regs.af |= (res as u16) << 8;
+        if self.regs.a == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
         0
     }
     
@@ -646,7 +664,9 @@ impl Cpu {
     // Remarks: ----
     // Timing: Instant.
     fn instr_cpl(&mut self) -> i64 {
-        self.regs.af = (!self.regs.af & 0xFF00) | (self.regs.af & 0xFF) | 0b0110_0000;
+        self.regs.a = !self.regs.a;
+        self.regs.set_flag(Flag::N);
+        self.regs.set_flag(Flag::H);
         0
     }
     
@@ -657,7 +677,7 @@ impl Cpu {
     // Remarks: ----
     // Timing: Instant.
     fn instr_scf(&mut self) -> i64 {
-        self.regs.af &= 0b1111_1111_1000_0000;
+        self.regs.f = Flag::Z.to_mask();
         self.regs.set_flag(Flag::C);
         0
     }
@@ -669,8 +689,8 @@ impl Cpu {
     // Remarks: ----
     // Timing: Instant.
     fn instr_ccf(&mut self) -> i64 {
-        self.regs.af &= 0b1111_1111_1001_0000;
-        self.regs.af ^= Flag::C.to_mask() as u16;
+        self.regs.f &= Flag::Z.to_mask() | Flag::C.to_mask();
+        self.regs.f ^= Flag::C.to_mask();
         0
     }
         
@@ -681,12 +701,23 @@ impl Cpu {
     // Remarks: ----
     // Timing: Read or Instant
     fn instr_add(&mut self, reg: MathReg) -> i64 {
-        let a = self.regs.get_reg(&Reg::A);
+        let a = self.regs.a;
         let (cycles, val) = self.get_math_reg(reg);
-        
-        let res = a.wrapping_add(val);
-        
-        self.regs.af = ((res as u16) << 8) | (get_zf(res) as u16) | (get_hcaf(a,res) as u16) | if res < a {Flag::C.to_mask() as u16} else {0};
+
+        self.regs.a = a.wrapping_add(val);
+        self.regs.res_all_flags();
+        if self.regs.a == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
+        if get_hca(a, self.regs.a) {
+            self.regs.set_flag(Flag::H);
+        }
+
+        if self.regs.a < a {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
     
@@ -698,15 +729,24 @@ impl Cpu {
     // Remarks: ----
     // Timing: Read or Instant
     fn instr_adc(&mut self, reg: MathReg) -> i64 {
-        let a = self.regs.get_reg(&Reg::A);
+        let a = self.regs.a;
         let c_in = self.regs.get_flag(Flag::C);
         let (cycles, val) = self.get_math_reg(reg);
         
-        let res = (a.wrapping_add(val) as u16).wrapping_add(c_in as u16);
-        
-        self.regs.af = (res << 8) | (get_zf(res as u8) as u16) |
-        if (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF {Flag::H.to_mask() as u16}  else {0} |
-        if res > 0xFF {Flag::C.to_mask() as u16} else {0};
+        self.regs.a = a.wrapping_add(val).wrapping_add(c_in as u8);
+
+        self.regs.res_all_flags();
+        if self.regs.a == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+        if (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF {
+            self.regs.set_flag(Flag::H);
+        }
+
+        if (a.wrapping_add(val) as u16).wrapping_add(c_in as u16) > 0xFF {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
 
@@ -890,7 +930,7 @@ impl Cpu {
     fn instr_pop(&mut self, reg: R16) -> i64 {
         let val = self.read_pop_16_cycle();
         match reg {
-            R16::SP => self.regs.af = val & !0b1111,
+            R16::SP => self.regs.s_af(val),
             r => self.regs.set_reg_16(r, val),
         };
         
@@ -923,7 +963,7 @@ impl Cpu {
     // Timing: Delay, Write, Write
     fn instr_push(&mut self, reg: R16) -> i64 {
         let val = match reg {
-            R16::SP => self.regs.af,
+            R16::SP => self.regs.g_af(),
             r => self.regs.get_reg_16(&r),
         };
         self.mem.update(4);
@@ -1202,7 +1242,7 @@ impl Cpu {
             0xF4 => self.instr_set(Reg::HL, 0x10), 0xF5 => self.instr_set(Reg::HL, 0x20), 0xF6 => self.instr_set(Reg::HL, 0x40), 0xF7 => self.instr_set(Reg::HL, 0x80),
             0xF8 => self.instr_set(Reg::A , 0x01), 0xF9 => self.instr_set(Reg::A , 0x02), 0xFA => self.instr_set(Reg::A , 0x04), 0xFB => self.instr_set(Reg::A , 0x08),
             0xFC => self.instr_set(Reg::A , 0x10), 0xFD => self.instr_set(Reg::A , 0x20), 0xFE => self.instr_set(Reg::A , 0x40), 0xFF => self.instr_set(Reg::A , 0x80),
-            _ => panic!(),
+            _ => unreachable!("Unimplemented CB prefixed instruction?"),
         }
         
     }
@@ -1260,7 +1300,6 @@ impl Cpu {
     // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_rl(&mut self, reg: Reg) -> i64 {
-        self.regs.res_all_flags();
         let val;
         let carry_in = if self.regs.get_flag(Flag::C) {1} else {0};
         let res;
@@ -1268,8 +1307,16 @@ impl Cpu {
             Reg::HL => {val = self.read_hl_cycle();res = (val << 1) | (carry_in); self.write_hl_cycle(res);8}
             r => {val = self.regs.get_reg(&r); res = (val << 1) | (carry_in); self.regs.set_reg(r, res);0}
         };
-        
-        self.regs.af |= if res == 0 {Flag::Z.to_mask() as u16} else if (val & 0x80) > 0 {Flag::C.to_mask() as u16} else {0};
+
+        self.regs.res_all_flags();
+        if res == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
+        if (val & 0x80) == 0x80 {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
     
@@ -1280,7 +1327,6 @@ impl Cpu {
     // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_rr(&mut self, reg: Reg) -> i64 {
-        self.regs.res_all_flags();
         let val;
         let carry_in = if self.regs.get_flag(Flag::C) {0x80} else {0x00};
         let res;
@@ -1288,8 +1334,16 @@ impl Cpu {
             Reg::HL => {val = self.read_hl_cycle();res = (val >> 1) | (carry_in); self.write_hl_cycle(res);8}
             r => {val = self.regs.get_reg(&r); res = (val >> 1) | (carry_in);self.regs.set_reg(r, res);0}
         };
-        
-        self.regs.af |= if res == 0 {Flag::Z.to_mask() as u16} else if (val & 0x01) == 1 {Flag::C.to_mask() as u16} else {0};
+
+        self.regs.res_all_flags();
+        if res == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
+        if (val & 0x01) == 0x01 {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
     
@@ -1300,15 +1354,22 @@ impl Cpu {
     // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_sla(&mut self, reg: Reg) -> i64 {
-        self.regs.res_all_flags();
         let val;
         let res;
         let cycles = match reg {
             Reg::HL => {val = self.read_hl_cycle(); res = val << 1; self.write_hl_cycle(res);8}
             r => {val = self.regs.get_reg(&r); res=val << 1; self.regs.set_reg(r, res);0}
         };
-        
-        self.regs.af |= if res == 0 {Flag::Z.to_mask() as u16} else {0} | if (val & 0x80) > 0 {Flag::C.to_mask() as u16} else {0};
+
+        self.regs.res_all_flags();
+        if res == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
+        if (val & 0x80) == 0x80 {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
     
@@ -1319,14 +1380,21 @@ impl Cpu {
     // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_sra(&mut self, reg: Reg) -> i64 {
-        self.regs.res_all_flags();
         let val;
         let cycles = match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1) | (val & 0x80));8}
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1) | (val & 0x80));0}
         };
-        
-        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 1) == 1 {Flag::C.to_mask() as u16} else {0};
+
+        self.regs.res_all_flags();
+        if val == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
+        if (val & 0x01) == 0x01 {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
     
@@ -1337,14 +1405,17 @@ impl Cpu {
     // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set otherwise, zero is reset
     // Timing: "read, write" or instant.
     fn instr_swap(&mut self, reg: Reg) -> i64 {
-        self.regs.res_all_flags();
         let val;
         let cycles = match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val << 4) | (val >> 4));8}
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val << 4) | (val >> 4));0}
         };
-        
-        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else {0};
+
+        self.regs.res_all_flags();
+        if val == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
         cycles
     }
 
@@ -1355,14 +1426,21 @@ impl Cpu {
     // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
     // Timing: "read, write" or instant.    
     fn instr_srl(&mut self, reg: Reg) -> i64 {
-        self.regs.res_all_flags();
         let val;
         let cycles = match reg {
             Reg::HL => {val = self.read_hl_cycle(); self.write_hl_cycle((val >> 1));8}
             r => {val = self.regs.get_reg(&r); self.regs.set_reg(r, (val >> 1));0}
         };
-        
-        self.regs.af |= if val == 0 {Flag::Z.to_mask() as u16} else if (val & 1) == 1 {Flag::C.to_mask() as u16} else {0};
+
+        self.regs.res_all_flags();
+        if val == 0 {
+            self.regs.set_flag(Flag::Z);
+        }
+
+        if (val & 0x01) == 0x01 {
+            self.regs.set_flag(Flag::C);
+        }
+
         cycles
     }
 
@@ -1375,10 +1453,12 @@ impl Cpu {
     // Remarks: Zero is set if the bit is unset, and gets reset otherwise.
     // Timing: "read" or instant.
     fn instr_bit(&mut self, reg: Reg, mask: u8) -> i64 {
-        self.regs.af = (self.regs.af & 0b1111_1111_0011) | Flag::H.to_mask() as u16;
+
+        self.regs.f &= Flag::C.to_mask();
+        self.regs.set_flag(Flag::H);
         match reg {
-            Reg::HL => {if (self.read_hl_cycle() & mask) == 0 {self.regs.af |= Flag::Z.to_mask() as u16}; 4}
-            r => {if (self.regs.get_reg(&r) & mask) == 0 {self.regs.af |= Flag::Z.to_mask() as u16}; 0}
+            Reg::HL => {if (self.read_hl_cycle() & mask) == 0 {self.regs.set_flag(Flag::Z)}; 4}
+            r => {if (self.regs.get_reg(&r) & mask) == 0 {self.regs.set_flag(Flag::Z)}; 0}
         }
     }
     
@@ -1435,9 +1515,11 @@ impl Cpu {
     pub fn run(&mut self, ticks: i64) {
         self.cycle_counter += ticks;
         while self.cycle_counter > 0 {
-            self.cycle_counter += match self.status {
+            self.cycle_counter -= match self.status {
                 State::Okay => self.handle_okay(),
-                _ => panic!()
+                State::Stop => unimplemented!("Implement CPU stop behavior!"),
+                State::Halt => unimplemented!("Implement CPU halt behavior!"),
+                State::Hang => unimplemented!("Implement CPU hung behavior!"),
             }
         }
     }
