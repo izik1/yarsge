@@ -58,6 +58,26 @@ impl Cpu {
         0xFF // TODO: STUB
     }
     
+    fn read_pop_cycle(&mut self) -> u8 {
+        let val = self.mem.read_cycle(self.regs.sp);
+        self.regs.sp += 1;
+        val
+    }
+    
+    fn write_push_cycle(&mut self, val: u8) {
+        self.regs.sp -= 1;
+        self.mem.write_cycle(self.regs.pc, val);
+    }
+    
+    fn read_pop_16_cycle(&mut self) -> u16 {
+        self.read_pop_cycle() as u16 | ((self.read_pop_cycle() as u16) << 8)
+    }
+    
+    fn write_push_16_cycle(&mut self, val: u16) {
+        self.write_push_cycle((val >> 8) as u8);
+        self.write_push_cycle(val as u8);
+    }
+    
     fn get_reg(&mut self, reg: Reg) -> (i64, u8) {
         match reg {
             Reg::HL => (4, self.read_hl_cycle()),
@@ -252,16 +272,56 @@ impl Cpu {
             0xBC => self.instr_cp (MathReg::R(Reg::H )), 0xBD => self.instr_cp (MathReg::R(Reg::L)),
             0xBE => self.instr_cp (MathReg::R(Reg::HL)), 0xBF => self.instr_cp (MathReg::R(Reg::A)),
             
-            0xC2 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jp(j)}
-            0xC3 => self.instr_jp(true),
-            0xCA => {let j =  self.regs.get_flag(Flag::Z); self.instr_jp(j)}
+            0xC0 => {let j = !self.regs.get_flag(Flag::Z); self.instr_retc(j)}
+            0xC1 => self.instr_pop(R16::BC),
+            0xC2 => {let j = !self.regs.get_flag(Flag::Z); self.instr_jp  (j)}
+            0xC3 => self.instr_jp (true ),
+            0xC4 => {let j = !self.regs.get_flag(Flag::Z); self.instr_call(j)}
+            0xC5 => self.instr_push(R16::BC),
+            0xC6 => self.instr_add(MathReg::Imm),
+            0xC8 => {let j =  self.regs.get_flag(Flag::Z); self.instr_retc(j)} 
+            0xC9 => self.instr_ret(false),
+            0xCA => {let j =  self.regs.get_flag(Flag::Z); self.instr_jp  (j)}
             0xCB => self.run_extended(),
-            0xD2 => {let j = !self.regs.get_flag(Flag::C); self.instr_jp(j)}
-            0xDA => {let j =  self.regs.get_flag(Flag::C); self.instr_jp(j)}
-            
-            0xD3 | 0xDB | 0xDD | 0xE2 | 0xE3 | 0xEB | 0xEC | 0xED | 0xF4 | 0xFC | 0xFD => {self.status = State::Hang; 0}, 
+            0xCC => {let j = self.regs.get_flag(Flag::Z); self.instr_call(j)}
+            0xCD => self.instr_call(true),
+            0xCE => self.instr_adc(MathReg::Imm),
+            0xD0 => {let j = !self.regs.get_flag(Flag::C); self.instr_retc(j)}
+            0xD1 => self.instr_pop(R16::DE),
+            0xD2 => {let j = !self.regs.get_flag(Flag::C); self.instr_jp  (j)}
+            0xD3 => self.instr_invalid(),
+            0xD4 => {let j =  self.regs.get_flag(Flag::C); self.instr_call(j)}
+            0xD5 => self.instr_push(R16::DE),
+            0xD6 => self.instr_sub(MathReg::Imm),
+            0xD8 => {let j =  self.regs.get_flag(Flag::C); self.instr_retc(j)}
+            0xD9 => self.instr_ret(true ),
+            0xDA => {let j =  self.regs.get_flag(Flag::C); self.instr_jp  (j)}
+            0xDB => self.instr_invalid(),
+            0xDC => {let j =  self.regs.get_flag(Flag::C); self.instr_call(j)}
+            0xDD => self.instr_invalid(),
+            0xDE => self.instr_sbc(MathReg::Imm),
+            0xE1 => self.instr_pop(R16::HL),
+            0xE2 => self.instr_invalid(),
+            0xE3 => self.instr_invalid(),
+            0xE5 => self.instr_push(R16::HL),
+            0xE6 => self.instr_and(MathReg::Imm),
+            0xEB => self.instr_invalid(),
+            0xEC => self.instr_invalid(),
+            0xED => self.instr_invalid(),
+            0xEE => self.instr_xor(MathReg::Imm),
+            0xF1 => self.instr_pop(R16::SP),
+            0xF4 => self.instr_invalid(),
+            0xF5 => self.instr_push(R16::SP),
+            0xF6 => self.instr_or(MathReg::Imm),
+            0xFC => self.instr_invalid(),
+            0xFD => self.instr_invalid(),
+            0xFE => self.instr_cp(MathReg::Imm),
             _ => panic!(),
         }
+    }
+    
+    fn instr_invalid(&mut self) -> i64 {
+        self.status = State::Hang;0
     }
     
     // Mnemonic: LD r16,d16
@@ -744,6 +804,90 @@ impl Cpu {
         
         cycles
 
+    }
+
+    // Mnemonic: RET <COND>
+    // Full Name: Return <COND>
+    // Description: Returns Conditionally. (NZ/Z/NC/C)
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Read, Internal Delay
+    fn instr_retc(&mut self, jump: bool) -> i64 {
+        self.mem.update(4);
+        if !jump {
+            4
+        } else {
+            let addr = self.read_pop_16_cycle();
+            self.regs.pc = addr;
+            self.mem.update(4);
+            16
+        }
+    }
+    
+    // Mnemonic: POP <Reg-16>
+    // Full Name: Pop <Reg-16>
+    // Description: Pops the 16-bit register Reg-16 off of the stack.
+    // Affected Flags: ---- or Z (set|res), N (set|res), H (set|res), C (set|res)
+    // Remarks: ----
+    // Timing: Read, Read
+    fn instr_pop(&mut self, reg: R16) -> i64 {
+        let val = self.read_pop_16_cycle();
+        match reg {
+            R16::SP => self.regs.af = val & !0b1111,
+            r => self.regs.set_reg_16(r, val),
+        };
+        
+        8
+    }
+    
+    // Mnemonic: CALL <COND> | CALL
+    // Full Name: Call <COND> | Call
+    // Description: Calls (possibly conditionally (NZ/Z/NC/C))
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: "Read, Read" | "Read, Read, Write, Write"
+    fn instr_call(&mut self, jump: bool) -> i64 {
+        let addr = self.read_u16_cycle();
+        if jump {
+            let pc = self.regs.pc;
+            self.write_push_16_cycle(pc);
+            self.regs.pc = addr;
+            16
+        } else {
+            8
+        }
+    }
+    
+    // Mnemonic: PUSH <Reg-16>
+    // Full Name: Push <Reg-16>
+    // Description: Pushes the 16-bit register Reg-16 onto the stack.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Delay, Write, Write
+    fn instr_push(&mut self, reg: R16) -> i64 {
+        let val = match reg {
+            R16::SP => self.regs.af,
+            r => self.regs.get_reg_16(&r),
+        };
+        self.mem.update(4);
+        self.write_push_16_cycle(val);
+        12        
+    }
+    
+    // Mnemonic: RET/RETI
+    // Full Name: Return / Return enable Interrupts
+    // Description: Returns unconditionally, if it's a reti instruction it will also enable IME.
+    // Affected Flags: ----
+    // Remarks: ----
+    // Timing: Read, Read, Internal Delay
+    fn instr_ret(&mut self, reti: bool) -> i64 {
+        let addr = self.read_pop_16_cycle();
+        self.regs.pc = addr;
+        if reti {
+            self.mem.ime = true;
+        }
+        self.mem.update(4);
+        12
     }
     
     fn run_extended(&mut self) -> i64 {

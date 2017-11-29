@@ -1,12 +1,14 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see lisence.md for more details.
 
 pub struct Memory {
+    pub ime: bool,
     wram: [u8; 0x2000],
 }
 
 impl Memory {
     pub fn new() -> Memory {
         Memory {
+            ime: false,
             wram: [0; 0x2000],
         }
     }
