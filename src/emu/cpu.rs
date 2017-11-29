@@ -1514,7 +1514,7 @@ impl Cpu {
     pub fn run(&mut self, ticks: i64) {
         self.cycle_counter += ticks;
         while self.cycle_counter > 0 {
-            self.cycle_counter += match self.status {
+            self.cycle_counter -= match self.status {
                 State::Okay => self.handle_okay(),
                 State::Stop => unimplemented!("Implement CPU stop behavior!"),
                 State::Halt => unimplemented!("Implement CPU halt behavior!"),
