@@ -1,10 +1,11 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
+use std::vec::*;
 use super::registers;
 use super::registers::*;
 use super::flags::*;
-
 use super::timer::Timer;
+
 #[derive(Clone, Copy)]
 pub enum State {
     Okay,
@@ -30,6 +31,8 @@ pub struct Cpu {
     r_if: u8,
     r_ier: u8,
     tim: Timer,
+    game_rom: Vec<u8>,
+    boot_rom: Vec<u8>,
 }
 
 impl Cpu {
@@ -1539,18 +1542,23 @@ impl Cpu {
         2 + self.handle_interrupts() + self.run_instruction()
     }
     
-    pub fn new() -> Cpu {
-        Cpu {
-            cycle_counter: 0,
-            wram: [0; 0x2000],
-            regs: registers::Registers::new(),
-            status: State::Okay,
-            ime: false,
-            ie: false,
-            halt_bugged: false,
-            r_ier: 0,
-            r_if: 0,
-            tim: Timer::new(),
+    pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Cpu> {
+        match boot_rom.len() {
+            0x100 => Some(Cpu {
+                cycle_counter: 0,
+                wram: [0; 0x2000],
+                regs: registers::Registers::new(),
+                status: State::Okay,
+                ime: false,
+                ie: false,
+                halt_bugged: false,
+                r_ier: 0,
+                r_if: 0,
+                tim: Timer::new(),
+                game_rom,
+                boot_rom,
+            }),
+            _ => None
         }
     }
     

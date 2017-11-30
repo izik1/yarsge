@@ -7,7 +7,28 @@ use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use emu::cpu;
+use std::env;
+use std::io;
+use std::io::prelude::*;
+use std::fs::File;
+fn load_rom(path: String) -> io::Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    File::open(path)?.read_to_end(&mut buf)?;
+    Result::Ok(buf)
+}
+
+fn unwrap_rom(vec: io::Result<Vec<u8>>) -> Vec<u8> {
+    if let Result::Ok(rom) = vec {
+        rom
+    } else {
+        println!("Error loading rom");
+        std::process::exit(1)
+    }
+}
+
+
 pub fn main() {
+    let args: Vec<String> = env::args().collect();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     const WIDTH: u32 = 160;
@@ -37,6 +58,27 @@ pub fn main() {
     canvas.present();
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut dir = true;
+    if args.len() < 3 {
+        println!("Not enough args, expected 2, but got {}", args.len()-1);
+        std::process::exit(1)
+    }
+
+    if args.len() > 3 {
+        println!("Too many args, expected 2, but got {}", args.len()-1);
+        std::process::exit(1)
+    }
+
+    let mut gb;
+    let boot_rom = unwrap_rom(load_rom(args[1].clone()));
+    let game_rom = unwrap_rom(load_rom(args[2].clone()));
+    if let Some(c) = cpu::Cpu::new(boot_rom, game_rom) {
+        gb = c;
+    } else {
+        println!("Error loading cpu");
+        std::process::exit(1)
+    }
+
+
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -49,8 +91,7 @@ pub fn main() {
             }
         }
 
-        let mut c = cpu::Cpu::new();
-        c.run(64);
+        gb.run(64);
         dir = match val {
             0 => true,
             0xFF => false,
@@ -67,6 +108,5 @@ pub fn main() {
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 
-        // The rest of the game loop goes here...
     }
 }
