@@ -26,7 +26,6 @@ fn unwrap_rom(vec: io::Result<Vec<u8>>) -> Vec<u8> {
     }
 }
 
-
 pub fn main() {
     let args: Vec<String> = env::args().collect();
     let sdl_context = sdl2::init().unwrap();
@@ -59,24 +58,23 @@ pub fn main() {
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut dir = true;
     if args.len() < 3 {
-        println!("Not enough args, expected 2, but got {}", args.len()-1);
+        println!("Not enough args, expected 2, but got {}", args.len() - 1);
         std::process::exit(1)
     }
 
     if args.len() > 3 {
-        println!("Too many args, expected 2, but got {}", args.len()-1);
+        println!("Too many args, expected 2, but got {}", args.len() - 1);
         std::process::exit(1)
     }
 
-    let mut gb;
     let boot_rom = unwrap_rom(load_rom(args[1].clone()));
     let game_rom = unwrap_rom(load_rom(args[2].clone()));
-    if let Some(c) = cpu::Cpu::new(boot_rom, game_rom) {
-        gb = c;
+    let mut gb = if let Some(c) = cpu::Cpu::new(boot_rom, game_rom) {
+        c
     } else {
         println!("Error loading cpu");
         std::process::exit(1)
-    }
+    };
 
 
     'running: loop {

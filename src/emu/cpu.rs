@@ -14,6 +14,30 @@ pub enum State {
     Hang,
 }
 
+#[derive(Debug)]
+struct MbcDescriptor {
+    banks_rom: u8,
+    banks_ram: u8,
+
+}
+
+#[derive(Debug)]
+enum Mbc {
+    Mbc0,
+    Mbc1(MbcDescriptor)
+}
+
+impl Mbc {
+    fn new (cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
+        match cart_type {
+            0x00 => Some(Mbc::Mbc0),
+            0x01 => Some(Mbc::Mbc1(MbcDescriptor{banks_rom, banks_ram})),
+            _    => None,
+        }
+
+    }
+}
+
 #[derive(Clone, Copy)]
 enum MathReg {
     R(Reg),
@@ -23,6 +47,7 @@ enum MathReg {
 pub struct Cpu {
     cycle_counter: i64,
     wram: [u8; 0x2000],
+    vram: [u8; 0x1000],
     pub regs: registers::Registers,
     pub status: State,
     ime: bool,
@@ -33,6 +58,8 @@ pub struct Cpu {
     tim: Timer,
     game_rom: Vec<u8>,
     boot_rom: Vec<u8>,
+    mbc: Mbc,
+    boot_rom_enabled: bool,
 }
 
 impl Cpu {
@@ -42,20 +69,39 @@ impl Cpu {
         }
     }
 
-    fn read_rom_low(&self, _addr: u16) -> u8 {
-        0xFF
+    fn read_rom_low(&self, addr: u16) -> u8
+    {
+        let addr = addr as usize;
+        if self.boot_rom_enabled && addr < 0x100 {
+            self.boot_rom[addr as usize]
+        } else {
+            match self.mbc {
+                Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
+                _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
+            }
+        }
     }
 
-    fn read_rom_high(&self, _addr: u16) -> u8 {
-        0xFF
+    fn read_rom_high(&self, addr: u16) -> u8 {
+        let addr = addr as usize;
+        match self.mbc {
+            Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
+            _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
+        }
+    }
+
+    fn read_vram(&self, addr: u16) -> u8 {
+        self.vram[addr as usize] // TODO: Missing PPU block behaviour, but the PPU isn't implemented.
     }
 
     fn read_byte(&self, addr: u16) -> u8 {
+        println!("Reading (addr: {:01$X})", addr, 4);
         match addr {
             0x0000...0x3FFF => self.read_rom_low(addr),
             0x4000...0x7FFF => self.read_rom_high(addr),
+            0x8000...0x9FFF => self.read_vram(addr),
             0xC000...0xCFFF => self.wram[(addr - 0xC000) as usize],
-            _ => unimplemented!("Not yet implemented range!"),
+            _ => unimplemented!("Not yet implemented range! (addr: {:01$X})", addr, 4),
         }
     }
 
@@ -91,17 +137,17 @@ impl Cpu {
     }
 
     fn write_cycle(&mut self, _addr: u16, _val: u8) {
-        // TODO: Stub.
+        unimplemented!("write_cycle is unimplemented (addr: {:01$X} val: {2:03$X})", _addr, 4, _val, 2); // TODO: Stub.
     }
 
     fn write_hl_cycle(&mut self, val: u8) {
         let hl = self.regs.hl;
         self.write_cycle(hl, val);
-        // TODO: STUB
     }
     
     fn read_hl_cycle(&mut self) -> u8 {
-        0xFF // TODO: STUB
+        let hl = self.regs.hl;
+        self.read_cycle(hl)
     }
     
     fn read_pop_cycle(&mut self) -> u8 {
@@ -1543,22 +1589,30 @@ impl Cpu {
     }
     
     pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Cpu> {
-        match boot_rom.len() {
-            0x100 => Some(Cpu {
-                cycle_counter: 0,
-                wram: [0; 0x2000],
-                regs: registers::Registers::new(),
-                status: State::Okay,
-                ime: false,
-                ie: false,
-                halt_bugged: false,
-                r_ier: 0,
-                r_if: 0,
-                tim: Timer::new(),
-                game_rom,
-                boot_rom,
-            }),
-            _ => None
+        if game_rom.len() < 0x150 {
+            None
+        } else {
+            let mbc = Mbc::new(game_rom[0x147], game_rom[0x148], game_rom[0x149])?;
+            match boot_rom.len() {
+                0x100 => Some(Cpu {
+                    cycle_counter: 0,
+                    wram: [0; 0x2000],
+                    vram: [0; 0x1000],
+                    regs: registers::Registers::new(),
+                    status: State::Okay,
+                    ime: false,
+                    ie: false,
+                    halt_bugged: false,
+                    r_ier: 0,
+                    r_if: 0,
+                    tim: Timer::new(),
+                    game_rom,
+                    boot_rom,
+                    mbc,
+                    boot_rom_enabled: true,
+                }),
+                _ => None
+            }
         }
     }
     
