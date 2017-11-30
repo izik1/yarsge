@@ -1,3 +1,5 @@
+// Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
+
 use super::*;
 
 pub fn invalid(cpu: &mut Cpu) -> i64 {
