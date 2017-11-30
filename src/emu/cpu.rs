@@ -4,6 +4,7 @@ use super::registers;
 use super::registers::*;
 use super::flags::*;
 
+use super::timer::Timer;
 #[derive(Clone, Copy)]
 pub enum State {
     Okay,
@@ -28,12 +29,14 @@ pub struct Cpu {
     halt_bugged: bool,
     r_if: u8,
     r_ier: u8,
+    tim: Timer,
 }
 
 impl Cpu {
-
     fn update(&mut self, _cycles: i64) {
-
+        for _ in 0.._cycles {
+            self.tim.update(&mut self.r_if);
+        }
     }
 
     fn read_rom_low(&self, _addr: u16) -> u8 {
@@ -1547,6 +1550,7 @@ impl Cpu {
             halt_bugged: false,
             r_ier: 0,
             r_if: 0,
+            tim: Timer::new(),
         }
     }
     
