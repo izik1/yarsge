@@ -2,10 +2,29 @@
 
 use super::*;
 
+#[derive(Clone, Copy)]
+pub enum MathReg {
+    R(Reg),
+    Imm,
+}
+
+fn get_reg(cpu: &mut Cpu, reg: Reg) -> (i64, u8) {
+    match reg {
+        Reg::HL => (4, cpu.read_hl_cycle()),
+        r => (0, cpu.regs.get_reg(&r)),
+    }
+}
+
+fn get_math_reg(cpu: &mut Cpu, reg: MathReg) -> (i64, u8) {
+    match reg {
+        MathReg::Imm => (4, cpu.read_ipc_cycle()),
+        MathReg::R(r2) => get_reg(cpu, r2),
+    }
+}
+
 pub fn invalid(cpu: &mut Cpu) -> i64 {
     cpu.status = State::Hang;0
 }
-
 
 // Mnemonic: JR
 // Full Name: Jump Relative
@@ -14,7 +33,7 @@ pub fn invalid(cpu: &mut Cpu) -> i64 {
 // Remarks: This instruction stops 4 cycles short if it doesn't jump.
 // Timing: read, <internal delay>
 pub fn jr(cpu: &mut Cpu, jump: bool) -> i64 {
-    let val = cpu.read_ipc_cycle();
+    let val = cpu.read_ipc_cycle() as i8;
     if !jump {
         4
     } else {
@@ -405,7 +424,7 @@ pub fn ccf(cpu: &mut Cpu) -> i64 {
 // Timing: Read or Instant
 pub fn add(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.a;
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     cpu.regs.a = a.wrapping_add(val);
     cpu.regs.res_all_flags();
@@ -434,7 +453,7 @@ pub fn add(cpu: &mut Cpu, reg: MathReg) -> i64 {
 pub fn adc(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.a;
     let c_in = cpu.regs.get_flag(Flag::C);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     cpu.regs.a = a.wrapping_add(val).wrapping_add(c_in as u8);
 
@@ -462,7 +481,7 @@ pub fn adc(cpu: &mut Cpu, reg: MathReg) -> i64 {
 // Timing: Read or Instant
 pub fn sub(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     let res = a.wrapping_sub(val);
     cpu.regs.set_reg(Reg::A, res);
@@ -493,7 +512,7 @@ pub fn sub(cpu: &mut Cpu, reg: MathReg) -> i64 {
 pub fn sbc(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
     let c_in = cpu.regs.get_flag(Flag::C);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     let res = (a.wrapping_sub(val) as u16).wrapping_sub(c_in as u16);
     cpu.regs.set_reg(Reg::A, res as u8);
@@ -523,7 +542,7 @@ pub fn sbc(cpu: &mut Cpu, reg: MathReg) -> i64 {
 // Timing: Read or Instant
 pub fn and(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     let res = a & val;
     cpu.regs.set_reg(Reg::A, res);
@@ -544,7 +563,7 @@ pub fn and(cpu: &mut Cpu, reg: MathReg) -> i64 {
 // Timing: Read or Instant
 pub fn xor(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     let res = a ^ val;
     cpu.regs.set_reg(Reg::A, res);
@@ -564,7 +583,7 @@ pub fn xor(cpu: &mut Cpu, reg: MathReg) -> i64 {
 // Timing: Read or Instant
 pub fn or(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     let res = a | val;
     cpu.regs.set_reg(Reg::A, res);
@@ -584,7 +603,7 @@ pub fn or(cpu: &mut Cpu, reg: MathReg) -> i64 {
 // Timing: Read or Instant
 pub fn cp(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
-    let (cycles, val) = cpu.get_math_reg(reg);
+    let (cycles, val) = get_math_reg(cpu, reg);
 
     let res = a.wrapping_sub(val);
     cpu.regs.res_all_flags();

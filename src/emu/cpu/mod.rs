@@ -39,16 +39,11 @@ impl Mbc {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum MathReg {
-    R(Reg),
-    Imm,
-}
-
 pub struct Cpu {
     cycle_counter: i64,
     wram: [u8; 0x2000],
-    vram: [u8; 0x1000],
+    vram: [u8; 0x2000],
+    hram: [u8; 0x007F],
     pub regs: registers::Registers,
     pub status: State,
     ime: bool,
@@ -86,7 +81,7 @@ impl Cpu {
     fn read_rom_high(&self, addr: u16) -> u8 {
         let addr = addr as usize;
         match self.mbc {
-            Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
+            Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize + 0x4000] } else { 0xFF },
             _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
         }
     }
@@ -95,14 +90,25 @@ impl Cpu {
         self.vram[addr as usize] // TODO: Missing PPU block behaviour, but the PPU isn't implemented.
     }
 
+    fn read_io(&self, addr: u8) -> u8 {
+        // TODO: Most (all) of this function.
+        match addr {
+            0x50...0x7F => 0xFF, // Empty range.
+            0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
+            _ => {eprintln!("Unimplemented IO reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+        }
+    }
+
     fn read_byte(&self, addr: u16) -> u8 {
-        println!("Reading (addr: {:01$X})", addr, 4);
+        // println!("Reading (addr: {:01$X})", addr, 4);
         match addr {
             0x0000...0x3FFF => self.read_rom_low(addr),
-            0x4000...0x7FFF => self.read_rom_high(addr),
-            0x8000...0x9FFF => self.read_vram(addr),
+            0x4000...0x7FFF => self.read_rom_high(addr - 0x4000),
+            0x8000...0x9FFF => self.read_vram(addr - 0x8000),
             0xC000...0xCFFF => self.wram[(addr - 0xC000) as usize],
-            _ => unimplemented!("Not yet implemented range! (addr: {:01$X})", addr, 4),
+            0xFF00...0xFF7F => self.read_io(addr as u8),
+            0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80],
+            _ => unimplemented!("Unimplemented address range (read): (addr: {:01$X})", addr, 4),
         }
     }
 
@@ -111,9 +117,7 @@ impl Cpu {
         self.read_byte(addr)
     }
 
-    fn read_pc(&self) -> u8 {
-        self.read_byte(self.regs.pc)
-    }
+    fn read_pc(&self) -> u8 {self.read_byte(self.regs.pc)}
     
     fn read_ipc(&mut self) -> u8{
         let val = self.read_pc();
@@ -137,8 +141,28 @@ impl Cpu {
         val
     }
 
-    fn write_cycle(&mut self, _addr: u16, _val: u8) {
-        unimplemented!("write_cycle is unimplemented (addr: {:01$X} val: {2:03$X})", _addr, 4, _val, 2); // TODO: Stub.
+    fn write_vram(&mut self, addr: u16, val: u8) {
+        // TODO: PPU VRAM blocking.
+        self.vram[addr as usize] = val;
+    }
+
+    fn write_io(&mut self, addr: u8, val: u8) {
+        // TODO: Most (all) of this function.
+        match addr {
+            0x50...0x7F => {},
+            0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
+            _ => eprintln!("Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2)
+        }
+    }
+
+    fn write_cycle(&mut self, addr: u16, val: u8) {
+        self.update(4); // TODO (TEST): Hardware timing might be different.
+        match addr {
+            0x8000...0x9FFF => self.write_vram(addr - 0x8000, val),
+            0xFF00...0xFF7F => self.write_io(addr as u8, val),
+            0xFF80...0xFFFF => self.hram[addr as usize - 0xFF80] = val,
+            _ => unimplemented!("Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})", addr, 4, val, 2)
+        }
     }
 
     fn write_hl_cycle(&mut self, val: u8) {
@@ -172,24 +196,13 @@ impl Cpu {
         self.write_push_cycle((val >> 8) as u8);
         self.write_push_cycle(val as u8);
     }
-    
-    fn get_reg(&mut self, reg: Reg) -> (i64, u8) {
-        match reg {
-            Reg::HL => (4, self.read_hl_cycle()),
-            r => (0, self.regs.get_reg(&r)),
-        }
-    }
-    
-    fn get_math_reg(&mut self, reg: MathReg) -> (i64, u8) {
-        match reg {
-            MathReg::Imm => (4, self.read_ipc_cycle()),
-            MathReg::R(r2) => self.get_reg(r2),
-        }
-    }
 
     fn run_instruction(&mut self) -> i64 {
+        use self::instr::MathReg;
         self.update(1);
+        //println!("Getting instruction: (pc: {:01$X})", self.regs.pc, 4);
         let op = self.read_ipc();
+        //println!("Instruction value:   (va: {:01$X})", op, 2);
         self.update(1);
 
         if self.halt_bugged {
@@ -229,7 +242,7 @@ impl Cpu {
             0x1D => instr::dec_8(self, Reg::E),
             0x1E => instr::ld_r8_d8(self, Reg::E),
             0x1F => instr::rra(self),
-            
+
             0x20 => {let j = !self.regs.get_flag(Flag::Z); instr::jr(self, j)}
             0x21 => instr::ld_r16_d16(self, R16::HL),
             0x22 => instr::ld_r16_a(self, R16::HL),
@@ -276,10 +289,10 @@ impl Cpu {
             0x68 => instr::ld(self, Reg::L , Reg::B), 0x69 => instr::ld(self, Reg::L , Reg::C), 0x6A => instr::ld(self, Reg::L , Reg::D) , 0x6B => instr::ld(self, Reg::L , Reg::E),
             0x6C => instr::ld(self, Reg::L , Reg::B), 0x6D => instr::ld(self, Reg::L , Reg::L), 0x6E => instr::ld(self, Reg::L , Reg::HL), 0x6F => instr::ld(self, Reg::L , Reg::A),
             0x70 => instr::ld(self, Reg::HL, Reg::B), 0x71 => instr::ld(self, Reg::HL, Reg::C), 0x72 => instr::ld(self, Reg::HL, Reg::D) , 0x73 => instr::ld(self, Reg::HL, Reg::E),
-            0x74 => instr::ld(self, Reg::HL, Reg::H), 0x75 => instr::ld(self, Reg::HL, Reg::L), 0x76 => instr::halt(self)              , 0x77 => instr::ld(self, Reg::HL, Reg::A),
+            0x74 => instr::ld(self, Reg::HL, Reg::H), 0x75 => instr::ld(self, Reg::HL, Reg::L), 0x76 => instr::halt(self)                , 0x77 => instr::ld(self, Reg::HL, Reg::A),
             0x78 => instr::ld(self, Reg::A , Reg::B), 0x79 => instr::ld(self, Reg::A , Reg::C), 0x7A => instr::ld(self, Reg::A , Reg::D) , 0x7B => instr::ld(self, Reg::A , Reg::E),
             0x7C => instr::ld(self, Reg::A , Reg::H), 0x7D => instr::ld(self, Reg::A , Reg::L), 0x7E => instr::ld(self, Reg::A , Reg::HL), 0x7F => instr::ld(self, Reg::A , Reg::A),
-            
+
             0x80 => instr::add(self, MathReg::R(Reg::B )), 0x81 => instr::add(self, MathReg::R(Reg::C)),
             0x82 => instr::add(self, MathReg::R(Reg::D )), 0x83 => instr::add(self, MathReg::R(Reg::E)),
             0x84 => instr::add(self, MathReg::R(Reg::H )), 0x85 => instr::add(self, MathReg::R(Reg::L)),
@@ -319,7 +332,7 @@ impl Cpu {
             0xBA => instr::cp (self, MathReg::R(Reg::D )), 0xBB => instr::cp (self, MathReg::R(Reg::E)),
             0xBC => instr::cp (self, MathReg::R(Reg::H )), 0xBD => instr::cp (self, MathReg::R(Reg::L)),
             0xBE => instr::cp (self, MathReg::R(Reg::HL)), 0xBF => instr::cp (self, MathReg::R(Reg::A)),
-            
+
             0xC0 => {let j = !self.regs.get_flag(Flag::Z); instr::retc(self, j)}
             0xC1 => instr::pop(self, R16::BC),
             0xC2 => {let j = !self.regs.get_flag(Flag::Z); instr::jp  (self, j)}
@@ -328,7 +341,7 @@ impl Cpu {
             0xC5 => instr::push(self, R16::BC),
             0xC6 => instr::add(self, MathReg::Imm),
             0xC7 => instr::rst(self, 0x00),
-            0xC8 => {let j =  self.regs.get_flag(Flag::Z); instr::retc(self, j)} 
+            0xC8 => {let j =  self.regs.get_flag(Flag::Z); instr::retc(self, j)}
             0xC9 => instr::ret(self, false),
             0xCA => {let j =  self.regs.get_flag(Flag::Z); instr::jp  (self, j)}
             0xCB => self.run_extended(),
@@ -345,14 +358,14 @@ impl Cpu {
             0xD6 => instr::sub(self, MathReg::Imm),
             0xD7 => instr::rst(self, 0x10),
             0xD8 => {let j =  self.regs.get_flag(Flag::C); instr::retc(self, j)}
-            0xD9 => instr::ret(self, true ),
+            0xD9 => instr::ret(self, true),
             0xDA => {let j =  self.regs.get_flag(Flag::C); instr::jp  (self, j)}
             0xDB => instr::invalid(self),
             0xDC => {let j =  self.regs.get_flag(Flag::C); instr::call(self, j)}
             0xDD => instr::invalid(self),
             0xDE => instr::sbc(self, MathReg::Imm),
             0xDF => instr::rst(self, 0x18),
-            
+
             0xE0 => instr::ldh_a8_a(self),
             0xE1 => instr::pop(self, R16::HL),
             0xE2 => instr::ldh_c_a(self),
@@ -396,7 +409,7 @@ impl Cpu {
             0x04 => instr::rlc (self, Reg::H), 0x05 => instr::rlc (self, Reg::L), 0x06 => instr::rlc (self, Reg::HL), 0x07 => instr::rlc (self, Reg::A),
             0x08 => instr::rrc (self, Reg::B), 0x09 => instr::rrc (self, Reg::C), 0x0A => instr::rrc (self, Reg::D) , 0x0B => instr::rrc (self, Reg::E),
             0x0C => instr::rrc (self, Reg::H), 0x0D => instr::rrc (self, Reg::L), 0x0E => instr::rrc (self, Reg::HL), 0x0F => instr::rrc (self, Reg::A),
-            
+
             0x10 => instr::rl  (self, Reg::B), 0x11 => instr::rl  (self, Reg::C), 0x12 => instr::rl  (self, Reg::D) , 0x13 => instr::rl  (self, Reg::E),
             0x14 => instr::rl  (self, Reg::H), 0x15 => instr::rl  (self, Reg::L), 0x16 => instr::rl  (self, Reg::HL), 0x17 => instr::rl  (self, Reg::A),
             0x18 => instr::rr  (self, Reg::B), 0x19 => instr::rr  (self, Reg::C), 0x1A => instr::rr  (self, Reg::D) , 0x1B => instr::rr  (self, Reg::E),
@@ -406,12 +419,12 @@ impl Cpu {
             0x24 => instr::sla (self, Reg::H), 0x25 => instr::sla (self, Reg::L), 0x26 => instr::sla (self, Reg::HL), 0x27 => instr::sla (self, Reg::A),
             0x28 => instr::sra (self, Reg::B), 0x29 => instr::sra (self, Reg::C), 0x2A => instr::sra (self, Reg::D) , 0x2B => instr::sra (self, Reg::E),
             0x2C => instr::sra (self, Reg::H), 0x2D => instr::sra (self, Reg::L), 0x2E => instr::sra (self, Reg::HL), 0x2F => instr::sra (self, Reg::A),
-            
+
             0x30 => instr::swap(self, Reg::B), 0x31 => instr::swap(self, Reg::C), 0x32 => instr::swap(self, Reg::D) , 0x33 => instr::swap(self, Reg::E),
             0x34 => instr::swap(self, Reg::H), 0x35 => instr::swap(self, Reg::L), 0x36 => instr::swap(self, Reg::HL), 0x37 => instr::swap(self, Reg::A),
             0x38 => instr::srl (self, Reg::B), 0x39 => instr::srl (self, Reg::C), 0x3A => instr::srl (self, Reg::D) , 0x3B => instr::srl (self, Reg::E),
             0x3C => instr::srl (self, Reg::H), 0x3D => instr::srl (self, Reg::L), 0x3E => instr::srl (self, Reg::HL), 0x3F => instr::srl (self, Reg::A),
-            
+
             0x40 => instr::bit(self, Reg::B , 0x01), 0x41 => instr::bit(self, Reg::B , 0x02), 0x42 => instr::bit(self, Reg::B , 0x04), 0x43 => instr::bit(self, Reg::B , 0x08),
             0x44 => instr::bit(self, Reg::B , 0x10), 0x45 => instr::bit(self, Reg::B , 0x20), 0x46 => instr::bit(self, Reg::B , 0x40), 0x47 => instr::bit(self, Reg::B , 0x80),
             0x48 => instr::bit(self, Reg::C , 0x01), 0x49 => instr::bit(self, Reg::C , 0x02), 0x4A => instr::bit(self, Reg::C , 0x04), 0x4B => instr::bit(self, Reg::C , 0x08),
@@ -428,7 +441,7 @@ impl Cpu {
             0x74 => instr::bit(self, Reg::HL, 0x10), 0x75 => instr::bit(self, Reg::HL, 0x20), 0x76 => instr::bit(self, Reg::HL, 0x40), 0x77 => instr::bit(self, Reg::HL, 0x80),
             0x78 => instr::bit(self, Reg::A , 0x01), 0x79 => instr::bit(self, Reg::A , 0x02), 0x7A => instr::bit(self, Reg::A , 0x04), 0x7B => instr::bit(self, Reg::A , 0x08),
             0x7C => instr::bit(self, Reg::A , 0x10), 0x7D => instr::bit(self, Reg::A , 0x20), 0x7E => instr::bit(self, Reg::A , 0x40), 0x7F => instr::bit(self, Reg::A , 0x80),
-            
+
             0x80 => instr::res(self, Reg::B , 0x01), 0x81 => instr::res(self, Reg::B , 0x02), 0x82 => instr::res(self, Reg::B , 0x04), 0x83 => instr::res(self, Reg::B , 0x08),
             0x84 => instr::res(self, Reg::B , 0x10), 0x85 => instr::res(self, Reg::B , 0x20), 0x86 => instr::res(self, Reg::B , 0x40), 0x87 => instr::res(self, Reg::B , 0x80),
             0x88 => instr::res(self, Reg::C , 0x01), 0x89 => instr::res(self, Reg::C , 0x02), 0x8A => instr::res(self, Reg::C , 0x04), 0x8B => instr::res(self, Reg::C , 0x08),
@@ -461,10 +474,10 @@ impl Cpu {
             0xF0 => instr::set(self, Reg::HL, 0x01), 0xF1 => instr::set(self, Reg::HL, 0x02), 0xF2 => instr::set(self, Reg::HL, 0x04), 0xF3 => instr::set(self, Reg::HL, 0x08),
             0xF4 => instr::set(self, Reg::HL, 0x10), 0xF5 => instr::set(self, Reg::HL, 0x20), 0xF6 => instr::set(self, Reg::HL, 0x40), 0xF7 => instr::set(self, Reg::HL, 0x80),
             0xF8 => instr::set(self, Reg::A , 0x01), 0xF9 => instr::set(self, Reg::A , 0x02), 0xFA => instr::set(self, Reg::A , 0x04), 0xFB => instr::set(self, Reg::A , 0x08),
-            0xFC => instr::set(self, Reg::A , 0x10), 0xFD => instr::set(self, Reg::A , 0x20), 0xFE => instr::set(self,  Reg::A , 0x40), 0xFF => instr::set(self, Reg::A , 0x80),
+            0xFC => instr::set(self, Reg::A , 0x10), 0xFD => instr::set(self, Reg::A , 0x20), 0xFE => instr::set(self, Reg::A , 0x40), 0xFF => instr::set(self, Reg::A , 0x80),
             _ => unreachable!("Unimplemented CB prefixed instruction?"),
         }
-        
+
     }
 
     fn handle_interrupts(&mut self) -> i64 {
@@ -486,7 +499,8 @@ impl Cpu {
                 0x100 => Some(Cpu {
                     cycle_counter: 0,
                     wram: [0; 0x2000],
-                    vram: [0; 0x1000],
+                    vram: [0; 0x2000],
+                    hram: [0; 0x007F],
                     regs: registers::Registers::new(),
                     status: State::Okay,
                     ime: false,
