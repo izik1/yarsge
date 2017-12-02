@@ -1,6 +1,8 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
+#[macro_use]
 extern crate sdl2;
+extern crate clap;
 mod emu;
 
 use sdl2::pixels::Color;
@@ -11,6 +13,7 @@ use std::env;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
+use clap::{App, Arg};
 fn load_rom(path: String) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
@@ -27,6 +30,18 @@ fn unwrap_rom(vec: io::Result<Vec<u8>>) -> Vec<u8> {
 }
 
 pub fn main() {
+    let matches = App::new("yarsge")
+        .version("0.1")
+        .author("Zachery Gyurkovitz <zgyurkovitz@gmail.com>")
+        .about("Emulate GameBoy games")
+        .arg(Arg::with_name("boot_rom")
+            .help("The path to the boot rom")
+            .required(true))
+        .arg(Arg::with_name("game_rom")
+            .help("The path to the game rom")
+            .required(true))
+        .get_matches();
+
     let args: Vec<String> = env::args().collect();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -55,18 +70,9 @@ pub fn main() {
     canvas.present();
     let mut event_pump = sdl_context.event_pump().unwrap();
     let mut dir = true;
-    if args.len() < 3 {
-        println!("Not enough args, expected 2, but got {}", args.len() - 1);
-        std::process::exit(1)
-    }
 
-    if args.len() > 3 {
-        println!("Too many args, expected 2, but got {}", args.len() - 1);
-        std::process::exit(1)
-    }
-
-    let boot_rom = unwrap_rom(load_rom(args[1].clone()));
-    let game_rom = unwrap_rom(load_rom(args[2].clone()));
+    let boot_rom = unwrap_rom(load_rom(matches.value_of("boot_rom").unwrap().to_string()));
+    let game_rom = unwrap_rom(load_rom(matches.value_of("game_rom").unwrap().to_string()));
     let mut gb = if let Some(c) = cpu::Cpu::new(boot_rom, game_rom) {
         c
     } else {

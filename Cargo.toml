@@ -5,3 +5,4 @@ authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
 
 [dependencies]
 sdl2 = "0.31"
+clap = "2"

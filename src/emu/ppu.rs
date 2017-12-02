@@ -1,3 +1,5 @@
+// Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
+
 #[derive(Clone, Copy)]
 pub enum DisplayPixel {
     White,
