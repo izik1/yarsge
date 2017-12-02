@@ -1,6 +1,5 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
-#[macro_use]
 extern crate sdl2;
 extern crate clap;
 mod emu;
@@ -9,7 +8,6 @@ use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use emu::cpu;
-use std::env;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
@@ -42,7 +40,6 @@ pub fn main() {
             .required(true))
         .get_matches();
 
-    let args: Vec<String> = env::args().collect();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     const WIDTH: u32 = 160;

@@ -44,6 +44,7 @@ pub struct Cpu {
     cycle_counter: i64,
     wram: [u8; 0x2000],
     vram: [u8; 0x2000],
+    oam:  [u8; 0xA0  ],
     hram: [u8; 0x007F],
     pub regs: registers::Registers,
     pub status: State,
@@ -64,7 +65,7 @@ impl Cpu {
     fn update(&mut self, _cycles: i64) {
         for _ in 0.._cycles {
             self.tim.update(&mut self.r_if);
-            self.ppu.update(&mut self.r_if);
+            self.r_if |= self.ppu.update() & 0x1F;
         }
     }
 
@@ -151,6 +152,11 @@ impl Cpu {
         self.vram[addr as usize] = val;
     }
 
+    fn write_oam(&mut self, addr: u16, val: u8) {
+        // TODO: PPU OAM blocking.
+        self.oam[addr as usize] = val;
+    }
+
     fn write_io(&mut self, addr: u8, val: u8) {
         // TODO: Most (all) of this function.
         match addr {
@@ -174,6 +180,8 @@ impl Cpu {
             0x0000...0x7FFF => self.mbc_write(addr, val),
             0x8000...0x9FFF => self.write_vram(addr - 0x8000, val),
             0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize] = val,
+            0xFE00...0xFE9F => self.write_oam(addr - 0xFE00, val),
+            0xFEA0...0xFEFF => {}
             0xFF00...0xFF7F => self.write_io(addr as u8, val),
             0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80] = val,
             0xFFFF          => self.r_ier = val,
@@ -414,7 +422,7 @@ impl Cpu {
             0xFD => instr::invalid(self),
             0xFE => instr::cp(self, MathReg::Imm),
             0xFF => instr::rst(self, 0x38),
-            _ => unreachable!("Unimplemented instruction?"),
+            _ => unreachable!(),
         }
     }
 
@@ -491,7 +499,7 @@ impl Cpu {
             0xF4 => instr::set(self, Reg::HL, 0x10), 0xF5 => instr::set(self, Reg::HL, 0x20), 0xF6 => instr::set(self, Reg::HL, 0x40), 0xF7 => instr::set(self, Reg::HL, 0x80),
             0xF8 => instr::set(self, Reg::A , 0x01), 0xF9 => instr::set(self, Reg::A , 0x02), 0xFA => instr::set(self, Reg::A , 0x04), 0xFB => instr::set(self, Reg::A , 0x08),
             0xFC => instr::set(self, Reg::A , 0x10), 0xFD => instr::set(self, Reg::A , 0x20), 0xFE => instr::set(self, Reg::A , 0x40), 0xFF => instr::set(self, Reg::A , 0x80),
-            _ => unreachable!("Unimplemented CB prefixed instruction?"),
+            _ => unreachable!(),
         }
 
     }
@@ -517,6 +525,7 @@ impl Cpu {
                     wram: [0; 0x2000],
                     vram: [0; 0x2000],
                     hram: [0; 0x007F],
+                    oam : [0; 0xA0  ],
                     regs: registers::Registers::new(),
                     status: State::Okay,
                     ime: false,
