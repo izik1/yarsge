@@ -6,6 +6,7 @@ use super::registers;
 use super::registers::*;
 use super::flags::*;
 use super::timer::Timer;
+use super::ppu::Ppu;
 
 #[derive(Clone, Copy)]
 pub enum State {
@@ -56,12 +57,14 @@ pub struct Cpu {
     boot_rom: Vec<u8>,
     mbc: Mbc,
     boot_rom_enabled: bool,
+    ppu: Ppu,
 }
 
 impl Cpu {
     fn update(&mut self, _cycles: i64) {
         for _ in 0.._cycles {
             self.tim.update(&mut self.r_if);
+            self.ppu.update(&mut self.r_if);
         }
     }
 
@@ -93,7 +96,8 @@ impl Cpu {
     fn read_io(&self, addr: u8) -> u8 {
         // TODO: Most (all) of this function.
         match addr {
-            0x50...0x7F => 0xFF, // Empty range.
+            0x40...0x4B => self.ppu.get_reg(addr),
+            0x4C...0x7F => 0xFF, // Empty range.
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
             _ => {eprintln!("Unimplemented IO reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
         }
@@ -105,9 +109,10 @@ impl Cpu {
             0x0000...0x3FFF => self.read_rom_low(addr),
             0x4000...0x7FFF => self.read_rom_high(addr - 0x4000),
             0x8000...0x9FFF => self.read_vram(addr - 0x8000),
-            0xC000...0xCFFF => self.wram[(addr - 0xC000) as usize],
+            0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize],
             0xFF00...0xFF7F => self.read_io(addr as u8),
             0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80],
+            0xFFFF          => self.r_ier,
             _ => unimplemented!("Unimplemented address range (read): (addr: {:01$X})", addr, 4),
         }
     }
@@ -149,18 +154,29 @@ impl Cpu {
     fn write_io(&mut self, addr: u8, val: u8) {
         // TODO: Most (all) of this function.
         match addr {
-            0x50...0x7F => {},
+            0x40...0x4B => self.ppu.set_reg(addr, val),
+            0x4C...0x7F => {},
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
             _ => eprintln!("Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2)
+        }
+    }
+
+    fn mbc_write(&mut self, _addr: u16, _val: u8) {
+        match self.mbc {
+            Mbc::Mbc0 => {},
+            _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
         }
     }
 
     fn write_cycle(&mut self, addr: u16, val: u8) {
         self.update(4); // TODO (TEST): Hardware timing might be different.
         match addr {
+            0x0000...0x7FFF => self.mbc_write(addr, val),
             0x8000...0x9FFF => self.write_vram(addr - 0x8000, val),
+            0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize] = val,
             0xFF00...0xFF7F => self.write_io(addr as u8, val),
-            0xFF80...0xFFFF => self.hram[addr as usize - 0xFF80] = val,
+            0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80] = val,
+            0xFFFF          => self.r_ier = val,
             _ => unimplemented!("Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})", addr, 4, val, 2)
         }
     }
@@ -513,6 +529,7 @@ impl Cpu {
                     boot_rom,
                     mbc,
                     boot_rom_enabled: true,
+                    ppu: Ppu::new(),
                 }),
                 _ => None
             }

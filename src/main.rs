@@ -41,16 +41,14 @@ pub fn main() {
 
     let mut canvas = window.into_canvas().build().unwrap();
 
-    canvas.set_draw_color(Color::RGB(255, 0, 0));
-    canvas.clear();
     canvas.set_draw_color(Color::RGB(0, 0, 0));
-    const BUFFER_SIZE: usize = 160 * 144;
+    const BUFFER_SIZE: usize = 160 * 144 * 3;
     let mut val: u8 = 0;
     let mut array: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 
     let texcr = canvas.texture_creator();
     let mut tex = texcr
-        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGB24, 160, 144)
+        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::BGR24, 160, 144)
         .unwrap();
     tex.update(None, &array, 144).unwrap();
     canvas.copy(&tex, None, None).unwrap();
@@ -89,16 +87,18 @@ pub fn main() {
             }
         }
 
-        gb.run(64);
-        dir = match val {
-            0 => true,
-            0xFF => false,
-            _ => dir,
-        };
+        gb.run(0x4000);
 
-        val = if dir { val + 1 } else { val - 1 };
 
         for n in 0..BUFFER_SIZE {
+
+            dir = match val {
+                0x00...0x20 => true,
+                0x80...0xFF => false,
+                _ => dir,
+            };
+
+            val = if dir { val + 10 } else { val - 3 };
             array[n] = val;
         }
 
