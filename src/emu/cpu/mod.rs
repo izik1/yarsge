@@ -64,8 +64,7 @@ pub struct Cpu {
 impl Cpu {
     fn update(&mut self, _cycles: i64) {
         for _ in 0.._cycles {
-            self.tim.update(&mut self.r_if);
-            self.r_if |= self.ppu.update() & 0x1F;
+            self.r_if |= (self.tim.update() | self.ppu.update()) & 0x1F;
         }
     }
 
