@@ -12,6 +12,8 @@ use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 use clap::{App, Arg};
+use std::{thread, time};
+use emu::ppu;
 fn load_rom(path: String) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
@@ -31,7 +33,7 @@ pub fn main() {
     let matches = App::new("yarsge")
         .version("0.1")
         .author("Zachery Gyurkovitz <zgyurkovitz@gmail.com>")
-        .about("Emulate GameBoy games")
+        .about("Emulates GameBoy games")
         .arg(Arg::with_name("boot_rom")
             .help("The path to the boot rom")
             .required(true))
@@ -55,18 +57,16 @@ pub fn main() {
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     const BUFFER_SIZE: usize = 160 * 144 * 3;
-    let mut val: u8 = 0;
     let mut array: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 
     let texcr = canvas.texture_creator();
     let mut tex = texcr
-        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::BGR24, 160, 144)
+        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGB24, 160, 144)
         .unwrap();
-    tex.update(None, &array, 144).unwrap();
+    tex.update(None, &array, 160 * 3).unwrap();
     canvas.copy(&tex, None, None).unwrap();
     canvas.present();
     let mut event_pump = sdl_context.event_pump().unwrap();
-    let mut dir = true;
 
     let boot_rom = unwrap_rom(load_rom(matches.value_of("boot_rom").unwrap().to_string()));
     let game_rom = unwrap_rom(load_rom(matches.value_of("game_rom").unwrap().to_string()));
@@ -90,22 +90,24 @@ pub fn main() {
             }
         }
 
-        gb.run(0x4000);
-
-
-        for n in 0..BUFFER_SIZE {
-
-            dir = match val {
-                0x00...0x20 => true,
-                0x80...0xFF => false,
-                _ => dir,
+        gb.run(0x10000);
+        thread::sleep(time::Duration::from_millis(16));
+        let disp = gb.ppu.get_display();
+        for i in 0..160*144 {
+            use emu::ppu::DisplayPixel;
+            let tuple = match disp[i] {
+                DisplayPixel::White     => (0x9B, 0xBC, 0x0F),
+                DisplayPixel::LightGrey => (0xAA, 0xAA, 0xAA),
+                DisplayPixel::DarkGrey  => (0x55, 0x55, 0x55),
+                DisplayPixel::Black     => (0x00, 0x00, 0x00),
             };
 
-            val = if dir { val + 10 } else { val - 3 };
-            array[n] = val;
+            array[i * 3 + 0] = tuple.0;
+            array[i * 3 + 1] = tuple.1;
+            array[i * 3 + 2] = tuple.2;
         }
 
-        tex.update(None, &array, 144).unwrap();
+        tex.update(None, &array, 160 * 3).unwrap();
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
 

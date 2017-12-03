@@ -10,12 +10,26 @@ pub enum DisplayPixel {
     Black,
 }
 
+impl DisplayPixel {
+    fn from_num(num: u8) -> DisplayPixel {
+        match num {
+            0 => DisplayPixel::White,
+            1 => DisplayPixel::LightGrey,
+            2 => DisplayPixel::DarkGrey,
+            3 => DisplayPixel::Black,
+            _ => panic!()
+        }
+    }
+}
+
 pub struct Ppu {
+    vram: [u8; 0x2000],
     display_memory: [DisplayPixel; 160*144],
     scx: u8,
     scy: u8,
     lcdc: u8,
     ly: u8,
+    bg_pallet: u8,
     window_ly: u8,
     stat_upper: u8,
     stat_mode: u8,
@@ -27,13 +41,29 @@ pub struct Ppu {
 }
 
 impl Ppu {
+    pub fn get_display(&self) -> &[DisplayPixel] {
+        &self.display_memory
+    }
+
+    pub fn get_vram(&self, addr: u16) -> u8 {
+        // TODO: VRAM blocking.
+        self.vram[addr as usize]
+    }
+
+    pub fn set_vram(&mut self, addr: u16, val: u8) {
+        // TODO: VRAM blocking.
+        self.vram[addr as usize] = val;
+    }
+
     pub fn set_reg(&mut self, addr: u8, val: u8) {
         match addr {
             0x40 => self.lcdc = val,
-            0x41 => self.scx = val,
+            0x41 => self.stat_upper = val & 0x78,
             0x42 => self.scy = val,
-            0x43 | 0x45...0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
+            0x43 => self.scx = val,
             0x44 => {}
+            0x45 | 0x46 |0x48...0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
+            0x47 => self.bg_pallet = val,
             _ => unreachable!(),
 
         }
@@ -42,10 +72,12 @@ impl Ppu {
     pub fn get_reg(&self, addr: u8) -> u8 {
         match addr {
             0x40 => self.lcdc,
-            0x41 => self.scx,
+            0x41 => self.stat_upper | 0x80 | self.stat_mode,
             0x42 => self.scy,
+            0x43 => self.scx,
             0x44 => self.visible_ly,
-            0x43 | 0x45...0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+            0x45 | 0x46 | 0x48...0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+            0x47 => self.bg_pallet,
             _ => unreachable!(),
         }
     }
@@ -59,12 +91,14 @@ impl Ppu {
     pub fn new() -> Ppu{
         Ppu {
             display_memory: [DisplayPixel::White; 160*144],
+            vram: [0; 0x2000],
             scx: 0,
             scy: 0,
             lcdc: 0,
             ly: 0,
             lyc: 0,
             window_ly: 0,
+            bg_pallet: 0,
             stat_upper: 0,
             stat_mode: 0,
             cycle_mod: 0,
@@ -74,7 +108,57 @@ impl Ppu {
         }
     }
 
-    fn render_line(&mut self) {}
+    fn get_pixel_index(&self, tile: usize, y: usize, x: u8) -> u8 {
+        let lower = self.vram[tile * 16 + y + 0];
+        let upper = self.vram[tile * 16 + y + 1];
+        ((upper >> (7 - x) & 1) | ((lower >> (7 - x) & 1) * 2)) * 2
+    }
+
+    fn render_line_bg(&mut self) {
+        let map_offset = if bits::has_bit(self.lcdc, 3) {0x1C00} else {0x1800}
+            + (((self.scy as usize + self.ly as usize) & 0xFF) >> 3) * 32;
+
+        let mut line_offset = self.scx as usize >> 3;
+        let y = ((self.ly as usize + self.scy as usize) & 7) * 2;
+        let mut x = self.scx & 7;
+
+        let mut tile = self.vram[line_offset as usize + map_offset as usize] as usize;
+
+        if !bits::has_bit(self.lcdc, 4) && tile < 128 {
+            tile += 256;
+        }
+
+        for i in 0..160 {
+            let index = self.get_pixel_index(tile, y, x);
+            self.display_memory[((self.ly as usize) * 160) + i] = DisplayPixel::from_num((self.bg_pallet >> index) & 0b11);
+            x += 1;
+            if x == 8 {
+                x = 0;
+                line_offset = (line_offset + 1) & 31;
+                tile = self.vram[line_offset + map_offset] as usize;
+                if !bits::has_bit(self.lcdc, 4) && tile < 128
+                {
+                    tile += 256;
+                }
+
+            }
+        }
+
+    }
+
+    fn render_line(&mut self) {
+        if bits::has_bit(self.lcdc, 0) {
+            self.render_line_bg();
+        }
+
+        if bits::has_bit(self.lcdc, 5) {
+            // TODO: window
+        }
+
+        if bits::has_bit(self.lcdc, 1) {
+            // TODO: sprites
+        }
+    }
 
     fn update_line(&mut self) -> bool {
         match self.cycle_mod {

@@ -43,7 +43,6 @@ impl Mbc {
 pub struct Cpu {
     cycle_counter: i64,
     wram: [u8; 0x2000],
-    vram: [u8; 0x2000],
     oam:  [u8; 0xA0  ],
     hram: [u8; 0x007F],
     pub regs: registers::Registers,
@@ -58,7 +57,7 @@ pub struct Cpu {
     boot_rom: Vec<u8>,
     mbc: Mbc,
     boot_rom_enabled: bool,
-    ppu: Ppu,
+    pub ppu: Ppu,
 }
 
 impl Cpu {
@@ -89,10 +88,6 @@ impl Cpu {
         }
     }
 
-    fn read_vram(&self, addr: u16) -> u8 {
-        self.vram[addr as usize] // TODO: Missing PPU block behaviour, but the PPU isn't implemented.
-    }
-
     fn read_io(&self, addr: u8) -> u8 {
         // TODO: Most (all) of this function.
         match addr {
@@ -108,7 +103,7 @@ impl Cpu {
         match addr {
             0x0000...0x3FFF => self.read_rom_low(addr),
             0x4000...0x7FFF => self.read_rom_high(addr - 0x4000),
-            0x8000...0x9FFF => self.read_vram(addr - 0x8000),
+            0x8000...0x9FFF => self.ppu.get_vram(addr - 0x8000),
             0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize],
             0xFF00...0xFF7F => self.read_io(addr as u8),
             0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80],
@@ -146,11 +141,6 @@ impl Cpu {
         val
     }
 
-    fn write_vram(&mut self, addr: u16, val: u8) {
-        // TODO: PPU VRAM blocking.
-        self.vram[addr as usize] = val;
-    }
-
     fn write_oam(&mut self, addr: u16, val: u8) {
         // TODO: PPU OAM blocking.
         self.oam[addr as usize] = val;
@@ -177,7 +167,7 @@ impl Cpu {
         self.update(4); // TODO (TEST): Hardware timing might be different.
         match addr {
             0x0000...0x7FFF => self.mbc_write(addr, val),
-            0x8000...0x9FFF => self.write_vram(addr - 0x8000, val),
+            0x8000...0x9FFF => self.ppu.set_vram(addr - 0x8000, val),
             0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize] = val,
             0xFE00...0xFE9F => self.write_oam(addr - 0xFE00, val),
             0xFEA0...0xFEFF => {}
@@ -223,6 +213,11 @@ impl Cpu {
     fn run_instruction(&mut self) -> i64 {
         use self::instr::MathReg;
         self.update(1);
+
+        if self.regs.pc == 0x100 {
+            println!("0x100!");
+        }
+
         //println!("Getting instruction: (pc: {:01$X})", self.regs.pc, 4);
         let op = self.read_ipc();
         //println!("Instruction value:   (va: {:01$X})", op, 2);
@@ -522,7 +517,6 @@ impl Cpu {
                 0x100 => Some(Cpu {
                     cycle_counter: 0,
                     wram: [0; 0x2000],
-                    vram: [0; 0x2000],
                     hram: [0; 0x007F],
                     oam : [0; 0xA0  ],
                     regs: registers::Registers::new(),
