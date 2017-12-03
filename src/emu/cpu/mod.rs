@@ -61,10 +61,12 @@ pub struct Cpu {
 }
 
 impl Cpu {
-    fn update(&mut self, _cycles: i64) {
-        for _ in 0.._cycles {
+    fn update(&mut self, cycles: i64) {
+        for _ in 0..cycles {
             self.r_if |= (self.tim.update() | self.ppu.update()) & 0x1F;
         }
+
+        self.cycle_counter -= cycles;
     }
 
     fn read_rom_low(&self, addr: u16) -> u8
@@ -218,7 +220,7 @@ impl Cpu {
         self.write_push_cycle(val as u8);
     }
 
-    fn run_instruction(&mut self) -> i64 {
+    fn run_instruction(&mut self) {
         use self::instr::MathReg;
         self.update(1);
 
@@ -236,8 +238,8 @@ impl Cpu {
             self.halt_bugged = false;
         }
 
-        2 + match op {
-            0x00 => 0,
+        match op {
+            0x00 => {}
             0x01 => instr::ld_r16_d16(self, R16::BC),
             0x02 => instr::ld_r16_a(self, R16::BC),
             0x03 => instr::inc_16(self, R16::BC),
@@ -429,9 +431,9 @@ impl Cpu {
         }
     }
 
-    fn run_extended(&mut self) -> i64 {
+    fn run_extended(&mut self) {
         let op = self.read_ipc_cycle();
-        4 + match op {
+        match op {
             0x00 => instr::rlc (self, Reg::B), 0x01 => instr::rlc (self, Reg::C), 0x02 => instr::rlc (self, Reg::D) , 0x03 => instr::rlc (self, Reg::E),
             0x04 => instr::rlc (self, Reg::H), 0x05 => instr::rlc (self, Reg::L), 0x06 => instr::rlc (self, Reg::HL), 0x07 => instr::rlc (self, Reg::A),
             0x08 => instr::rrc (self, Reg::B), 0x09 => instr::rrc (self, Reg::C), 0x0A => instr::rrc (self, Reg::D) , 0x0B => instr::rrc (self, Reg::E),
@@ -507,11 +509,10 @@ impl Cpu {
 
     }
 
-    fn handle_interrupts(&mut self) -> i64 {
+    fn handle_interrupts(&mut self) {
         if !self.ime || (self.r_ier & self.r_if & 0x1F == 0) {
             self.ime |= self.ie;
             self.ie = false;
-            0
         } else {
             self.ime = false;
             self.ie = false;
@@ -531,14 +532,14 @@ impl Cpu {
 
             self.write_push_cycle(old_pc as u8);
             self.update(2);
-            16
         }
     }
     
     
-    fn handle_okay(&mut self) -> i64 {
+    fn handle_okay(&mut self) {
         self.update(2);
-        2 + self.handle_interrupts() + self.run_instruction()
+        self.handle_interrupts();
+        self.run_instruction();
     }
     
     pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Cpu> {
@@ -574,12 +575,12 @@ impl Cpu {
     pub fn run(&mut self, ticks: i64) {
         self.cycle_counter += ticks;
         while self.cycle_counter > 0 {
-            self.cycle_counter -= match self.status {
+            match self.status {
                 State::Okay => self.handle_okay(),
                 State::Stop => unimplemented!("Implement CPU stop behavior!"),
                 State::Halt => unimplemented!("Implement CPU halt behavior!"),
                 State::Hang => unimplemented!("Implement CPU hung behavior!"),
-            }
+            };
         }
     }
 }
