@@ -75,6 +75,7 @@ impl Cpu {
         } else {
             match self.mbc {
                 Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
+                Mbc::Mbc1(ref a) => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
                 _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
             }
         }
@@ -84,6 +85,7 @@ impl Cpu {
         let addr = addr as usize;
         match self.mbc {
             Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize + 0x4000] } else { 0xFF },
+            Mbc::Mbc1(ref a) => if addr < self.game_rom.len() { self.game_rom[addr as usize + 0x4000] } else { 0xFF },
             _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
         }
     }
@@ -91,6 +93,8 @@ impl Cpu {
     fn read_io(&self, addr: u8) -> u8 {
         // TODO: Most (all) of this function.
         match addr {
+            0x0F        => self.r_if | 0xE0,
+            0x10...0x3F => 0xFF, // TODO: APU, silently ignore
             0x40...0x4B => self.ppu.get_reg(addr),
             0x4C...0x7F => 0xFF, // Empty range.
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
@@ -119,7 +123,7 @@ impl Cpu {
 
     fn read_pc(&self) -> u8 {self.read_byte(self.regs.pc)}
     
-    fn read_ipc(&mut self) -> u8{
+    fn read_ipc(&mut self) -> u8 {
         let val = self.read_pc();
         self.regs.pc = self.regs.pc.wrapping_add(1);
         val
@@ -147,9 +151,13 @@ impl Cpu {
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {
-        // TODO: Most (all) of this function.
         match addr {
+            0x01 | 0x02 => {} // TODO: serial, silently ignore
+            0x04...0x07 => self.tim.write_reg(addr, val),
+            0x0F        => self.r_if = val & 0x1F,
+            0x10...0x3F => {} // TODO: APU, silently ignore
             0x40...0x4B => self.ppu.set_reg(addr, val),
+            0x50        => self.boot_rom_enabled = false,
             0x4C...0x7F => {},
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
             _ => eprintln!("Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2)
@@ -218,13 +226,14 @@ impl Cpu {
             println!("0x100!");
         }
 
-        //println!("Getting instruction: (pc: {:01$X})", self.regs.pc, 4);
+        //println!("i:{:01$X}", self.regs.pc, 4);
         let op = self.read_ipc();
-        //println!("Instruction value:   (va: {:01$X})", op, 2);
+        //println!("v:{:01$X}", op, 2);
         self.update(1);
 
         if self.halt_bugged {
             self.regs.pc = self.regs.pc.wrapping_sub(1);
+            self.halt_bugged = false;
         }
 
         2 + match op {
@@ -301,11 +310,11 @@ impl Cpu {
             0x50 => instr::ld(self, Reg::D , Reg::B), 0x51 => instr::ld(self, Reg::D , Reg::C), 0x52 => instr::ld(self, Reg::D , Reg::D) , 0x53 => instr::ld(self, Reg::D , Reg::E),
             0x54 => instr::ld(self, Reg::D , Reg::H), 0x55 => instr::ld(self, Reg::D , Reg::L), 0x56 => instr::ld(self, Reg::D , Reg::HL), 0x57 => instr::ld(self, Reg::D , Reg::A),
             0x58 => instr::ld(self, Reg::E , Reg::B), 0x59 => instr::ld(self, Reg::E , Reg::C), 0x5A => instr::ld(self, Reg::E , Reg::D) , 0x5B => instr::ld(self, Reg::E , Reg::E),
-            0x5C => instr::ld(self, Reg::E , Reg::B), 0x5D => instr::ld(self, Reg::E , Reg::C), 0x5E => instr::ld(self, Reg::E , Reg::D) , 0x5F => instr::ld(self, Reg::E , Reg::E),
+            0x5C => instr::ld(self, Reg::E , Reg::H), 0x5D => instr::ld(self, Reg::E , Reg::L), 0x5E => instr::ld(self, Reg::E , Reg::HL), 0x5F => instr::ld(self, Reg::E , Reg::A),
             0x60 => instr::ld(self, Reg::H , Reg::B), 0x61 => instr::ld(self, Reg::H , Reg::C), 0x62 => instr::ld(self, Reg::H , Reg::D) , 0x63 => instr::ld(self, Reg::H , Reg::E),
-            0x64 => instr::ld(self, Reg::H , Reg::B), 0x65 => instr::ld(self, Reg::H , Reg::L), 0x66 => instr::ld(self, Reg::H , Reg::HL), 0x67 => instr::ld(self, Reg::H , Reg::A),
+            0x64 => instr::ld(self, Reg::H , Reg::H), 0x65 => instr::ld(self, Reg::H , Reg::L), 0x66 => instr::ld(self, Reg::H , Reg::HL), 0x67 => instr::ld(self, Reg::H , Reg::A),
             0x68 => instr::ld(self, Reg::L , Reg::B), 0x69 => instr::ld(self, Reg::L , Reg::C), 0x6A => instr::ld(self, Reg::L , Reg::D) , 0x6B => instr::ld(self, Reg::L , Reg::E),
-            0x6C => instr::ld(self, Reg::L , Reg::B), 0x6D => instr::ld(self, Reg::L , Reg::L), 0x6E => instr::ld(self, Reg::L , Reg::HL), 0x6F => instr::ld(self, Reg::L , Reg::A),
+            0x6C => instr::ld(self, Reg::L , Reg::H), 0x6D => instr::ld(self, Reg::L , Reg::L), 0x6E => instr::ld(self, Reg::L , Reg::HL), 0x6F => instr::ld(self, Reg::L , Reg::A),
             0x70 => instr::ld(self, Reg::HL, Reg::B), 0x71 => instr::ld(self, Reg::HL, Reg::C), 0x72 => instr::ld(self, Reg::HL, Reg::D) , 0x73 => instr::ld(self, Reg::HL, Reg::E),
             0x74 => instr::ld(self, Reg::HL, Reg::H), 0x75 => instr::ld(self, Reg::HL, Reg::L), 0x76 => instr::halt(self)                , 0x77 => instr::ld(self, Reg::HL, Reg::A),
             0x78 => instr::ld(self, Reg::A , Reg::B), 0x79 => instr::ld(self, Reg::A , Reg::C), 0x7A => instr::ld(self, Reg::A , Reg::D) , 0x7B => instr::ld(self, Reg::A , Reg::E),
@@ -371,7 +380,7 @@ impl Cpu {
             0xD1 => instr::pop(self, R16::DE),
             0xD2 => {let j = !self.regs.get_flag(Flag::C); instr::jp  (self, j)}
             0xD3 => instr::invalid(self),
-            0xD4 => {let j =  self.regs.get_flag(Flag::C); instr::call(self, j)}
+            0xD4 => {let j =  !self.regs.get_flag(Flag::C); instr::call(self, j)}
             0xD5 => instr::push(self, R16::DE),
             0xD6 => instr::sub(self, MathReg::Imm),
             0xD7 => instr::rst(self, 0x10),
@@ -411,7 +420,7 @@ impl Cpu {
             0xF8 => instr::ld_hl_sp_r8(self),
             0xF9 => instr::ld_sp_hl(self),
             0xFA => instr::ld_a_a16(self),
-            0xFB => instr::ie(self),
+            0xFB => instr::ei(self),
             0xFC => instr::invalid(self),
             0xFD => instr::invalid(self),
             0xFE => instr::cp(self, MathReg::Imm),
@@ -443,63 +452,87 @@ impl Cpu {
             0x38 => instr::srl (self, Reg::B), 0x39 => instr::srl (self, Reg::C), 0x3A => instr::srl (self, Reg::D) , 0x3B => instr::srl (self, Reg::E),
             0x3C => instr::srl (self, Reg::H), 0x3D => instr::srl (self, Reg::L), 0x3E => instr::srl (self, Reg::HL), 0x3F => instr::srl (self, Reg::A),
 
-            0x40 => instr::bit(self, Reg::B , 0x01), 0x41 => instr::bit(self, Reg::B , 0x02), 0x42 => instr::bit(self, Reg::B , 0x04), 0x43 => instr::bit(self, Reg::B , 0x08),
-            0x44 => instr::bit(self, Reg::B , 0x10), 0x45 => instr::bit(self, Reg::B , 0x20), 0x46 => instr::bit(self, Reg::B , 0x40), 0x47 => instr::bit(self, Reg::B , 0x80),
-            0x48 => instr::bit(self, Reg::C , 0x01), 0x49 => instr::bit(self, Reg::C , 0x02), 0x4A => instr::bit(self, Reg::C , 0x04), 0x4B => instr::bit(self, Reg::C , 0x08),
-            0x4C => instr::bit(self, Reg::C , 0x10), 0x4D => instr::bit(self, Reg::C , 0x20), 0x4E => instr::bit(self, Reg::C , 0x40), 0x4F => instr::bit(self, Reg::C , 0x80),
-            0x50 => instr::bit(self, Reg::D , 0x01), 0x51 => instr::bit(self, Reg::D , 0x02), 0x52 => instr::bit(self, Reg::D , 0x04), 0x53 => instr::bit(self, Reg::D , 0x08),
-            0x54 => instr::bit(self, Reg::D , 0x10), 0x55 => instr::bit(self, Reg::D , 0x20), 0x56 => instr::bit(self, Reg::D , 0x40), 0x57 => instr::bit(self, Reg::D , 0x80),
-            0x58 => instr::bit(self, Reg::E , 0x01), 0x59 => instr::bit(self, Reg::E , 0x02), 0x5A => instr::bit(self, Reg::E , 0x04), 0x5B => instr::bit(self, Reg::E , 0x08),
-            0x5C => instr::bit(self, Reg::E , 0x10), 0x5D => instr::bit(self, Reg::E , 0x20), 0x5E => instr::bit(self, Reg::E , 0x40), 0x5F => instr::bit(self, Reg::E , 0x80),
-            0x60 => instr::bit(self, Reg::H , 0x01), 0x61 => instr::bit(self, Reg::H , 0x02), 0x62 => instr::bit(self, Reg::H , 0x04), 0x63 => instr::bit(self, Reg::H , 0x08),
-            0x64 => instr::bit(self, Reg::H , 0x10), 0x65 => instr::bit(self, Reg::H , 0x20), 0x66 => instr::bit(self, Reg::H , 0x40), 0x67 => instr::bit(self, Reg::H , 0x80),
-            0x68 => instr::bit(self, Reg::L , 0x01), 0x69 => instr::bit(self, Reg::L , 0x02), 0x6A => instr::bit(self, Reg::L , 0x04), 0x6B => instr::bit(self, Reg::L , 0x08),
-            0x6C => instr::bit(self, Reg::L , 0x10), 0x6D => instr::bit(self, Reg::L , 0x20), 0x6E => instr::bit(self, Reg::L , 0x40), 0x6F => instr::bit(self, Reg::L , 0x80),
-            0x70 => instr::bit(self, Reg::HL, 0x01), 0x71 => instr::bit(self, Reg::HL, 0x02), 0x72 => instr::bit(self, Reg::HL, 0x04), 0x73 => instr::bit(self, Reg::HL, 0x08),
-            0x74 => instr::bit(self, Reg::HL, 0x10), 0x75 => instr::bit(self, Reg::HL, 0x20), 0x76 => instr::bit(self, Reg::HL, 0x40), 0x77 => instr::bit(self, Reg::HL, 0x80),
-            0x78 => instr::bit(self, Reg::A , 0x01), 0x79 => instr::bit(self, Reg::A , 0x02), 0x7A => instr::bit(self, Reg::A , 0x04), 0x7B => instr::bit(self, Reg::A , 0x08),
-            0x7C => instr::bit(self, Reg::A , 0x10), 0x7D => instr::bit(self, Reg::A , 0x20), 0x7E => instr::bit(self, Reg::A , 0x40), 0x7F => instr::bit(self, Reg::A , 0x80),
+            0x40 => instr::bit(self, Reg::B, 0x01), 0x41 => instr::bit(self, Reg::C, 0x01), 0x42 => instr::bit(self, Reg::D , 0x01), 0x43 => instr::bit(self, Reg::E, 0x01),
+            0x44 => instr::bit(self, Reg::H, 0x01), 0x45 => instr::bit(self, Reg::L, 0x01), 0x46 => instr::bit(self, Reg::HL, 0x01), 0x47 => instr::bit(self, Reg::A, 0x01),
+            0x48 => instr::bit(self, Reg::B, 0x02), 0x49 => instr::bit(self, Reg::C, 0x02), 0x4A => instr::bit(self, Reg::D , 0x02), 0x4B => instr::bit(self, Reg::E, 0x02),
+            0x4C => instr::bit(self, Reg::H, 0x02), 0x4D => instr::bit(self, Reg::L, 0x02), 0x4E => instr::bit(self, Reg::HL, 0x02), 0x4F => instr::bit(self, Reg::A, 0x02),
+            0x50 => instr::bit(self, Reg::B, 0x04), 0x51 => instr::bit(self, Reg::C, 0x04), 0x52 => instr::bit(self, Reg::D , 0x04), 0x53 => instr::bit(self, Reg::E, 0x04),
+            0x54 => instr::bit(self, Reg::H, 0x04), 0x55 => instr::bit(self, Reg::L, 0x04), 0x56 => instr::bit(self, Reg::HL, 0x04), 0x57 => instr::bit(self, Reg::A, 0x04),
+            0x58 => instr::bit(self, Reg::B, 0x08), 0x59 => instr::bit(self, Reg::C, 0x08), 0x5A => instr::bit(self, Reg::D , 0x08), 0x5B => instr::bit(self, Reg::E, 0x08),
+            0x5C => instr::bit(self, Reg::H, 0x08), 0x5D => instr::bit(self, Reg::L, 0x08), 0x5E => instr::bit(self, Reg::HL, 0x08), 0x5F => instr::bit(self, Reg::A, 0x08),
+            0x60 => instr::bit(self, Reg::B, 0x10), 0x61 => instr::bit(self, Reg::C, 0x10), 0x62 => instr::bit(self, Reg::D , 0x10), 0x63 => instr::bit(self, Reg::E, 0x10),
+            0x64 => instr::bit(self, Reg::H, 0x10), 0x65 => instr::bit(self, Reg::L, 0x10), 0x66 => instr::bit(self, Reg::HL, 0x10), 0x67 => instr::bit(self, Reg::A, 0x10),
+            0x68 => instr::bit(self, Reg::B, 0x20), 0x69 => instr::bit(self, Reg::C, 0x20), 0x6A => instr::bit(self, Reg::D , 0x20), 0x6B => instr::bit(self, Reg::E, 0x20),
+            0x6C => instr::bit(self, Reg::H, 0x20), 0x6D => instr::bit(self, Reg::L, 0x20), 0x6E => instr::bit(self, Reg::HL, 0x20), 0x6F => instr::bit(self, Reg::A, 0x20),
+            0x70 => instr::bit(self, Reg::B, 0x40), 0x71 => instr::bit(self, Reg::C, 0x40), 0x72 => instr::bit(self, Reg::D , 0x40), 0x73 => instr::bit(self, Reg::E, 0x40),
+            0x74 => instr::bit(self, Reg::H, 0x40), 0x75 => instr::bit(self, Reg::L, 0x40), 0x76 => instr::bit(self, Reg::HL, 0x40), 0x77 => instr::bit(self, Reg::A, 0x40),
+            0x78 => instr::bit(self, Reg::B, 0x80), 0x79 => instr::bit(self, Reg::C, 0x80), 0x7A => instr::bit(self, Reg::D , 0x80), 0x7B => instr::bit(self, Reg::E, 0x80),
+            0x7C => instr::bit(self, Reg::H, 0x80), 0x7D => instr::bit(self, Reg::L, 0x80), 0x7E => instr::bit(self, Reg::HL, 0x80), 0x7F => instr::bit(self, Reg::A, 0x80),
 
-            0x80 => instr::res(self, Reg::B , 0x01), 0x81 => instr::res(self, Reg::B , 0x02), 0x82 => instr::res(self, Reg::B , 0x04), 0x83 => instr::res(self, Reg::B , 0x08),
-            0x84 => instr::res(self, Reg::B , 0x10), 0x85 => instr::res(self, Reg::B , 0x20), 0x86 => instr::res(self, Reg::B , 0x40), 0x87 => instr::res(self, Reg::B , 0x80),
-            0x88 => instr::res(self, Reg::C , 0x01), 0x89 => instr::res(self, Reg::C , 0x02), 0x8A => instr::res(self, Reg::C , 0x04), 0x8B => instr::res(self, Reg::C , 0x08),
-            0x8C => instr::res(self, Reg::C , 0x10), 0x8D => instr::res(self, Reg::C , 0x20), 0x8E => instr::res(self, Reg::C , 0x40), 0x8F => instr::res(self, Reg::C , 0x80),
-            0x90 => instr::res(self, Reg::D , 0x01), 0x91 => instr::res(self, Reg::D , 0x02), 0x92 => instr::res(self, Reg::D , 0x04), 0x93 => instr::res(self, Reg::D , 0x08),
-            0x94 => instr::res(self, Reg::D , 0x10), 0x95 => instr::res(self, Reg::D , 0x20), 0x96 => instr::res(self, Reg::D , 0x40), 0x97 => instr::res(self, Reg::D , 0x80),
-            0x98 => instr::res(self, Reg::E , 0x01), 0x99 => instr::res(self, Reg::E , 0x02), 0x9A => instr::res(self, Reg::E , 0x04), 0x9B => instr::res(self, Reg::E , 0x08),
-            0x9C => instr::res(self, Reg::E , 0x10), 0x9D => instr::res(self, Reg::E , 0x20), 0x9E => instr::res(self, Reg::E , 0x40), 0x9F => instr::res(self, Reg::E , 0x80),
-            0xA0 => instr::res(self, Reg::H , 0x01), 0xA1 => instr::res(self, Reg::H , 0x02), 0xA2 => instr::res(self, Reg::H , 0x04), 0xA3 => instr::res(self, Reg::H , 0x08),
-            0xA4 => instr::res(self, Reg::H , 0x10), 0xA5 => instr::res(self, Reg::H , 0x20), 0xA6 => instr::res(self, Reg::H , 0x40), 0xA7 => instr::res(self, Reg::H , 0x80),
-            0xA8 => instr::res(self, Reg::L , 0x01), 0xA9 => instr::res(self, Reg::L , 0x02), 0xAA => instr::res(self, Reg::L , 0x04), 0xAB => instr::res(self, Reg::L , 0x08),
-            0xAC => instr::res(self, Reg::L , 0x10), 0xAD => instr::res(self, Reg::L , 0x20), 0xAE => instr::res(self, Reg::L , 0x40), 0xAF => instr::res(self, Reg::L , 0x80),
-            0xB0 => instr::res(self, Reg::HL, 0x01), 0xB1 => instr::res(self, Reg::HL, 0x02), 0xB2 => instr::res(self, Reg::HL, 0x04), 0xB3 => instr::res(self, Reg::HL, 0x08),
-            0xB4 => instr::res(self, Reg::HL, 0x10), 0xB5 => instr::res(self, Reg::HL, 0x20), 0xB6 => instr::res(self, Reg::HL, 0x40), 0xB7 => instr::res(self, Reg::HL, 0x80),
-            0xB8 => instr::res(self, Reg::A , 0x01), 0xB9 => instr::res(self, Reg::A , 0x02), 0xBA => instr::res(self, Reg::A , 0x04), 0xBB => instr::res(self, Reg::A , 0x08),
-            0xBC => instr::res(self, Reg::A , 0x10), 0xBD => instr::res(self, Reg::A , 0x20), 0xBE => instr::res(self, Reg::A , 0x40), 0xBF => instr::res(self, Reg::A , 0x80),
+            0x80 => instr::res(self, Reg::B, 0x01), 0x81 => instr::res(self, Reg::C, 0x01), 0x82 => instr::res(self, Reg::D , 0x01), 0x83 => instr::res(self, Reg::E, 0x01),
+            0x84 => instr::res(self, Reg::H, 0x01), 0x85 => instr::res(self, Reg::L, 0x01), 0x86 => instr::res(self, Reg::HL, 0x01), 0x87 => instr::res(self, Reg::A, 0x01),
+            0x88 => instr::res(self, Reg::B, 0x02), 0x89 => instr::res(self, Reg::C, 0x02), 0x8A => instr::res(self, Reg::D , 0x02), 0x8B => instr::res(self, Reg::E, 0x02),
+            0x8C => instr::res(self, Reg::H, 0x02), 0x8D => instr::res(self, Reg::L, 0x02), 0x8E => instr::res(self, Reg::HL, 0x02), 0x8F => instr::res(self, Reg::A, 0x02),
+            0x90 => instr::res(self, Reg::B, 0x04), 0x91 => instr::res(self, Reg::C, 0x04), 0x92 => instr::res(self, Reg::D , 0x04), 0x93 => instr::res(self, Reg::E, 0x04),
+            0x94 => instr::res(self, Reg::H, 0x04), 0x95 => instr::res(self, Reg::L, 0x04), 0x96 => instr::res(self, Reg::HL, 0x04), 0x97 => instr::res(self, Reg::A, 0x04),
+            0x98 => instr::res(self, Reg::B, 0x08), 0x99 => instr::res(self, Reg::C, 0x08), 0x9A => instr::res(self, Reg::D , 0x08), 0x9B => instr::res(self, Reg::E, 0x08),
+            0x9C => instr::res(self, Reg::H, 0x08), 0x9D => instr::res(self, Reg::L, 0x08), 0x9E => instr::res(self, Reg::HL, 0x08), 0x9F => instr::res(self, Reg::A, 0x08),
+            0xA0 => instr::res(self, Reg::B, 0x10), 0xA1 => instr::res(self, Reg::C, 0x10), 0xA2 => instr::res(self, Reg::D , 0x10), 0xA3 => instr::res(self, Reg::E, 0x10),
+            0xA4 => instr::res(self, Reg::H, 0x10), 0xA5 => instr::res(self, Reg::L, 0x10), 0xA6 => instr::res(self, Reg::HL, 0x10), 0xA7 => instr::res(self, Reg::A, 0x10),
+            0xA8 => instr::res(self, Reg::B, 0x20), 0xA9 => instr::res(self, Reg::C, 0x20), 0xAA => instr::res(self, Reg::D , 0x20), 0xAB => instr::res(self, Reg::E, 0x20),
+            0xAC => instr::res(self, Reg::H, 0x20), 0xAD => instr::res(self, Reg::L, 0x20), 0xAE => instr::res(self, Reg::HL, 0x20), 0xAF => instr::res(self, Reg::A, 0x20),
+            0xB0 => instr::res(self, Reg::B, 0x40), 0xB1 => instr::res(self, Reg::C, 0x40), 0xB2 => instr::res(self, Reg::D , 0x40), 0xB3 => instr::res(self, Reg::E, 0x40),
+            0xB4 => instr::res(self, Reg::H, 0x40), 0xB5 => instr::res(self, Reg::L, 0x40), 0xB6 => instr::res(self, Reg::HL, 0x40), 0xB7 => instr::res(self, Reg::A, 0x40),
+            0xB8 => instr::res(self, Reg::B, 0x80), 0xB9 => instr::res(self, Reg::C, 0x80), 0xBA => instr::res(self, Reg::D , 0x80), 0xBB => instr::res(self, Reg::E, 0x80),
+            0xBC => instr::res(self, Reg::H, 0x80), 0xBD => instr::res(self, Reg::L, 0x80), 0xBE => instr::res(self, Reg::HL, 0x80), 0xBF => instr::res(self, Reg::A, 0x80),
 
-            0xC0 => instr::set(self, Reg::B , 0x01), 0xC1 => instr::set(self, Reg::B , 0x02), 0xC2 => instr::set(self, Reg::B , 0x04), 0xC3 => instr::set(self, Reg::B , 0x08),
-            0xC4 => instr::set(self, Reg::B , 0x10), 0xC5 => instr::set(self, Reg::B , 0x20), 0xC6 => instr::set(self, Reg::B , 0x40), 0xC7 => instr::set(self, Reg::B , 0x80),
-            0xC8 => instr::set(self, Reg::C , 0x01), 0xC9 => instr::set(self, Reg::C , 0x02), 0xCA => instr::set(self, Reg::C , 0x04), 0xCB => instr::set(self, Reg::C , 0x08),
-            0xCC => instr::set(self, Reg::C , 0x10), 0xCD => instr::set(self, Reg::C , 0x20), 0xCE => instr::set(self, Reg::C , 0x40), 0xCF => instr::set(self, Reg::C , 0x80),
-            0xD0 => instr::set(self, Reg::D , 0x01), 0xD1 => instr::set(self, Reg::D , 0x02), 0xD2 => instr::set(self, Reg::D , 0x04), 0xD3 => instr::set(self, Reg::D , 0x08),
-            0xD4 => instr::set(self, Reg::D , 0x10), 0xD5 => instr::set(self, Reg::D , 0x20), 0xD6 => instr::set(self, Reg::D , 0x40), 0xD7 => instr::set(self, Reg::D , 0x80),
-            0xD8 => instr::set(self, Reg::E , 0x01), 0xD9 => instr::set(self, Reg::E , 0x02), 0xDA => instr::set(self, Reg::E , 0x04), 0xDB => instr::set(self, Reg::E , 0x08),
-            0xDC => instr::set(self, Reg::E , 0x10), 0xDD => instr::set(self, Reg::E , 0x20), 0xDE => instr::set(self, Reg::E , 0x40), 0xDF => instr::set(self, Reg::E , 0x80),
-            0xE0 => instr::set(self, Reg::H , 0x01), 0xE1 => instr::set(self, Reg::H , 0x02), 0xE2 => instr::set(self, Reg::H , 0x04), 0xE3 => instr::set(self, Reg::H , 0x08),
-            0xE4 => instr::set(self, Reg::H , 0x10), 0xE5 => instr::set(self, Reg::H , 0x20), 0xE6 => instr::set(self, Reg::H , 0x40), 0xE7 => instr::set(self, Reg::H , 0x80),
-            0xE8 => instr::set(self, Reg::L , 0x01), 0xE9 => instr::set(self, Reg::L , 0x02), 0xEA => instr::set(self, Reg::L , 0x04), 0xEB => instr::set(self, Reg::L , 0x08),
-            0xEC => instr::set(self, Reg::L , 0x10), 0xED => instr::set(self, Reg::L , 0x20), 0xEE => instr::set(self, Reg::L , 0x40), 0xEF => instr::set(self, Reg::L , 0x80),
-            0xF0 => instr::set(self, Reg::HL, 0x01), 0xF1 => instr::set(self, Reg::HL, 0x02), 0xF2 => instr::set(self, Reg::HL, 0x04), 0xF3 => instr::set(self, Reg::HL, 0x08),
-            0xF4 => instr::set(self, Reg::HL, 0x10), 0xF5 => instr::set(self, Reg::HL, 0x20), 0xF6 => instr::set(self, Reg::HL, 0x40), 0xF7 => instr::set(self, Reg::HL, 0x80),
-            0xF8 => instr::set(self, Reg::A , 0x01), 0xF9 => instr::set(self, Reg::A , 0x02), 0xFA => instr::set(self, Reg::A , 0x04), 0xFB => instr::set(self, Reg::A , 0x08),
-            0xFC => instr::set(self, Reg::A , 0x10), 0xFD => instr::set(self, Reg::A , 0x20), 0xFE => instr::set(self, Reg::A , 0x40), 0xFF => instr::set(self, Reg::A , 0x80),
+            0xC0 => instr::set(self, Reg::B, 0x01), 0xC1 => instr::set(self, Reg::C, 0x01), 0xC2 => instr::set(self, Reg::D , 0x01), 0xC3 => instr::set(self, Reg::E, 0x01),
+            0xC4 => instr::set(self, Reg::H, 0x01), 0xC5 => instr::set(self, Reg::L, 0x01), 0xC6 => instr::set(self, Reg::HL, 0x01), 0xC7 => instr::set(self, Reg::A, 0x01),
+            0xC8 => instr::set(self, Reg::B, 0x02), 0xC9 => instr::set(self, Reg::C, 0x02), 0xCA => instr::set(self, Reg::D , 0x02), 0xCB => instr::set(self, Reg::E, 0x02),
+            0xCC => instr::set(self, Reg::H, 0x02), 0xCD => instr::set(self, Reg::L, 0x02), 0xCE => instr::set(self, Reg::HL, 0x02), 0xCF => instr::set(self, Reg::A, 0x02),
+            0xD0 => instr::set(self, Reg::B, 0x04), 0xD1 => instr::set(self, Reg::C, 0x04), 0xD2 => instr::set(self, Reg::D , 0x04), 0xD3 => instr::set(self, Reg::E, 0x04),
+            0xD4 => instr::set(self, Reg::H, 0x04), 0xD5 => instr::set(self, Reg::L, 0x04), 0xD6 => instr::set(self, Reg::HL, 0x04), 0xD7 => instr::set(self, Reg::A, 0x04),
+            0xD8 => instr::set(self, Reg::B, 0x08), 0xD9 => instr::set(self, Reg::C, 0x08), 0xDA => instr::set(self, Reg::D , 0x08), 0xDB => instr::set(self, Reg::E, 0x08),
+            0xDC => instr::set(self, Reg::H, 0x08), 0xDD => instr::set(self, Reg::L, 0x08), 0xDE => instr::set(self, Reg::HL, 0x08), 0xDF => instr::set(self, Reg::A, 0x08),
+            0xE0 => instr::set(self, Reg::B, 0x10), 0xE1 => instr::set(self, Reg::C, 0x10), 0xE2 => instr::set(self, Reg::D , 0x10), 0xE3 => instr::set(self, Reg::E, 0x10),
+            0xE4 => instr::set(self, Reg::H, 0x10), 0xE5 => instr::set(self, Reg::L, 0x10), 0xE6 => instr::set(self, Reg::HL, 0x10), 0xE7 => instr::set(self, Reg::A, 0x10),
+            0xE8 => instr::set(self, Reg::B, 0x20), 0xE9 => instr::set(self, Reg::C, 0x20), 0xEA => instr::set(self, Reg::D , 0x20), 0xEB => instr::set(self, Reg::E, 0x20),
+            0xEC => instr::set(self, Reg::H, 0x20), 0xED => instr::set(self, Reg::L, 0x20), 0xEE => instr::set(self, Reg::HL, 0x20), 0xEF => instr::set(self, Reg::A, 0x20),
+            0xF0 => instr::set(self, Reg::B, 0x40), 0xF1 => instr::set(self, Reg::C, 0x40), 0xF2 => instr::set(self, Reg::D , 0x40), 0xF3 => instr::set(self, Reg::E, 0x40),
+            0xF4 => instr::set(self, Reg::H, 0x40), 0xF5 => instr::set(self, Reg::L, 0x40), 0xF6 => instr::set(self, Reg::HL, 0x40), 0xF7 => instr::set(self, Reg::A, 0x40),
+            0xF8 => instr::set(self, Reg::B, 0x80), 0xF9 => instr::set(self, Reg::C, 0x80), 0xFA => instr::set(self, Reg::D , 0x80), 0xFB => instr::set(self, Reg::E, 0x80),
+            0xFC => instr::set(self, Reg::H, 0x80), 0xFD => instr::set(self, Reg::L, 0x80), 0xFE => instr::set(self, Reg::HL, 0x80), 0xFF => instr::set(self, Reg::A, 0x80),
             _ => unreachable!(),
         }
 
     }
 
     fn handle_interrupts(&mut self) -> i64 {
-        0 // STUB
+        if !self.ime || (self.r_ier & self.r_if & 0x1F == 0) {
+            self.ime |= self.ie;
+            self.ie = false;
+            0
+        } else {
+            self.ime = false;
+            self.ie = false;
+
+            self.update(6);
+            let old_pc = self.regs.pc;
+            self.write_push_cycle((old_pc >> 8) as u8);
+            let b = self.r_ier & self.r_if & 0x1F;
+            self.regs.pc = 0;
+            for i in 0..5 {
+                if (b >> i) & 1 == i {
+                    self.regs.pc = (i * 8 + 0x40) as u16;
+                    self.r_if &= !(1 << i) as u8;
+                    break;
+                }
+            }
+
+            self.write_push_cycle(old_pc as u8);
+            self.update(2);
+            16
+        }
     }
     
     

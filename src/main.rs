@@ -13,7 +13,6 @@ use std::io::prelude::*;
 use std::fs::File;
 use clap::{App, Arg};
 use std::{thread, time};
-use emu::ppu;
 fn load_rom(path: String) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
@@ -30,9 +29,12 @@ fn unwrap_rom(vec: io::Result<Vec<u8>>) -> Vec<u8> {
 }
 
 pub fn main() {
-    let matches = App::new("yarsge")
-        .version("0.1")
-        .author("Zachery Gyurkovitz <zgyurkovitz@gmail.com>")
+    const VERSION: &str = env!("CARGO_PKG_VERSION");
+    const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
+    const NAME: &str = env!("CARGO_PKG_NAME");
+    let matches = App::new(NAME)
+        .version(VERSION)
+        .author(AUTHORS)
         .about("Emulates GameBoy games")
         .arg(Arg::with_name("boot_rom")
             .help("The path to the boot rom")
@@ -60,7 +62,7 @@ pub fn main() {
     const WIDTH: u32 = 160;
     const HEIGHT: u32 = 144;
     let window = video_subsystem
-        .window("yarsge", WIDTH * scale, HEIGHT * scale)
+        .window(NAME, WIDTH * scale, HEIGHT * scale)
         .position_centered()
         .opengl()
         .build()
@@ -103,8 +105,7 @@ pub fn main() {
             }
         }
 
-        gb.run(0x10000);
-        thread::sleep(time::Duration::from_millis(16));
+        gb.run(0x40000);
         let disp = gb.ppu.get_display();
         for i in 0..160*144 {
             use emu::ppu::DisplayPixel;

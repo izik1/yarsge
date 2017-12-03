@@ -9,6 +9,16 @@ pub struct Timer {
 }
 
 impl Timer {
+    pub fn write_reg(&mut self, addr: u8, val: u8) {
+        match addr {
+            0x04 => self.sys_timer = 0,
+            0x05 => {self.tima_overflow = 1; self.tima = val}
+            0x06 => self.tma = val,
+            0x07 => self.tac = val & 7,
+            _ => unreachable!()
+        }
+    }
+
     pub fn new() -> Timer {
         Timer{
             prev_tima_overflow: 0,

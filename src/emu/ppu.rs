@@ -25,6 +25,8 @@ impl DisplayPixel {
 pub struct Ppu {
     vram: [u8; 0x2000],
     display_memory: [DisplayPixel; 160*144],
+    obj_pallet_a: u8,
+    obj_pallet_b: u8,
     scx: u8,
     scy: u8,
     lcdc: u8,
@@ -62,8 +64,10 @@ impl Ppu {
             0x42 => self.scy = val,
             0x43 => self.scx = val,
             0x44 => {}
-            0x45 | 0x46 |0x48...0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
+            0x45 | 0x46 |0x4A | 0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
             0x47 => self.bg_pallet = val,
+            0x48 => self.obj_pallet_a = val & 0xFC,
+            0x49 => self.obj_pallet_b = val & 0xFC,
             _ => unreachable!(),
 
         }
@@ -76,8 +80,10 @@ impl Ppu {
             0x42 => self.scy,
             0x43 => self.scx,
             0x44 => self.visible_ly,
-            0x45 | 0x46 | 0x48...0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+            0x45 | 0x46 | 0x4A | 0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
             0x47 => self.bg_pallet,
+            0x48 => self.obj_pallet_a,
+            0x49 => self.obj_pallet_b,
             _ => unreachable!(),
         }
     }
@@ -86,11 +92,18 @@ impl Ppu {
         if !self.disabled {
             self.disabled = true;
         }
+        else {
+            self.display_memory = [DisplayPixel::White; 160*144];
+            self.ly = 0;
+            self.visible_ly = 0;
+        }
     }
 
     pub fn new() -> Ppu{
         Ppu {
             display_memory: [DisplayPixel::White; 160*144],
+            obj_pallet_a: 0,
+            obj_pallet_b: 0,
             vram: [0; 0x2000],
             scx: 0,
             scy: 0,
@@ -201,6 +214,7 @@ impl Ppu {
             self.disable();
             0
         } else {
+            self.disabled = false;
             let mut vblank = 0;
             let irq = match self.ly.cmp(&144) {
                 Ordering::Less =>    self.update_line(),

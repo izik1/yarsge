@@ -184,7 +184,7 @@ pub fn dec_8(cpu: &mut Cpu, reg: Reg) -> i64 {
         r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val.wrapping_sub(1));0}
     };
 
-    cpu.regs.f = cpu.regs.f & Flag::C.to_mask();
+    cpu.regs.f &= Flag::C.to_mask();
     if val == 1 {cpu.regs.set_flag(Flag::Z)};
     cpu.regs.set_flag(Flag::N);
     if (val & 0xF) == 0 {cpu.regs.set_flag(Flag::H)};
@@ -212,12 +212,12 @@ pub fn ld_r8_d8(cpu: &mut Cpu, reg: Reg) -> i64 {
 // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
 // Timing: Instant.
 pub fn rlca(cpu: &mut Cpu) -> i64 {
-    cpu.regs.a = (cpu.regs.a << 1) | (cpu.regs.a >> 7);
     cpu.regs.res_all_flags();
-
     if (cpu.regs.a & 0x80) > 0 {
         cpu.regs.set_flag(Flag::C);
     }
+
+    cpu.regs.a = (cpu.regs.a << 1) | (cpu.regs.a >> 7);
     0
 }
 
@@ -296,12 +296,12 @@ pub fn dec_16(cpu: &mut Cpu, reg: R16) -> i64 {
 // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
 // Timing: Instant.
 pub fn rrca(cpu: &mut Cpu) -> i64 {
-    cpu.regs.a = (cpu.regs.a >> 1) | (cpu.regs.a << 7);
     cpu.regs.res_all_flags();
     if (cpu.regs.a & 0x01) == 0x01 {
         cpu.regs.set_flag(Flag::C);
     }
 
+    cpu.regs.a = (cpu.regs.a >> 1) | (cpu.regs.a << 7);
     0
 }
 
@@ -365,7 +365,7 @@ pub fn daa(cpu: &mut Cpu) -> i64 {
         }
     };
 
-    cpu.regs.f &= Flag::Z.to_mask() | Flag::C.to_mask();
+    cpu.regs.f &= Flag::N.to_mask() | Flag::C.to_mask();
     if (res & 0x100) == 0x100 {
         cpu.regs.set_flag(Flag::C);
     }
@@ -399,7 +399,7 @@ pub fn cpl(cpu: &mut Cpu) -> i64 {
 // Remarks: ----
 // Timing: Instant.
 pub fn scf(cpu: &mut Cpu) -> i64 {
-    cpu.regs.f = Flag::Z.to_mask();
+    cpu.regs.f &= Flag::Z.to_mask();
     cpu.regs.set_flag(Flag::C);
     0
 }
@@ -432,7 +432,7 @@ pub fn add(cpu: &mut Cpu, reg: MathReg) -> i64 {
         cpu.regs.set_flag(Flag::Z);
     }
 
-    if get_hca(a, cpu.regs.a) {
+    if get_hca(a, val) {
         cpu.regs.set_flag(Flag::H);
     }
 
@@ -465,7 +465,7 @@ pub fn adc(cpu: &mut Cpu, reg: MathReg) -> i64 {
         cpu.regs.set_flag(Flag::H);
     }
 
-    if (a.wrapping_add(val) as u16).wrapping_add(c_in as u16) > 0xFF {
+    if (a as u16).wrapping_add(val as u16).wrapping_add(c_in as u16) > 0xFF {
         cpu.regs.set_flag(Flag::C);
     }
 
@@ -496,7 +496,7 @@ pub fn sub(cpu: &mut Cpu, reg: MathReg) -> i64 {
         cpu.regs.set_flag(Flag::H);
     }
 
-    if res > a {
+    if val > a {
         cpu.regs.set_flag(Flag::C);
     }
 
@@ -514,7 +514,7 @@ pub fn sbc(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let c_in = cpu.regs.get_flag(Flag::C);
     let (cycles, val) = get_math_reg(cpu, reg);
 
-    let res = (a.wrapping_sub(val) as u16).wrapping_sub(c_in as u16);
+    let res = (a as u16).wrapping_sub(val as u16).wrapping_sub(c_in as u16);
     cpu.regs.set_reg(Reg::A, res as u8);
     cpu.regs.res_all_flags();
     if (res & 0xFF) == 0 {
@@ -605,9 +605,8 @@ pub fn cp(cpu: &mut Cpu, reg: MathReg) -> i64 {
     let a = cpu.regs.get_reg(&Reg::A);
     let (cycles, val) = get_math_reg(cpu, reg);
 
-    let res = a.wrapping_sub(val);
     cpu.regs.res_all_flags();
-    if res == 0 {
+    if a == val {
         cpu.regs.set_flag(Flag::Z);
     }
 
@@ -617,7 +616,7 @@ pub fn cp(cpu: &mut Cpu, reg: MathReg) -> i64 {
         cpu.regs.set_flag(Flag::H);
     }
 
-    if res > a {
+    if a < val {
         cpu.regs.set_flag(Flag::C);
     }
 
@@ -741,7 +740,7 @@ pub fn ldh_a8_a(cpu: &mut Cpu) -> i64 {
 // Description: loads A into (0xFF00 | c).
 // Affected Flags: ----
 // Remarks: ----
-// Timing: Read, Write
+// Timing: Write
 pub fn ldh_c_a(cpu: &mut Cpu) -> i64 {
     let addr = 0xFF00 | cpu.regs.get_reg(&Reg::C) as u16;
     let a = cpu.regs.get_reg(&Reg::A);
@@ -792,7 +791,8 @@ pub fn di(cpu: &mut Cpu) -> i64 {
 // Affected Flags: ----
 // Remarks: Interrupt enabling is delayed by 4-TCycles.
 // Timing: Instant (delayed affect)
-pub fn ie(cpu: &mut Cpu) -> i64 {
+pub fn ei(cpu: &mut Cpu) -> i64 {
+    cpu.ime = false;
     cpu.ie = true;
     0
 }
@@ -815,19 +815,19 @@ pub fn jp_hl(cpu: &mut Cpu) -> i64 {
 // Remarks: ----
 // Timing: Read, Internal Delay
 pub fn ld_hl_sp_r8(cpu: &mut Cpu) -> i64 {
-    let r8 = cpu.read_ipc_cycle() as i8;
+    let r8 = (cpu.read_ipc_cycle() as i8) as u16;
     cpu.update(4);
     cpu.regs.res_all_flags();
 
-    if ((cpu.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F {
+    if ((cpu.regs.sp & 0x0F) + (r8 & 0x0F)) > 0x0F {
         cpu.regs.set_flag(Flag::H);
     }
 
-    if (((cpu.regs.sp) & 0xFF) + (r8 as u16 & 0xFF)) > 0xFF {
+    if (((cpu.regs.sp) & 0xFF) + (r8 & 0xFF)) > 0xFF {
         cpu.regs.set_flag(Flag::C);
     }
 
-    cpu.regs.sp = r8 as u16;
+    cpu.regs.hl = cpu.regs.sp.wrapping_add(r8);
     8
 }
 
@@ -883,11 +883,12 @@ pub fn add_sp_r8(cpu: &mut Cpu) -> i64 {
     if ((cpu.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F {
         cpu.regs.set_flag(Flag::H);
     }
+
     if ((cpu.regs.sp & 0xFF) + (r8 as u16 & 0xFF)) > 0xFF {
         cpu.regs.set_flag(Flag::C);
     }
-    cpu.regs.sp += r8 as u16;
 
+    cpu.regs.sp = cpu.regs.sp.wrapping_add(r8 as u16);
     12
 }
 
@@ -911,7 +912,9 @@ pub fn rlc(cpu: &mut Cpu, reg: Reg) -> i64 {
 
     if val == 0 {
         cpu.regs.set_flag(Flag::Z);
-    } else if (val & 0x80) > 0 {
+    }
+
+    if (val & 0x80) > 0 {
         cpu.regs.set_flag(Flag::C);
     }
 
@@ -934,7 +937,9 @@ pub fn rrc(cpu: &mut Cpu, reg: Reg) -> i64 {
 
     if val == 0 {
         cpu.regs.set_flag(Flag::Z);
-    } else if (val & 0x01) == 1 {
+    }
+
+    if (val & 0x01) == 1 {
         cpu.regs.set_flag(Flag::C);
     }
 
@@ -979,7 +984,7 @@ pub fn rr(cpu: &mut Cpu, reg: Reg) -> i64 {
     let carry_in = if cpu.regs.get_flag(Flag::C) {0x80} else {0x00};
     let res;
     let cycles = match reg {
-        Reg::HL => {val = cpu.read_hl_cycle();res = (val >> 1) | (carry_in); cpu.write_hl_cycle(res);8}
+        Reg::HL => {val = cpu.read_hl_cycle(); res = (val >> 1) | (carry_in); cpu.write_hl_cycle(res);8}
         r => {val = cpu.regs.get_reg(&r); res = (val >> 1) | (carry_in);cpu.regs.set_reg(r, res);0}
     };
 
@@ -1006,7 +1011,7 @@ pub fn sla(cpu: &mut Cpu, reg: Reg) -> i64 {
     let res;
     let cycles = match reg {
         Reg::HL => {val = cpu.read_hl_cycle(); res = val << 1; cpu.write_hl_cycle(res);8}
-        r => {val = cpu.regs.get_reg(&r); res=val << 1; cpu.regs.set_reg(r, res);0}
+        r => {val = cpu.regs.get_reg(&r); res = val << 1; cpu.regs.set_reg(r, res);0}
     };
 
     cpu.regs.res_all_flags();
@@ -1029,13 +1034,14 @@ pub fn sla(cpu: &mut Cpu, reg: Reg) -> i64 {
 // Timing: "read, write" or instant.
 pub fn sra(cpu: &mut Cpu, reg: Reg) -> i64 {
     let val;
+    let res;
     let cycles = match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle((val >> 1) | (val & 0x80));8}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, (val >> 1) | (val & 0x80));0}
+        Reg::HL => {val = cpu.read_hl_cycle(); res = (val >> 1) | (val & 0x80); cpu.write_hl_cycle(res);8}
+        r => {val = cpu.regs.get_reg(&r); res = (val >> 1) | (val & 0x80); cpu.regs.set_reg(r, res);0}
     };
 
     cpu.regs.res_all_flags();
-    if val == 0 {
+    if res == 0 {
         cpu.regs.set_flag(Flag::Z);
     }
 
@@ -1050,7 +1056,7 @@ pub fn sra(cpu: &mut Cpu, reg: Reg) -> i64 {
 // Full Name: Swap
 // Description: Swaps the upper and lower nibbles of the given reg (or hl) r. r=((r << 4) | (r >> 4))
 // Affected Flags: Z (set|res), N (res), H (res), C (res)
-// Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set otherwise, zero is reset
+// Remarks: Zero is set if the input was 0, otherwise it is reset
 // Timing: "read, write" or instant.
 pub fn swap(cpu: &mut Cpu, reg: Reg) -> i64 {
     let val;
@@ -1075,13 +1081,14 @@ pub fn swap(cpu: &mut Cpu, reg: Reg) -> i64 {
 // Timing: "read, write" or instant.
 pub fn srl(cpu: &mut Cpu, reg: Reg) -> i64 {
     let val;
+    let res;
     let cycles = match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle((val >> 1));8}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, (val >> 1));0}
+        Reg::HL => {val = cpu.read_hl_cycle(); res = val >> 1; cpu.write_hl_cycle(res);8}
+        r => {val = cpu.regs.get_reg(&r); res = val >> 1; cpu.regs.set_reg(r, res);0}
     };
 
     cpu.regs.res_all_flags();
-    if val == 0 {
+    if res == 0 {
         cpu.regs.set_flag(Flag::Z);
     }
 
@@ -1119,8 +1126,8 @@ pub fn bit(cpu: &mut Cpu, reg: Reg, mask: u8) -> i64 {
 // Timing: "read, write" or instant.
 pub fn res(cpu: &mut Cpu, reg: Reg, mask: u8) -> i64 {
     match reg {
-        Reg::HL => {let val = cpu.read_hl_cycle(); cpu.write_hl_cycle(val & mask); 8}
-        r => {let val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val & mask) ; 0}
+        Reg::HL => {let val = cpu.read_hl_cycle(); cpu.write_hl_cycle(val & !mask); 8}
+        r => {let val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val & !mask) ; 0}
     }
 }
 
