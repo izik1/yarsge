@@ -40,14 +40,27 @@ pub fn main() {
         .arg(Arg::with_name("game_rom")
             .help("The path to the game rom")
             .required(true))
+        .arg(Arg::with_name("scale")
+            .help("Screen scale size")
+            .takes_value(true)
+            .short("s")
+            .long("scale"))
         .get_matches();
+
+
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
+    let scale = match matches.value_of("scale") {
+        Some(num) => if let Ok(n) = num.to_string().parse() {n} else {
+            eprintln!("Couldn't convert scale to number ({})", num);std::process::exit(1)
+        },
+        None => 1
+    };
     const WIDTH: u32 = 160;
     const HEIGHT: u32 = 144;
     let window = video_subsystem
-        .window("yarsge", WIDTH, HEIGHT)
+        .window("yarsge", WIDTH * scale, HEIGHT * scale)
         .position_centered()
         .opengl()
         .build()
