@@ -566,13 +566,20 @@ impl Cpu {
 
         self.ei = false;
     }
-    
+
     fn handle_okay(&mut self) {
         self.update(2);
         self.handle_interrupts();
         self.run_instruction();
     }
-    
+
+    fn handle_halt(&mut self) {
+        self.update(4);
+        if self.r_if & self.r_ier & 0x1F > 0 {
+            self.status = State::Okay;
+        }
+    }
+
     pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Self> {
         if game_rom.len() < 0x150 {
             None
@@ -609,7 +616,7 @@ impl Cpu {
             match self.status {
                 State::Okay => self.handle_okay(),
                 State::Stop => unimplemented!("Implement CPU stop behavior!"),
-                State::Halt => unimplemented!("Implement CPU halt behavior!"),
+                State::Halt => self.handle_halt(),
                 State::Hang => unimplemented!("Implement CPU hung behavior!"),
             };
         }
