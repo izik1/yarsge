@@ -2,6 +2,7 @@
 
 extern crate sdl2;
 extern crate clap;
+extern crate rgb;
 mod emu;
 
 use sdl2::pixels::Color;
@@ -13,6 +14,7 @@ use std::io::prelude::*;
 use std::fs::File;
 use clap::{App, Arg};
 use std::{thread, time};
+use rgb::RGB8;
 fn load_rom(path: String) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
@@ -109,16 +111,16 @@ pub fn main() {
         let disp = gb.ppu.get_display();
         for i in 0..160 * 144 {
             use emu::ppu::DisplayPixel;
-            let tuple = match disp[i] {
-                DisplayPixel::White     => (0x9B, 0xBC, 0x0F),
-                DisplayPixel::LightGrey => (0xAA, 0xAA, 0xAA),
-                DisplayPixel::DarkGrey  => (0x55, 0x55, 0x55),
-                DisplayPixel::Black     => (0x00, 0x00, 0x00),
+            let px = match disp[i] {
+                DisplayPixel::White     => RGB8 {r: 0x9B, g: 0xBC, b: 0x0F},
+                DisplayPixel::LightGrey => RGB8 {r: 0x8B, g: 0xAC, b: 0x0F},
+                DisplayPixel::DarkGrey  => RGB8 {r: 0x30, g: 0x62, b: 0x30},
+                DisplayPixel::Black     => RGB8 {r: 0x0F, g: 0x38, b: 0x0F},
             };
 
-            array[i * 3 + 0] = tuple.0;
-            array[i * 3 + 1] = tuple.1;
-            array[i * 3 + 2] = tuple.2;
+            array[i * 3 + 0] = px.r;
+            array[i * 3 + 1] = px.g;
+            array[i * 3 + 2] = px.b;
         }
 
         tex.update(None, &array, 160 * 3).unwrap();
