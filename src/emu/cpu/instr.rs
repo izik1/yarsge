@@ -313,7 +313,7 @@ pub fn rra(cpu: &mut Cpu) {
 }
 
 // Mnemonic: DAA
-// Full Name: ???
+// Full Name: Decimal Adjust AL
 // Description: ???
 // Affected Flags: Z (set|res), H (res), C (-|set)
 // Remarks: Confusing
@@ -728,8 +728,7 @@ pub fn di(cpu: &mut Cpu) {
 // Remarks: Interrupt enabling is delayed by 4-TCycles.
 // Timing: Instant (delayed affect)
 pub fn ei(cpu: &mut Cpu) {
-    cpu.ime = false;
-    cpu.ie = true;
+    cpu.ei = true;
 }
 
 // Mnemonic: JP (HL)
@@ -921,7 +920,7 @@ pub fn rr(cpu: &mut Cpu, reg: Reg) {
     }
 }
 
-// Mnemonic: SlA
+// Mnemonic: SLA
 // Full Name: Shift Left Arithmetic
 // Description, Sets the given reg (or hl) r to (r << 1)
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
