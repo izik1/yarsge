@@ -7,6 +7,7 @@ use super::registers::*;
 use super::flags::*;
 use super::timer::Timer;
 use super::ppu::Ppu;
+use super::dma::Dma;
 
 #[derive(Clone, Copy)]
 pub enum State {
@@ -43,12 +44,11 @@ impl Mbc {
 pub struct Cpu {
     cycle_counter: i64,
     wram: [u8; 0x2000],
-    oam:  [u8; 0xA0  ],
     hram: [u8; 0x007F],
     pub regs: registers::Registers,
     pub status: State,
     ime: bool,
-    ie: bool,
+    ei: bool,
     halt_bugged: bool,
     r_if: u8,
     r_ier: u8,
@@ -58,12 +58,40 @@ pub struct Cpu {
     mbc: Mbc,
     boot_rom_enabled: bool,
     pub ppu: Ppu,
+    dma: Dma,
 }
 
 impl Cpu {
+
+    // TODO: This is a terrible function. How do I make it not bother the borrow checker in impl Dma?
+    fn update_dma(&mut self) {
+        self.dma.modulus = if self.dma.modulus == 0 {
+            self.dma.enabled = if self.dma.time == 0 { false } else {
+                self.ppu.oam[160 - self.dma.time] = self.read_byte(self.dma.addr);
+                self.dma.time -= 1;
+                true
+            };
+
+            3
+        } else {
+            self.dma.modulus - 1
+        };
+
+        if self.dma.ld_timer > 0 {
+            self.dma.ld_timer -= 1;
+            if self.dma.ld_timer == 0 {
+                self.dma.time = 160;
+                self.dma.addr = self.dma.ld_addr;
+                self.dma.ld_timer = -1;
+            }
+        }
+    }
+
+
     fn update(&mut self, cycles: i64) {
         for _ in 0..cycles {
             self.r_if |= (self.tim.update() | self.ppu.update()) & 0x1F;
+            self.update_dma();
         }
 
         self.cycle_counter -= cycles;
@@ -95,8 +123,10 @@ impl Cpu {
     fn read_io(&self, addr: u8) -> u8 {
         // TODO: Most (all) of this function.
         match addr {
+            0x04...0x07 => self.tim.read_reg(addr),
             0x0F        => self.r_if | 0xE0,
             0x10...0x3F => 0xFF, // TODO: APU, silently ignore
+            0x46        => (self.dma.addr >> 8) as u8,
             0x40...0x4B => self.ppu.get_reg(addr),
             0x4C...0x7F => 0xFF, // Empty range.
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
@@ -104,13 +134,14 @@ impl Cpu {
         }
     }
 
-    fn read_byte(&self, addr: u16) -> u8 {
+    pub fn read_byte(&self, addr: u16) -> u8 {
         // println!("Reading (addr: {:01$X})", addr, 4);
         match addr {
             0x0000...0x3FFF => self.read_rom_low(addr),
             0x4000...0x7FFF => self.read_rom_high(addr - 0x4000),
             0x8000...0x9FFF => self.ppu.get_vram(addr - 0x8000),
             0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize],
+            0xE000...0xFDFF => self.wram[(addr - 0xE000) as usize],
             0xFF00...0xFF7F => self.read_io(addr as u8),
             0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80],
             0xFFFF          => self.r_ier,
@@ -149,7 +180,7 @@ impl Cpu {
 
     fn write_oam(&mut self, addr: u16, val: u8) {
         // TODO: PPU OAM blocking.
-        self.oam[addr as usize] = val;
+        self.ppu.oam[addr as usize] = val;
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {
@@ -158,7 +189,8 @@ impl Cpu {
             0x04...0x07 => self.tim.write_reg(addr, val),
             0x0F        => self.r_if = val & 0x1F,
             0x10...0x3F => {} // TODO: APU, silently ignore
-            0x40...0x4B => self.ppu.set_reg(addr, val),
+            0x46        => {self.dma.ld_addr = (val as u16) << 8; self.dma.ld_timer = 4}
+            0x40...0x45 | 0x47...0x4B => self.ppu.set_reg(addr, val),
             0x50        => self.boot_rom_enabled = false,
             0x4C...0x7F => {},
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
@@ -179,6 +211,7 @@ impl Cpu {
             0x0000...0x7FFF => self.mbc_write(addr, val),
             0x8000...0x9FFF => self.ppu.set_vram(addr - 0x8000, val),
             0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize] = val,
+            0xE000...0xFDFF => self.wram[(addr - 0xE000) as usize] = val,
             0xFE00...0xFE9F => self.write_oam(addr - 0xFE00, val),
             0xFEA0...0xFEFF => {}
             0xFF00...0xFF7F => self.write_io(addr as u8, val),
@@ -374,7 +407,7 @@ impl Cpu {
             0xC9 => instr::ret(self, false),
             0xCA => {let j =  self.regs.get_flag(Flag::Z); instr::jp  (self, j)}
             0xCB => self.run_extended(),
-            0xCC => {let j = self.regs.get_flag(Flag::Z); instr::call(self, j)}
+            0xCC => {let j =  self.regs.get_flag(Flag::Z); instr::call(self, j)}
             0xCD => instr::call(self, true),
             0xCE => instr::adc(self, MathReg::Imm),
             0xCF => instr::rst(self, 0x08),
@@ -382,7 +415,7 @@ impl Cpu {
             0xD1 => instr::pop(self, R16::DE),
             0xD2 => {let j = !self.regs.get_flag(Flag::C); instr::jp  (self, j)}
             0xD3 => instr::invalid(self),
-            0xD4 => {let j =  !self.regs.get_flag(Flag::C); instr::call(self, j)}
+            0xD4 => {let j = !self.regs.get_flag(Flag::C); instr::call(self, j)}
             0xD5 => instr::push(self, R16::DE),
             0xD6 => instr::sub(self, MathReg::Imm),
             0xD7 => instr::rst(self, 0x10),
@@ -510,13 +543,10 @@ impl Cpu {
     }
 
     fn handle_interrupts(&mut self) {
-        if !self.ime || (self.r_ier & self.r_if & 0x1F == 0) {
-            self.ime |= self.ie;
-            self.ie = false;
+        if !self.ime || (self.r_ier & self.r_if & 0x1F) == 0 {
+            self.ime |= self.ei;
         } else {
             self.ime = false;
-            self.ie = false;
-
             self.update(6);
             let old_pc = self.regs.pc;
             self.write_push_cycle((old_pc >> 8) as u8);
@@ -533,6 +563,8 @@ impl Cpu {
             self.write_push_cycle(old_pc as u8);
             self.update(2);
         }
+
+        self.ei = false;
     }
     
     
@@ -542,7 +574,7 @@ impl Cpu {
         self.run_instruction();
     }
     
-    pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Cpu> {
+    pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Self> {
         if game_rom.len() < 0x150 {
             None
         } else {
@@ -552,11 +584,10 @@ impl Cpu {
                     cycle_counter: 0,
                     wram: [0; 0x2000],
                     hram: [0; 0x007F],
-                    oam : [0; 0xA0  ],
                     regs: registers::Registers::new(),
                     status: State::Okay,
                     ime: false,
-                    ie: false,
+                    ei: false,
                     halt_bugged: false,
                     r_ier: 0,
                     r_if: 0,
@@ -566,6 +597,7 @@ impl Cpu {
                     mbc,
                     boot_rom_enabled: true,
                     ppu: Ppu::new(),
+                    dma: Dma::new(),
                 }),
                 _ => None
             }

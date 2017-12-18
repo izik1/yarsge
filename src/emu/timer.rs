@@ -1,3 +1,5 @@
+use super::bits;
+
 pub struct Timer {
     prev_tima_overflow: i64,
     prev_timer_in: bool,
@@ -9,6 +11,16 @@ pub struct Timer {
 }
 
 impl Timer {
+    pub fn read_reg(&self, addr: u8) -> u8 {
+        match addr {
+            0x04 => (self.sys_timer >> 8) as u8,
+            0x05 => self.tima,
+            0x06 => self.tma,
+            0x07 => self.tac | 0xF8,
+            _ => unreachable!(),
+        }
+    }
+
     pub fn write_reg(&mut self, addr: u8, val: u8) {
         match addr {
             0x04 => self.sys_timer = 0,
@@ -19,8 +31,8 @@ impl Timer {
         }
     }
 
-    pub fn new() -> Timer {
-        Timer{
+    pub fn new() -> Self {
+        Timer {
             prev_tima_overflow: 0,
             prev_timer_in: false,
             tac: 0,
@@ -36,13 +48,13 @@ impl Timer {
             self.tima_overflow -= 1;
             if self.prev_tima_overflow != 0 && self.tima_overflow == 0 {
                 self.tima = self.tma;
-                4
+                bits::get(2)
             } else {0}
         } else {0};
 
         self.prev_tima_overflow = self.tima_overflow;
         self.sys_timer = self.sys_timer.wrapping_add(1);
-        let b = (self.tac & 0b100) == 0b100 && (self.sys_timer & (1 << if self.tac == 0b100 {9} else { (self.tac & 3) * 2 + 1}) > 0);
+        let b = bits::has_bit(self.tac, 2) && (self.sys_timer & (1 << if self.tac == 0b100 {9} else { (self.tac & 3) * 2 + 1}) as u16 > 0);
         if self.prev_timer_in && !b {
             self.tima = self.tima.wrapping_add(1);
             if self.tima == 0 {

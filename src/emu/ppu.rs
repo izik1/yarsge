@@ -24,6 +24,7 @@ impl DisplayPixel {
 
 pub struct Ppu {
     vram: [u8; 0x2000],
+    pub oam: [u8; 0xA0],
     display_memory: [DisplayPixel; 160*144],
     obj_pallet_a: u8,
     obj_pallet_b: u8,
@@ -64,7 +65,8 @@ impl Ppu {
             0x42 => self.scy = val,
             0x43 => self.scx = val,
             0x44 => {}
-            0x45 | 0x46 |0x4A | 0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
+            0x45 => self.lyc = val,
+            0x4A | 0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
             0x47 => self.bg_pallet = val,
             0x48 => self.obj_pallet_a = val & 0xFC,
             0x49 => self.obj_pallet_b = val & 0xFC,
@@ -80,7 +82,8 @@ impl Ppu {
             0x42 => self.scy,
             0x43 => self.scx,
             0x44 => self.visible_ly,
-            0x45 | 0x46 | 0x4A | 0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+            0x45 => self.lyc,
+            0x4A | 0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
             0x47 => self.bg_pallet,
             0x48 => self.obj_pallet_a,
             0x49 => self.obj_pallet_b,
@@ -91,20 +94,21 @@ impl Ppu {
     fn disable(&mut self) {
         if !self.disabled {
             self.disabled = true;
-        }
-        else {
             self.display_memory = [DisplayPixel::White; 160*144];
             self.ly = 0;
             self.visible_ly = 0;
+            self.pirq = false;
+            self.cycle_mod = 0;
         }
     }
 
-    pub fn new() -> Ppu{
+    pub fn new() -> Ppu {
         Ppu {
             display_memory: [DisplayPixel::White; 160*144],
             obj_pallet_a: 0,
             obj_pallet_b: 0,
             vram: [0; 0x2000],
+            oam : [0; 0xA0  ],
             scx: 0,
             scy: 0,
             lcdc: 0,
@@ -183,17 +187,20 @@ impl Ppu {
 
     }
 
-    fn update_vblank_start(&mut self, r_ie: &mut u8) -> bool {
+    fn update_vblank_start(&mut self) -> (u8, bool) {
+
         if self.cycle_mod == 0 {
             self.window_ly = 0;
-            self.ly_cp() || bits::has_bit(self.stat_upper, 3)
+            (0, self.ly_cp() || bits::has_bit(self.stat_upper, 3))
         } else {
-            if self.cycle_mod == 4 {
-                *r_ie |= bits::get(1);
+            let vblank = if self.cycle_mod == 4 {
                 self.stat_mode = 1;
-            }
+                bits::get(0)
+            } else {
+                0
+            };
 
-            self.ly_cp() || bits::has_bit(self.stat_upper, 4) || bits::has_bit(self.stat_upper, 5)
+            (vblank, self.ly_cp() || bits::has_bit(self.stat_upper, 4) || bits::has_bit(self.stat_upper, 5))
         }
     }
 
@@ -215,11 +222,10 @@ impl Ppu {
             0
         } else {
             self.disabled = false;
-            let mut vblank = 0;
-            let irq = match self.ly.cmp(&144) {
-                Ordering::Less =>    self.update_line(),
-                Ordering::Equal =>   self.update_vblank_start(&mut vblank),
-                Ordering::Greater => self.ly_cp() || (self.stat_upper & 0x30) > 0,
+            let (vblank, irq) = match self.ly.cmp(&144) {
+                Ordering::Less =>    (0, self.update_line()),
+                Ordering::Equal =>   self.update_vblank_start(),
+                Ordering::Greater => (0, self.ly_cp() || (self.stat_upper & 0x30) > 0),
             };
 
             self.cycle_mod += 1;

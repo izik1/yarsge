@@ -5,6 +5,7 @@ pub mod registers;
 pub mod flags;
 pub mod timer;
 pub mod ppu;
+pub mod dma;
 
 pub mod bits {
     pub fn get(num: u8) -> u8 {

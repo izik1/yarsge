@@ -107,7 +107,7 @@ pub fn main() {
 
         gb.run(0x40000);
         let disp = gb.ppu.get_display();
-        for i in 0..160*144 {
+        for i in 0..160 * 144 {
             use emu::ppu::DisplayPixel;
             let tuple = match disp[i] {
                 DisplayPixel::White     => (0x9B, 0xBC, 0x0F),
