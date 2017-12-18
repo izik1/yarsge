@@ -553,7 +553,7 @@ impl Cpu {
             let b = self.r_ier & self.r_if & 0x1F;
             self.regs.pc = 0;
             for i in 0..5 {
-                if (b >> i) & 1 == i {
+                if (b >> i) & 1 == 1 {
                     self.regs.pc = (i * 8 + 0x40) as u16;
                     self.r_if &= !(1 << i) as u8;
                     break;
@@ -566,7 +566,6 @@ impl Cpu {
 
         self.ei = false;
     }
-    
     
     fn handle_okay(&mut self) {
         self.update(2);
