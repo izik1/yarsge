@@ -8,7 +8,7 @@ use super::flags::*;
 use super::timer::Timer;
 use super::ppu::Ppu;
 use super::dma::Dma;
-
+use super::bits;
 #[derive(Clone, Copy)]
 pub enum State {
     Okay,
@@ -21,23 +21,54 @@ pub enum State {
 struct MbcDescriptor {
     banks_rom: u8,
     banks_ram: u8,
+    ram_bank_mode: bool,
+    ram_bank: u8,
+    rom_bank: u8,
+}
 
+impl MbcDescriptor {
+    fn get_real_bank_count(&self) -> u16 {
+        2 << (self.banks_rom as u16)
+    }
 }
 
 #[derive(Debug)]
 enum Mbc {
     Mbc0,
-    Mbc1(MbcDescriptor)
+    Mbc1(MbcDescriptor),
 }
 
 impl Mbc {
-    fn new (cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
+    fn new(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
         match cart_type {
             0x00 => Some(Mbc::Mbc0),
-            0x01 => Some(Mbc::Mbc1(MbcDescriptor{banks_rom, banks_ram})),
-            _    => None,
+            0x01 => Some(Mbc::Mbc1(MbcDescriptor {
+                banks_rom,
+                banks_ram,
+                ram_bank_mode: false,
+                rom_bank: 1,
+                ram_bank: 0,
+            })),
+            _ => None,
         }
+    }
 
+    fn get_physical_addr_low(&self, addr: u16) -> usize {
+        match self {
+            &Mbc::Mbc0 => addr as usize,
+            &Mbc::Mbc1(ref desc) => if !desc.ram_bank_mode {
+                addr.wrapping_add((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as u16)) as usize
+            } else {
+                addr as usize
+            },
+        }
+    }
+
+    fn get_physical_addr_high(&self, addr: u16) -> usize {
+        match self {
+            &Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
+            &Mbc::Mbc1(ref desc) => addr.wrapping_add(((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as u16) * 0x4000) as usize,
+        }
     }
 }
 
@@ -62,11 +93,12 @@ pub struct Cpu {
 }
 
 impl Cpu {
-
     // TODO: This is a terrible function. How do I make it not bother the borrow checker in impl Dma?
     fn update_dma(&mut self) {
         self.dma.modulus = if self.dma.modulus == 0 {
-            self.dma.enabled = if self.dma.time == 0 { false } else {
+            self.dma.enabled = if self.dma.time == 0 {
+                false
+            } else {
                 self.ppu.oam[160 - self.dma.time] = self.read_byte(self.dma.addr);
                 self.dma.time -= 1;
                 true
@@ -87,7 +119,6 @@ impl Cpu {
         }
     }
 
-
     fn update(&mut self, cycles: i64) {
         for _ in 0..cycles {
             self.r_if |= (self.tim.update() | self.ppu.update()) & 0x1F;
@@ -97,40 +128,47 @@ impl Cpu {
         self.cycle_counter -= cycles;
     }
 
-    fn read_rom_low(&self, addr: u16) -> u8
-    {
-        let addr = addr as usize;
+    fn read_rom_low(&self, addr: u16) -> u8 {
         if self.boot_rom_enabled && addr < 0x100 {
             self.boot_rom[addr as usize]
         } else {
-            match self.mbc {
-                Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
-                Mbc::Mbc1(ref a) => if addr < self.game_rom.len() { self.game_rom[addr as usize] } else { 0xFF },
-                _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
+            let addr = self.mbc.get_physical_addr_low(addr);
+            if addr < self.game_rom.len() {
+                self.game_rom[addr]
+            } else {
+                0xFF
             }
         }
     }
 
     fn read_rom_high(&self, addr: u16) -> u8 {
-        let addr = addr as usize;
-        match self.mbc {
-            Mbc::Mbc0 => if addr < self.game_rom.len() { self.game_rom[addr as usize + 0x4000] } else { 0xFF },
-            Mbc::Mbc1(ref a) => if addr < self.game_rom.len() { self.game_rom[addr as usize + 0x4000] } else { 0xFF },
-            _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
+        let addr = self.mbc.get_physical_addr_high(addr);
+        if addr < self.game_rom.len() {
+            self.game_rom[addr]
+        } else {
+            0xFF
         }
+    }
+
+    fn read_oam(&self, addr: u16) -> u8 {
+        // TODO: PPU OAM blocking.
+        self.ppu.oam[addr as usize]
     }
 
     fn read_io(&self, addr: u8) -> u8 {
         // TODO: Most (all) of this function.
         match addr {
             0x04...0x07 => self.tim.read_reg(addr),
-            0x0F        => self.r_if | 0xE0,
+            0x0F => self.r_if | 0xE0,
             0x10...0x3F => 0xFF, // TODO: APU, silently ignore
-            0x46        => (self.dma.addr >> 8) as u8,
+            0x46 => (self.dma.addr >> 8) as u8,
             0x40...0x4B => self.ppu.get_reg(addr),
             0x4C...0x7F => 0xFF, // Empty range.
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
-            _ => {eprintln!("Unimplemented IO reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+            _ => {
+                eprintln!("Unimplemented IO reg (read): (addr: 0xFF{:01$X})", addr, 2);
+                0xFF
+            }
         }
     }
 
@@ -142,10 +180,15 @@ impl Cpu {
             0x8000...0x9FFF => self.ppu.get_vram(addr - 0x8000),
             0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize],
             0xE000...0xFDFF => self.wram[(addr - 0xE000) as usize],
+            0xFE00...0xFE9F => self.read_oam(addr - 0xFE00),
             0xFF00...0xFF7F => self.read_io(addr as u8),
             0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80],
-            0xFFFF          => self.r_ier,
-            _ => unimplemented!("Unimplemented address range (read): (addr: {:01$X})", addr, 4),
+            0xFFFF => self.r_ier,
+            _ => unimplemented!(
+                "Unimplemented address range (read): (addr: {:01$X})",
+                addr,
+                4
+            ),
         }
     }
 
@@ -154,18 +197,20 @@ impl Cpu {
         self.read_byte(addr)
     }
 
-    fn read_pc(&self) -> u8 {self.read_byte(self.regs.pc)}
-    
+    fn read_pc(&self) -> u8 {
+        self.read_byte(self.regs.pc)
+    }
+
     fn read_ipc(&mut self) -> u8 {
         let val = self.read_pc();
         self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
-    
+
     fn read_u16_cycle(&mut self) -> u16 {
-         (self.read_ipc_cycle() as u16) | ((self.read_ipc_cycle() as u16) << 8)
+        (self.read_ipc_cycle() as u16) | ((self.read_ipc_cycle() as u16) << 8)
     }
-    
+
     fn write_u16_cycle(&mut self, address: u16, value: u16) {
         self.write_cycle(address, value as u8);
         self.write_cycle(address.wrapping_add(1), (value >> 8) as u8)
@@ -187,21 +232,36 @@ impl Cpu {
         match addr {
             0x01 | 0x02 => {} // TODO: serial, silently ignore
             0x04...0x07 => self.tim.write_reg(addr, val),
-            0x0F        => self.r_if = val & 0x1F,
+            0x0F => self.r_if = val & 0x1F,
             0x10...0x3F => {} // TODO: APU, silently ignore
-            0x46        => {self.dma.ld_addr = (val as u16) << 8; self.dma.ld_timer = 4}
+            0x46 => {
+                self.dma.ld_addr = (val as u16) << 8;
+                self.dma.ld_timer = 4
+            }
             0x40...0x45 | 0x47...0x4B => self.ppu.set_reg(addr, val),
-            0x50        => self.boot_rom_enabled = false,
-            0x4C...0x7F => {},
+            0x50 => self.boot_rom_enabled = false,
+            0x4C...0x7F => {}
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
-            _ => eprintln!("Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2)
+            _ => eprintln!(
+                "Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})",
+                addr, 2, val, 2
+            ),
         }
     }
 
-    fn mbc_write(&mut self, _addr: u16, _val: u8) {
+    fn mbc_write(&mut self, addr: u16, val: u8) {
         match self.mbc {
-            Mbc::Mbc0 => {},
-            _         => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc) // FIXME: stub
+            Mbc::Mbc0 => {}
+            Mbc::Mbc1(ref mut desc) => {
+                match addr {
+                    0x0000...0x1FFF => unimplemented!(),
+                    0x2000...0x3FFF => desc.rom_bank = if val == 0 {1} else {val & 0x1F},
+                    0x4000...0x5FFF => desc.ram_bank = val & 0b11,
+                    0x6000...0x7FFF => desc.ram_bank_mode = bits::has_bit(val, 0),
+                    _ => unreachable!(),
+                }
+            }
+            _ => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc), // FIXME: stub
         }
     }
 
@@ -216,8 +276,14 @@ impl Cpu {
             0xFEA0...0xFEFF => {}
             0xFF00...0xFF7F => self.write_io(addr as u8, val),
             0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80] = val,
-            0xFFFF          => self.r_ier = val,
-            _ => unimplemented!("Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})", addr, 4, val, 2)
+            0xFFFF => self.r_ier = val,
+            _ => unimplemented!(
+                "Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})",
+                addr,
+                4,
+                val,
+                2
+            ),
         }
     }
 
@@ -225,29 +291,29 @@ impl Cpu {
         let hl = self.regs.hl;
         self.write_cycle(hl, val);
     }
-    
+
     fn read_hl_cycle(&mut self) -> u8 {
         let hl = self.regs.hl;
         self.read_cycle(hl)
     }
-    
+
     fn read_pop_cycle(&mut self) -> u8 {
         let sp = self.regs.sp;
         let val = self.read_cycle(sp);
         self.regs.sp = sp.wrapping_add(1);
         val
     }
-    
+
     fn write_push_cycle(&mut self, val: u8) {
         self.regs.sp = self.regs.sp.wrapping_sub(1);
         let sp = self.regs.sp;
         self.write_cycle(sp, val);
     }
-    
+
     fn read_pop_16_cycle(&mut self) -> u16 {
         self.read_pop_cycle() as u16 | ((self.read_pop_cycle() as u16) << 8)
     }
-    
+
     fn write_push_16_cycle(&mut self, val: u16) {
         self.write_push_cycle((val >> 8) as u8);
         self.write_push_cycle(val as u8);
@@ -257,13 +323,7 @@ impl Cpu {
         use self::instr::MathReg;
         self.update(1);
 
-        if self.regs.pc == 0x100 {
-            println!("0x100!");
-        }
-
-        //println!("i:{:01$X}", self.regs.pc, 4);
         let op = self.read_ipc();
-        //println!("v:{:01$X}", op, 2);
         self.update(1);
 
         if self.halt_bugged {
@@ -581,35 +641,32 @@ impl Cpu {
     }
 
     pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Self> {
-        if game_rom.len() < 0x150 {
+        if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
         } else {
             let mbc = Mbc::new(game_rom[0x147], game_rom[0x148], game_rom[0x149])?;
-            match boot_rom.len() {
-                0x100 => Some(Cpu {
-                    cycle_counter: 0,
-                    wram: [0; 0x2000],
-                    hram: [0; 0x007F],
-                    regs: registers::Registers::new(),
-                    status: State::Okay,
-                    ime: false,
-                    ei: false,
-                    halt_bugged: false,
-                    r_ier: 0,
-                    r_if: 0,
-                    tim: Timer::new(),
-                    game_rom,
-                    boot_rom,
-                    mbc,
-                    boot_rom_enabled: true,
-                    ppu: Ppu::new(),
-                    dma: Dma::new(),
-                }),
-                _ => None
-            }
+            Some(Cpu {
+                cycle_counter: 0,
+                wram: [0; 0x2000],
+                hram: [0; 0x007F],
+                regs: registers::Registers::new(),
+                status: State::Okay,
+                ime: false,
+                ei: false,
+                halt_bugged: false,
+                r_ier: 0,
+                r_if: 0,
+                tim: Timer::new(),
+                game_rom,
+                boot_rom,
+                mbc,
+                boot_rom_enabled: true,
+                ppu: Ppu::new(),
+                dma: Dma::new(),
+            })
         }
     }
-    
+
     pub fn run(&mut self, ticks: i64) {
         self.cycle_counter += ticks;
         while self.cycle_counter > 0 {

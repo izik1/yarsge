@@ -24,10 +24,13 @@ impl Timer {
     pub fn write_reg(&mut self, addr: u8, val: u8) {
         match addr {
             0x04 => self.sys_timer = 0,
-            0x05 => {self.tima_overflow = 1; self.tima = val}
+            0x05 => {
+                self.tima_overflow = 1;
+                self.tima = val
+            }
             0x06 => self.tma = val,
-            0x07 => self.tac = val & 7,
-            _ => unreachable!()
+            0x07 => self.tac = val & 0b111,
+            _ => unreachable!(),
         }
     }
 
@@ -39,7 +42,7 @@ impl Timer {
             tima: 0,
             tima_overflow: 0,
             tma: 0,
-            sys_timer: 0
+            sys_timer: 0,
         }
     }
 
@@ -49,12 +52,20 @@ impl Timer {
             if self.prev_tima_overflow != 0 && self.tima_overflow == 0 {
                 self.tima = self.tma;
                 bits::get(2)
-            } else {0}
-        } else {0};
+            } else {
+                0
+            }
+        } else {
+            0
+        };
 
         self.prev_tima_overflow = self.tima_overflow;
         self.sys_timer = self.sys_timer.wrapping_add(1);
-        let b = bits::has_bit(self.tac, 2) && (self.sys_timer & (1 << if self.tac == 0b100 {9} else { (self.tac & 3) * 2 + 1}) as u16 > 0);
+        let b = bits::has_bit(self.tac, 2) && (self.sys_timer & (1 << if self.tac == 0b100 {
+            9
+        } else {
+            ((self.tac as u16) & 0b11) * 2 + 1
+        }) > 0);
         if self.prev_timer_in && !b {
             self.tima = self.tima.wrapping_add(1);
             if self.tima == 0 {
@@ -64,5 +75,5 @@ impl Timer {
 
         self.prev_timer_in = b;
         r_if
-        }
     }
+}

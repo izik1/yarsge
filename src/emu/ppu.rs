@@ -1,6 +1,6 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
-use ::emu::bits;
+use emu::bits;
 
 #[derive(Clone, Copy)]
 pub enum DisplayPixel {
@@ -17,7 +17,7 @@ impl DisplayPixel {
             1 => DisplayPixel::LightGrey,
             2 => DisplayPixel::DarkGrey,
             3 => DisplayPixel::Black,
-            _ => panic!()
+            _ => panic!(),
         }
     }
 }
@@ -25,7 +25,7 @@ impl DisplayPixel {
 pub struct Ppu {
     vram: [u8; 0x2000],
     pub oam: [u8; 0xA0],
-    display_memory: [DisplayPixel; 160*144],
+    display_memory: [DisplayPixel; 160 * 144],
     obj_pallet_a: u8,
     obj_pallet_b: u8,
     scx: u8,
@@ -66,12 +66,14 @@ impl Ppu {
             0x43 => self.scx = val,
             0x44 => {}
             0x45 => self.lyc = val,
-            0x4A | 0x4B => eprintln!("Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})", addr, 2, val, 2),
+            0x4A | 0x4B => eprintln!(
+                "Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})",
+                addr, 2, val, 2
+            ),
             0x47 => self.bg_pallet = val,
             0x48 => self.obj_pallet_a = val & 0xFC,
             0x49 => self.obj_pallet_b = val & 0xFC,
             _ => unreachable!(),
-
         }
     }
 
@@ -83,7 +85,10 @@ impl Ppu {
             0x43 => self.scx,
             0x44 => self.visible_ly,
             0x45 => self.lyc,
-            0x4A | 0x4B => {eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2); 0xFF}
+            0x4A | 0x4B => {
+                eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2);
+                0xFF
+            }
             0x47 => self.bg_pallet,
             0x48 => self.obj_pallet_a,
             0x49 => self.obj_pallet_b,
@@ -94,7 +99,7 @@ impl Ppu {
     fn disable(&mut self) {
         if !self.disabled {
             self.disabled = true;
-            self.display_memory = [DisplayPixel::White; 160*144];
+            self.display_memory = [DisplayPixel::White; 160 * 144];
             self.ly = 0;
             self.visible_ly = 0;
             self.pirq = false;
@@ -104,11 +109,11 @@ impl Ppu {
 
     pub fn new() -> Ppu {
         Ppu {
-            display_memory: [DisplayPixel::White; 160*144],
+            display_memory: [DisplayPixel::White; 160 * 144],
             obj_pallet_a: 0,
             obj_pallet_b: 0,
             vram: [0; 0x2000],
-            oam : [0; 0xA0  ],
+            oam: [0; 0xA0],
             scx: 0,
             scy: 0,
             lcdc: 0,
@@ -132,8 +137,11 @@ impl Ppu {
     }
 
     fn render_line_bg(&mut self) {
-        let map_offset = if bits::has_bit(self.lcdc, 3) {0x1C00} else {0x1800}
-            + (((self.scy as usize + self.ly as usize) & 0xFF) >> 3) * 32;
+        let map_offset = if bits::has_bit(self.lcdc, 3) {
+            0x1C00
+        } else {
+            0x1800
+        } + (((self.scy as usize + self.ly as usize) & 0xFF) >> 3) * 32;
 
         let mut line_offset = self.scx as usize >> 3;
         let y = ((self.ly as usize + self.scy as usize) & 7) * 2;
@@ -147,20 +155,18 @@ impl Ppu {
 
         for i in 0..160 {
             let index = self.get_pixel_index(tile, y, x);
-            self.display_memory[((self.ly as usize) * 160) + i] = DisplayPixel::from_num((self.bg_pallet >> index) & 0b11);
+            self.display_memory[((self.ly as usize) * 160) + i] =
+                DisplayPixel::from_num((self.bg_pallet >> index) & 0b11);
             x += 1;
             if x == 8 {
                 x = 0;
                 line_offset = (line_offset + 1) & 31;
                 tile = self.vram[line_offset + map_offset] as usize;
-                if !bits::has_bit(self.lcdc, 4) && tile < 128
-                {
+                if !bits::has_bit(self.lcdc, 4) && tile < 128 {
                     tile += 256;
                 }
-
             }
         }
-
     }
 
     fn render_line(&mut self) {
@@ -179,16 +185,27 @@ impl Ppu {
 
     fn update_line(&mut self) -> bool {
         match self.cycle_mod {
-            0 | 212 => {self.stat_mode = 0; self.ly_cp() || (self.stat_upper & 4) == 4}
-            04 => {self.stat_mode = 2;self.ly_cp() || bits::has_bit(self.stat_upper, 5)}
-            40 => {self.stat_mode = 3;self.render_line(); self.ly_cp()}
-            _ => self.ly_cp() || (self.stat_mode == 2 && bits::has_bit(self.stat_upper, 5)) || (self.stat_mode == 0 && bits::has_bit(self.stat_upper, 3))
+            0 | 212 => {
+                self.stat_mode = 0;
+                self.ly_cp() || (self.stat_upper & 4) == 4
+            }
+            04 => {
+                self.stat_mode = 2;
+                self.ly_cp() || bits::has_bit(self.stat_upper, 5)
+            }
+            40 => {
+                self.stat_mode = 3;
+                self.render_line();
+                self.ly_cp()
+            }
+            _ => {
+                self.ly_cp() || (self.stat_mode == 2 && bits::has_bit(self.stat_upper, 5))
+                    || (self.stat_mode == 0 && bits::has_bit(self.stat_upper, 3))
+            }
         }
-
     }
 
     fn update_vblank_start(&mut self) -> (u8, bool) {
-
         if self.cycle_mod == 0 {
             self.window_ly = 0;
             (0, self.ly_cp() || bits::has_bit(self.stat_upper, 3))
@@ -200,7 +217,11 @@ impl Ppu {
                 0
             };
 
-            (vblank, self.ly_cp() || bits::has_bit(self.stat_upper, 4) || bits::has_bit(self.stat_upper, 5))
+            (
+                vblank,
+                self.ly_cp() || bits::has_bit(self.stat_upper, 4)
+                    || bits::has_bit(self.stat_upper, 5),
+            )
         }
     }
 
@@ -223,8 +244,8 @@ impl Ppu {
         } else {
             self.disabled = false;
             let (vblank, irq) = match self.ly.cmp(&144) {
-                Ordering::Less =>    (0, self.update_line()),
-                Ordering::Equal =>   self.update_vblank_start(),
+                Ordering::Less => (0, self.update_line()),
+                Ordering::Equal => self.update_vblank_start(),
                 Ordering::Greater => (0, self.ly_cp() || (self.stat_upper & 0x30) > 0),
             };
 
@@ -237,7 +258,6 @@ impl Ppu {
                     self.ly += 1;
                     self.visible_ly += 1;
                 }
-
             }
 
             if self.ly == 153 && self.cycle_mod == 4 {
@@ -247,19 +267,18 @@ impl Ppu {
 
             let pirq = self.pirq;
             self.pirq = irq;
-            vblank | if irq && !pirq {bits::get(1)} else {0}
+            vblank | if irq && !pirq { bits::get(1) } else { 0 }
         }
     }
 
-    pub fn display_to_bytes(&self) -> [u8; (160*144)/4] {
-        let mut arr = [0; 160*144/4];
-        for i in 0..160*144 {
+    pub fn display_to_bytes(&self) -> [u8; (160 * 144) / 4] {
+        let mut arr = [0; 160 * 144 / 4];
+        for i in 0..160 * 144 {
             arr[i / 4] |= match self.display_memory[i] {
-                DisplayPixel::White     => 0,
+                DisplayPixel::White => 0,
                 DisplayPixel::LightGrey => 1,
-                DisplayPixel::DarkGrey  => 2,
-                DisplayPixel::Black     => 3,
-
+                DisplayPixel::DarkGrey => 2,
+                DisplayPixel::Black => 3,
             } << (i & 3);
         }
 

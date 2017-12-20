@@ -24,15 +24,15 @@ pub enum R16 {
 
 pub struct Registers {
     pub pc: u16,
-    pub a:  u8 ,
-    pub f:  u8 ,
+    pub a: u8,
+    pub f: u8,
     pub bc: u16,
     pub de: u16,
     pub hl: u16,
     pub sp: u16,
 }
 
-impl Registers{
+impl Registers {
     pub fn get_reg(&self, reg: &Reg) -> u8 {
         match reg {
             &Reg::B => (self.bc >> 8) as u8,
@@ -42,10 +42,10 @@ impl Registers{
             &Reg::H => (self.hl >> 8) as u8,
             &Reg::L => (self.hl >> 0) as u8,
             &Reg::HL => panic!(),
-            &Reg::A =>  self.a,
+            &Reg::A => self.a,
         }
     }
-    
+
     pub fn get_reg_16(&self, reg: &R16) -> u16 {
         match reg {
             &R16::BC => self.bc,
@@ -54,16 +54,15 @@ impl Registers{
             &R16::SP => self.sp,
         }
     }
-    
-    
+
     pub fn set_reg(&mut self, reg: Reg, val: u8) {
         match reg {
-            Reg::B => self.bc = (self.bc & 0xFF)   | ((val as u16) << 8),
-            Reg::C => self.bc = (self.bc & 0xFF00) |  (val as u16),
-            Reg::D => self.de = (self.de & 0xFF)   | ((val as u16) << 8),
-            Reg::E => self.de = (self.de & 0xFF00) |  (val as u16),
-            Reg::H => self.hl = (self.hl & 0xFF)   | ((val as u16) << 8),
-            Reg::L => self.hl = (self.hl & 0xFF00) |  (val as u16),
+            Reg::B => self.bc = (self.bc & 0xFF) | ((val as u16) << 8),
+            Reg::C => self.bc = (self.bc & 0xFF00) | (val as u16),
+            Reg::D => self.de = (self.de & 0xFF) | ((val as u16) << 8),
+            Reg::E => self.de = (self.de & 0xFF00) | (val as u16),
+            Reg::H => self.hl = (self.hl & 0xFF) | ((val as u16) << 8),
+            Reg::L => self.hl = (self.hl & 0xFF00) | (val as u16),
             Reg::HL => panic!(),
             Reg::A => self.a = val,
         }
@@ -84,21 +83,29 @@ impl Registers{
             R16::DE => self.de = val,
             R16::HL => self.hl = val,
             R16::SP => self.sp = val,
-        }        
+        }
     }
-    
+
     pub fn new() -> Registers {
-        Registers {pc: 0, a: 0, f: 0, bc: 0, de: 0, hl: 0, sp: 0}
+        Registers {
+            pc: 0,
+            a: 0,
+            f: 0,
+            bc: 0,
+            de: 0,
+            hl: 0,
+            sp: 0,
+        }
     }
-    
+
     pub fn res_all_flags(&mut self) {
         self.f = 0b0000_0000;
     }
-    
+
     pub fn set_flag(&mut self, flag: Flag) {
         self.f |= flag.to_mask();
     }
-        
+
     pub fn get_flag(&self, flag: Flag) -> bool {
         (self.f & flag.to_mask()) > 0
     }

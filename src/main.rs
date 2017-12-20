@@ -1,8 +1,8 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
-extern crate sdl2;
 extern crate clap;
 extern crate rgb;
+extern crate sdl2;
 mod emu;
 
 use sdl2::pixels::Color;
@@ -38,28 +38,35 @@ pub fn main() {
         .version(VERSION)
         .author(AUTHORS)
         .about("Emulates GameBoy games")
-        .arg(Arg::with_name("boot_rom")
-            .help("The path to the boot rom")
-            .required(true))
-        .arg(Arg::with_name("game_rom")
-            .help("The path to the game rom")
-            .required(true))
-        .arg(Arg::with_name("scale")
-            .help("Screen scale size")
-            .takes_value(true)
-            .short("s")
-            .long("scale"))
+        .arg(
+            Arg::with_name("boot_rom")
+                .help("The path to the boot rom")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("game_rom")
+                .help("The path to the game rom")
+                .required(true),
+        )
+        .arg(
+            Arg::with_name("scale")
+                .help("Screen scale size")
+                .takes_value(true)
+                .short("s")
+                .long("scale"),
+        )
         .get_matches();
-
-
 
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
     let scale = match matches.value_of("scale") {
-        Some(num) => if let Ok(n) = num.to_string().parse() {n} else {
-            eprintln!("Couldn't convert scale to number ({})", num);std::process::exit(1)
+        Some(num) => if let Ok(n) = num.to_string().parse() {
+            n
+        } else {
+            eprintln!("Couldn't convert scale to number ({})", num);
+            std::process::exit(1)
         },
-        None => 1
+        None => 1,
     };
     const WIDTH: u32 = 160;
     const HEIGHT: u32 = 144;
@@ -94,12 +101,11 @@ pub fn main() {
         std::process::exit(1)
     };
 
-
     'running: loop {
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit { .. } |
-                Event::KeyDown {
+                Event::Quit { .. }
+                | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running,
@@ -112,10 +118,26 @@ pub fn main() {
         for i in 0..160 * 144 {
             use emu::ppu::DisplayPixel;
             let px = match disp[i] {
-                DisplayPixel::White     => RGB8 {r: 0x9B, g: 0xBC, b: 0x0F},
-                DisplayPixel::LightGrey => RGB8 {r: 0x8B, g: 0xAC, b: 0x0F},
-                DisplayPixel::DarkGrey  => RGB8 {r: 0x30, g: 0x62, b: 0x30},
-                DisplayPixel::Black     => RGB8 {r: 0x0F, g: 0x38, b: 0x0F},
+                DisplayPixel::White => RGB8 {
+                    r: 0x9B,
+                    g: 0xBC,
+                    b: 0x0F,
+                },
+                DisplayPixel::LightGrey => RGB8 {
+                    r: 0x8B,
+                    g: 0xAC,
+                    b: 0x0F,
+                },
+                DisplayPixel::DarkGrey => RGB8 {
+                    r: 0x30,
+                    g: 0x62,
+                    b: 0x30,
+                },
+                DisplayPixel::Black => RGB8 {
+                    r: 0x0F,
+                    g: 0x38,
+                    b: 0x0F,
+                },
             };
 
             array[i * 3 + 0] = px.r;
@@ -126,6 +148,5 @@ pub fn main() {
         tex.update(None, &array, 160 * 3).unwrap();
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
-
     }
 }

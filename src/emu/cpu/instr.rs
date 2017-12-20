@@ -115,8 +115,16 @@ pub fn ld_r16_a(cpu: &mut Cpu, reg: R16) {
     let reg = match reg {
         R16::BC => cpu.regs.bc,
         R16::DE => cpu.regs.de,
-        R16::HL => {let v = cpu.regs.hl;cpu.regs.hl += 1;v}
-        R16::SP => {let v = cpu.regs.hl;cpu.regs.hl -= 1;v}
+        R16::HL => {
+            let v = cpu.regs.hl;
+            cpu.regs.hl += 1;
+            v
+        }
+        R16::SP => {
+            let v = cpu.regs.hl;
+            cpu.regs.hl -= 1;
+            v
+        }
     };
 
     cpu.write_cycle(reg, a);
@@ -134,7 +142,6 @@ pub fn inc_16(cpu: &mut Cpu, reg: R16) {
     cpu.regs.set_reg_16(reg, v);
 }
 
-
 // Mnemonic: INC reg8
 // Full Name: Increment reg8
 // Description: Increments the given 8-bit register (or hl) reg8.
@@ -146,12 +153,22 @@ pub fn inc_8(cpu: &mut Cpu, reg: Reg) {
     cpu.regs.f &= Flag::C.to_mask();
     let val;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle(val.wrapping_add(1))}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val.wrapping_add(1))}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle(val.wrapping_add(1))
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, val.wrapping_add(1))
+        }
     };
 
-    if val == 0xFF {cpu.regs.set_flag(Flag::Z)};
-    if get_hca(val, 1) {cpu.regs.set_flag(Flag::H)};
+    if val == 0xFF {
+        cpu.regs.set_flag(Flag::Z)
+    };
+    if get_hca(val, 1) {
+        cpu.regs.set_flag(Flag::H)
+    };
 }
 
 // Mnemonic: DEC reg8
@@ -164,14 +181,24 @@ pub fn inc_8(cpu: &mut Cpu, reg: Reg) {
 pub fn dec_8(cpu: &mut Cpu, reg: Reg) {
     let val;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle(val.wrapping_sub(1))}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val.wrapping_sub(1))}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle(val.wrapping_sub(1))
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, val.wrapping_sub(1))
+        }
     };
 
     cpu.regs.f &= Flag::C.to_mask();
-    if val == 1 {cpu.regs.set_flag(Flag::Z)};
+    if val == 1 {
+        cpu.regs.set_flag(Flag::Z)
+    };
     cpu.regs.set_flag(Flag::N);
-    if (val & 0xF) == 0 {cpu.regs.set_flag(Flag::H)};
+    if (val & 0xF) == 0 {
+        cpu.regs.set_flag(Flag::H)
+    };
 }
 
 // Mnemonic: LD reg8,d8
@@ -179,12 +206,12 @@ pub fn dec_8(cpu: &mut Cpu, reg: Reg) {
 // Description: Loads 8-bit unsigned data d8 into the register (or hl) reg8.
 // Affected Flags: ----
 // Remarks: ----
-// Timing: "Read" or "Read Write"
+// Timing: "Read" or "Read, Write"
 pub fn ld_r8_d8(cpu: &mut Cpu, reg: Reg) {
     let val = cpu.read_ipc_cycle();
     match reg {
-        Reg::HL => {cpu.write_hl_cycle(val)}
-        r => {cpu.regs.set_reg(r, val)}
+        Reg::HL => cpu.write_hl_cycle(val),
+        r => cpu.regs.set_reg(r, val),
     }
 }
 
@@ -241,13 +268,21 @@ pub fn add_hl_reg16(cpu: &mut Cpu, reg: R16) {
 // Description: Sets A to the address referenced by the 16 bit register r16.
 // Affected Flags: ----
 // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
-// Timing: Write
+// Timing: Read
 pub fn ld_a_r16(cpu: &mut Cpu, reg: R16) {
     let reg = match reg {
         R16::BC => cpu.regs.bc,
         R16::DE => cpu.regs.de,
-        R16::HL => {let v = cpu.regs.hl;cpu.regs.hl += 1;v}
-        R16::SP => {let v = cpu.regs.hl;cpu.regs.hl -= 1;v}
+        R16::HL => {
+            let v = cpu.regs.hl;
+            cpu.regs.hl += 1;
+            v
+        }
+        R16::SP => {
+            let v = cpu.regs.hl;
+            cpu.regs.hl -= 1;
+            v
+        }
     };
 
     let val = cpu.read_cycle(reg);
@@ -265,7 +300,6 @@ pub fn dec_16(cpu: &mut Cpu, reg: R16) {
     let v = cpu.regs.get_reg_16(&reg).wrapping_sub(1);
     cpu.regs.set_reg_16(reg, v);
 }
-
 
 // Mnemonic: RRCA
 // Full Name: Rotate Right Circular A
@@ -290,7 +324,7 @@ pub fn rrca(cpu: &mut Cpu) {
 // Timing: Instant.
 pub fn rla(cpu: &mut Cpu) {
     let a = cpu.regs.a;
-    cpu.regs.a = (a << 1) | if cpu.regs.get_flag(Flag::C) {1} else {0};
+    cpu.regs.a = (a << 1) | if cpu.regs.get_flag(Flag::C) { 1 } else { 0 };
     cpu.regs.res_all_flags();
     if a & 0x80 == 0x80 {
         cpu.regs.set_flag(Flag::C);
@@ -305,7 +339,7 @@ pub fn rla(cpu: &mut Cpu) {
 // Timing: Instant.
 pub fn rra(cpu: &mut Cpu) {
     let a = cpu.regs.a;
-    cpu.regs.a=  (a >> 1) | if cpu.regs.get_flag(Flag::C) {0x80} else {0};
+    cpu.regs.a = (a >> 1) | if cpu.regs.get_flag(Flag::C) { 0x80 } else { 0 };
     cpu.regs.res_all_flags();
     if a & 0x01 == 0x01 {
         cpu.regs.set_flag(Flag::C);
@@ -409,7 +443,6 @@ pub fn add(cpu: &mut Cpu, reg: MathReg) {
     }
 }
 
-
 // Mnemonic: ADC
 // Full Name: Add with carry
 // Description: Adds the given reg (or hl, or imm) r and carry to A and stores the result into A
@@ -431,11 +464,13 @@ pub fn adc(cpu: &mut Cpu, reg: MathReg) {
         cpu.regs.set_flag(Flag::H);
     }
 
-    if (a as u16).wrapping_add(val as u16).wrapping_add(c_in as u16) > 0xFF {
+    if (a as u16)
+        .wrapping_add(val as u16)
+        .wrapping_add(c_in as u16) > 0xFF
+    {
         cpu.regs.set_flag(Flag::C);
     }
 }
-
 
 // Mnemonic: SUB
 // Full Name: Sub
@@ -476,7 +511,9 @@ pub fn sbc(cpu: &mut Cpu, reg: MathReg) {
     let c_in = cpu.regs.get_flag(Flag::C);
     let val = get_math_reg(cpu, reg);
 
-    let res = (a as u16).wrapping_sub(val as u16).wrapping_sub(c_in as u16);
+    let res = (a as u16)
+        .wrapping_sub(val as u16)
+        .wrapping_sub(c_in as u16);
     cpu.regs.set_reg(Reg::A, res as u8);
     cpu.regs.res_all_flags();
     if (res & 0xFF) == 0 {
@@ -581,7 +618,7 @@ pub fn cp(cpu: &mut Cpu, reg: MathReg) {
 // Description: Returns Conditionally. (NZ/Z/NC/C)
 // Affected Flags: ----
 // Remarks: ----
-// Timing: Read, Read, Internal Delay
+// Timing: "Internal Delay" or "Read, Read, Internal Delay"
 pub fn retc(cpu: &mut Cpu, jump: bool) {
     cpu.update(4);
     if jump {
@@ -657,9 +694,7 @@ pub fn rst(cpu: &mut Cpu, addr: u16) {
 pub fn ret(cpu: &mut Cpu, reti: bool) {
     let addr = cpu.read_pop_16_cycle();
     cpu.regs.pc = addr;
-    if reti {
-        cpu.ime = true;
-    }
+    cpu.ime |= reti;
     cpu.update(4);
 }
 
@@ -834,8 +869,14 @@ pub fn rlc(cpu: &mut Cpu, reg: Reg) {
     cpu.regs.res_all_flags();
     let val;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle((val << 1) | (val >> 7))}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, (val << 1) | (val >> 7))}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle((val << 1) | (val >> 7))
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, (val << 1) | (val >> 7))
+        }
     };
 
     if val == 0 {
@@ -857,8 +898,14 @@ pub fn rrc(cpu: &mut Cpu, reg: Reg) {
     cpu.regs.res_all_flags();
     let val;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle((val >> 1) | (val << 7))}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, (val >> 1) | (val << 7))}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle((val >> 1) | (val << 7))
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, (val >> 1) | (val << 7))
+        }
     };
 
     if val == 0 {
@@ -878,11 +925,19 @@ pub fn rrc(cpu: &mut Cpu, reg: Reg) {
 // Timing: "read, write" or instant.
 pub fn rl(cpu: &mut Cpu, reg: Reg) {
     let val;
-    let carry_in = if cpu.regs.get_flag(Flag::C) {1} else {0};
+    let carry_in = if cpu.regs.get_flag(Flag::C) { 1 } else { 0 };
     let res;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle();res = (val << 1) | (carry_in); cpu.write_hl_cycle(res)}
-        r => {val = cpu.regs.get_reg(&r); res = (val << 1) | (carry_in); cpu.regs.set_reg(r, res)}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            res = (val << 1) | (carry_in);
+            cpu.write_hl_cycle(res)
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            res = (val << 1) | (carry_in);
+            cpu.regs.set_reg(r, res)
+        }
     };
 
     cpu.regs.res_all_flags();
@@ -903,11 +958,23 @@ pub fn rl(cpu: &mut Cpu, reg: Reg) {
 // Timing: "read, write" or instant.
 pub fn rr(cpu: &mut Cpu, reg: Reg) {
     let val;
-    let carry_in = if cpu.regs.get_flag(Flag::C) {0x80} else {0x00};
+    let carry_in = if cpu.regs.get_flag(Flag::C) {
+        0x80
+    } else {
+        0x00
+    };
     let res;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); res = (val >> 1) | (carry_in); cpu.write_hl_cycle(res)}
-        r => {val = cpu.regs.get_reg(&r); res = (val >> 1) | (carry_in);cpu.regs.set_reg(r, res)}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            res = (val >> 1) | (carry_in);
+            cpu.write_hl_cycle(res)
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            res = (val >> 1) | (carry_in);
+            cpu.regs.set_reg(r, res)
+        }
     };
 
     cpu.regs.res_all_flags();
@@ -930,8 +997,16 @@ pub fn sla(cpu: &mut Cpu, reg: Reg) {
     let val;
     let res;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); res = val << 1; cpu.write_hl_cycle(res)}
-        r => {val = cpu.regs.get_reg(&r); res = val << 1; cpu.regs.set_reg(r, res)}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            res = val << 1;
+            cpu.write_hl_cycle(res)
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            res = val << 1;
+            cpu.regs.set_reg(r, res)
+        }
     };
 
     cpu.regs.res_all_flags();
@@ -954,8 +1029,16 @@ pub fn sra(cpu: &mut Cpu, reg: Reg) {
     let val;
     let res;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); res = (val >> 1) | (val & 0x80); cpu.write_hl_cycle(res)}
-        r => {val = cpu.regs.get_reg(&r); res = (val >> 1) | (val & 0x80); cpu.regs.set_reg(r, res)}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            res = (val >> 1) | (val & 0x80);
+            cpu.write_hl_cycle(res)
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            res = (val >> 1) | (val & 0x80);
+            cpu.regs.set_reg(r, res)
+        }
     };
 
     cpu.regs.res_all_flags();
@@ -977,8 +1060,14 @@ pub fn sra(cpu: &mut Cpu, reg: Reg) {
 pub fn swap(cpu: &mut Cpu, reg: Reg) {
     let val;
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); cpu.write_hl_cycle((val << 4) | (val >> 4))}
-        r => {val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, (val << 4) | (val >> 4))}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle((val << 4) | (val >> 4))
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, (val << 4) | (val >> 4))
+        }
     };
 
     cpu.regs.res_all_flags();
@@ -998,8 +1087,16 @@ pub fn srl(cpu: &mut Cpu, reg: Reg) {
     let res;
     cpu.regs.res_all_flags();
     match reg {
-        Reg::HL => {val = cpu.read_hl_cycle(); res = val >> 1; cpu.write_hl_cycle(res);}
-        r => {val = cpu.regs.get_reg(&r); res = val >> 1; cpu.regs.set_reg(r, res);}
+        Reg::HL => {
+            val = cpu.read_hl_cycle();
+            res = val >> 1;
+            cpu.write_hl_cycle(res);
+        }
+        r => {
+            val = cpu.regs.get_reg(&r);
+            res = val >> 1;
+            cpu.regs.set_reg(r, res);
+        }
     };
 
     if res == 0 {
@@ -1011,7 +1108,6 @@ pub fn srl(cpu: &mut Cpu, reg: Reg) {
     }
 }
 
-
 // Mnemonic: BIT
 // Full Name: Bit Test
 // Description: Tests the given bit (in the form of a mask --that is implementation specific,
@@ -1020,12 +1116,19 @@ pub fn srl(cpu: &mut Cpu, reg: Reg) {
 // Remarks: Zero is set if the bit is unset, and gets reset otherwise.
 // Timing: "read" or instant.
 pub fn bit(cpu: &mut Cpu, reg: Reg, mask: u8) {
-
     cpu.regs.f &= Flag::C.to_mask();
     cpu.regs.set_flag(Flag::H);
     match reg {
-        Reg::HL => {if (cpu.read_hl_cycle() & mask) == 0 {cpu.regs.set_flag(Flag::Z)}}
-        r => {if (cpu.regs.get_reg(&r) & mask) == 0 {cpu.regs.set_flag(Flag::Z)}}
+        Reg::HL => {
+            if (cpu.read_hl_cycle() & mask) == 0 {
+                cpu.regs.set_flag(Flag::Z)
+            }
+        }
+        r => {
+            if (cpu.regs.get_reg(&r) & mask) == 0 {
+                cpu.regs.set_flag(Flag::Z)
+            }
+        }
     }
 }
 
@@ -1038,8 +1141,14 @@ pub fn bit(cpu: &mut Cpu, reg: Reg, mask: u8) {
 // Timing: "read, write" or instant.
 pub fn res(cpu: &mut Cpu, reg: Reg, mask: u8) {
     match reg {
-        Reg::HL => {let val = cpu.read_hl_cycle(); cpu.write_hl_cycle(val & !mask)}
-        r => {let val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val & !mask)}
+        Reg::HL => {
+            let val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle(val & !mask)
+        }
+        r => {
+            let val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, val & !mask)
+        }
     }
 }
 
@@ -1052,7 +1161,13 @@ pub fn res(cpu: &mut Cpu, reg: Reg, mask: u8) {
 // Timing: "read, write" or instant.
 pub fn set(cpu: &mut Cpu, reg: Reg, mask: u8) {
     match reg {
-        Reg::HL => {let val = cpu.read_hl_cycle(); cpu.write_hl_cycle(val | mask)}
-        r => {let val = cpu.regs.get_reg(&r); cpu.regs.set_reg(r, val | mask)}
+        Reg::HL => {
+            let val = cpu.read_hl_cycle();
+            cpu.write_hl_cycle(val | mask)
+        }
+        r => {
+            let val = cpu.regs.get_reg(&r);
+            cpu.regs.set_reg(r, val | mask)
+        }
     }
 }
