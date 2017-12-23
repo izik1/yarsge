@@ -1,6 +1,3 @@
-use super::cpu;
-use super::cpu::Cpu;
-
 pub struct Dma {
     pub modulus: u8,
     pub time: usize,

@@ -13,8 +13,8 @@ use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 use clap::{App, Arg};
-use std::{thread, time};
 use rgb::RGB8;
+
 fn load_rom(path: String) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;

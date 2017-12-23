@@ -156,7 +156,6 @@ impl Cpu {
     }
 
     fn read_io(&self, addr: u8) -> u8 {
-        // TODO: Most (all) of this function.
         match addr {
             0x04...0x07 => self.tim.read_reg(addr),
             0x0F => self.r_if | 0xE0,
@@ -173,7 +172,6 @@ impl Cpu {
     }
 
     pub fn read_byte(&self, addr: u16) -> u8 {
-        // println!("Reading (addr: {:01$X})", addr, 4);
         match addr {
             0x0000...0x3FFF => self.read_rom_low(addr),
             0x4000...0x7FFF => self.read_rom_high(addr - 0x4000),
@@ -260,7 +258,6 @@ impl Cpu {
                     _ => unreachable!(),
                 }
             }
-            _ => unimplemented!("Unimplemented MBC mode: {:?}", self.mbc), // FIXME: stub
         }
     }
 
