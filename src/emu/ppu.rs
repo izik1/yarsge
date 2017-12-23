@@ -48,14 +48,21 @@ impl Ppu {
         &self.display_memory
     }
 
+    pub fn oam_blocked(&self) -> bool {
+        self.stat_mode > 1
+    }
+
+    fn vram_blocked(&self) -> bool {
+        self.stat_mode == 3
+    }
+
     pub fn get_vram(&self, addr: u16) -> u8 {
-        // TODO: VRAM blocking.
-        self.vram[addr as usize]
+        if self.vram_blocked() {0xFF}
+        else {self.vram[addr as usize]}
     }
 
     pub fn set_vram(&mut self, addr: u16, val: u8) {
-        // TODO: VRAM blocking.
-        self.vram[addr as usize] = val;
+        if !self.vram_blocked() {self.vram[addr as usize] = val}
     }
 
     pub fn set_reg(&mut self, addr: u8, val: u8) {

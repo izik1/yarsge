@@ -151,8 +151,8 @@ impl Cpu {
     }
 
     fn read_oam(&self, addr: u16) -> u8 {
-        // TODO: PPU OAM blocking.
-        self.ppu.oam[addr as usize]
+        if self.ppu.oam_blocked() {0xFF}
+        else {self.ppu.oam[addr as usize]}
     }
 
     fn read_io(&self, addr: u8) -> u8 {
@@ -224,8 +224,7 @@ impl Cpu {
     }
 
     fn write_oam(&mut self, addr: u16, val: u8) {
-        // TODO: PPU OAM blocking.
-        self.ppu.oam[addr as usize] = val;
+        if !self.ppu.oam_blocked() {self.ppu.oam[addr as usize] = val};
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {
