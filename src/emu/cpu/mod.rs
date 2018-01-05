@@ -27,8 +27,8 @@ struct MbcDescriptor {
 }
 
 impl MbcDescriptor {
-    fn get_real_bank_count(&self) -> u16 {
-        2 << (self.banks_rom as u16)
+    fn get_real_bank_count(&self) -> usize {
+        2 << (self.banks_rom as usize)
     }
 }
 
@@ -57,7 +57,7 @@ impl Mbc {
         match self {
             &Mbc::Mbc0 => addr as usize,
             &Mbc::Mbc1(ref desc) => if !desc.ram_bank_mode {
-                addr.wrapping_add((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as u16)) as usize
+                (addr as usize).wrapping_add(((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as usize)) * 0x4000)
             } else {
                 addr as usize
             },
@@ -67,7 +67,7 @@ impl Mbc {
     fn get_physical_addr_high(&self, addr: u16) -> usize {
         match self {
             &Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
-            &Mbc::Mbc1(ref desc) => addr.wrapping_add(((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as u16) * 0x4000) as usize,
+            &Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as usize) * 0x4000),
         }
     }
 }
@@ -252,7 +252,7 @@ impl Cpu {
             Mbc::Mbc1(ref mut desc) => {
                 match addr {
                     0x0000...0x1FFF => unimplemented!(),
-                    0x2000...0x3FFF => desc.rom_bank = if val == 0 {1} else {val & 0x1F},
+                    0x2000...0x3FFF => desc.rom_bank = if val & 0x1F == 0 {1} else {val & 0x1F},
                     0x4000...0x5FFF => desc.ram_bank = val & 0b11,
                     0x6000...0x7FFF => desc.ram_bank_mode = bits::has_bit(val, 0),
                     _ => unreachable!(),
@@ -361,7 +361,7 @@ impl Cpu {
             0x1E => instr::ld_r8_d8(self, Reg::E),
             0x1F => instr::rra(self),
 
-            0x20 => {let j = !self.regs.get_flag(Flag::Z); instr::jr(self, j)}
+            0x20 => instr::jr(self, !self.regs.get_flag(Flag::Z)),
             0x21 => instr::ld_r16_d16(self, R16::HL),
             0x22 => instr::ld_r16_a(self, R16::HL),
             0x23 => instr::inc_16(self, R16::HL),
@@ -369,7 +369,7 @@ impl Cpu {
             0x25 => instr::dec_8(self, Reg::H),
             0x26 => instr::ld_r8_d8(self, Reg::H),
             0x27 => instr::daa(self),
-            0x28 => {let j =  self.regs.get_flag(Flag::Z); instr::jr(self, j)}
+            0x28 => instr::jr(self, self.regs.get_flag(Flag::Z)),
             0x29 => instr::add_hl_reg16(self, R16::HL),
             0x2A => instr::ld_a_r16(self, R16::HL),
             0x2B => instr::dec_16(self, R16::HL),
@@ -377,7 +377,7 @@ impl Cpu {
             0x2D => instr::dec_8(self, Reg::L),
             0x2E => instr::ld_r8_d8(self, Reg::L),
             0x2F => instr::cpl(self),
-            0x30 => {let j = !self.regs.get_flag(Flag::C); instr::jr(self, j)}
+            0x30 => instr::jr(self, !self.regs.get_flag(Flag::C)),
             0x31 => instr::ld_r16_d16(self, R16::SP),
             0x32 => instr::ld_r16_a(self, R16::SP),
             0x33 => instr::inc_16(self, R16::SP),
@@ -385,7 +385,7 @@ impl Cpu {
             0x35 => instr::dec_8(self, Reg::HL),
             0x36 => instr::ld_r8_d8(self, Reg::HL),
             0x37 => instr::scf(self),
-            0x38 => {let j =  self.regs.get_flag(Flag::C); instr::jr(self, j)}
+            0x38 => instr::jr(self, self.regs.get_flag(Flag::C)),
             0x39 => instr::add_hl_reg16(self, R16::SP),
             0x3A => instr::ld_a_r16(self, R16::SP),
             0x3B => instr::dec_16(self, R16::SP),
@@ -394,22 +394,15 @@ impl Cpu {
             0x3E => instr::ld_r8_d8(self, Reg::A),
             0x3F => instr::ccf(self),
 
-            0x40 => instr::ld(self, Reg::B , Reg::B), 0x41 => instr::ld(self, Reg::B , Reg::C), 0x42 => instr::ld(self, Reg::B , Reg::D) , 0x43 => instr::ld(self, Reg::B , Reg::E),
-            0x44 => instr::ld(self, Reg::B , Reg::H), 0x45 => instr::ld(self, Reg::B , Reg::L), 0x46 => instr::ld(self, Reg::B , Reg::HL), 0x47 => instr::ld(self, Reg::B , Reg::A),
-            0x48 => instr::ld(self, Reg::C , Reg::B), 0x49 => instr::ld(self, Reg::C , Reg::C), 0x4A => instr::ld(self, Reg::C , Reg::D) , 0x4B => instr::ld(self, Reg::C , Reg::E),
-            0x4C => instr::ld(self, Reg::C , Reg::H), 0x4D => instr::ld(self, Reg::C , Reg::L), 0x4E => instr::ld(self, Reg::C , Reg::HL), 0x4F => instr::ld(self, Reg::C , Reg::A),
-            0x50 => instr::ld(self, Reg::D , Reg::B), 0x51 => instr::ld(self, Reg::D , Reg::C), 0x52 => instr::ld(self, Reg::D , Reg::D) , 0x53 => instr::ld(self, Reg::D , Reg::E),
-            0x54 => instr::ld(self, Reg::D , Reg::H), 0x55 => instr::ld(self, Reg::D , Reg::L), 0x56 => instr::ld(self, Reg::D , Reg::HL), 0x57 => instr::ld(self, Reg::D , Reg::A),
-            0x58 => instr::ld(self, Reg::E , Reg::B), 0x59 => instr::ld(self, Reg::E , Reg::C), 0x5A => instr::ld(self, Reg::E , Reg::D) , 0x5B => instr::ld(self, Reg::E , Reg::E),
-            0x5C => instr::ld(self, Reg::E , Reg::H), 0x5D => instr::ld(self, Reg::E , Reg::L), 0x5E => instr::ld(self, Reg::E , Reg::HL), 0x5F => instr::ld(self, Reg::E , Reg::A),
-            0x60 => instr::ld(self, Reg::H , Reg::B), 0x61 => instr::ld(self, Reg::H , Reg::C), 0x62 => instr::ld(self, Reg::H , Reg::D) , 0x63 => instr::ld(self, Reg::H , Reg::E),
-            0x64 => instr::ld(self, Reg::H , Reg::H), 0x65 => instr::ld(self, Reg::H , Reg::L), 0x66 => instr::ld(self, Reg::H , Reg::HL), 0x67 => instr::ld(self, Reg::H , Reg::A),
-            0x68 => instr::ld(self, Reg::L , Reg::B), 0x69 => instr::ld(self, Reg::L , Reg::C), 0x6A => instr::ld(self, Reg::L , Reg::D) , 0x6B => instr::ld(self, Reg::L , Reg::E),
-            0x6C => instr::ld(self, Reg::L , Reg::H), 0x6D => instr::ld(self, Reg::L , Reg::L), 0x6E => instr::ld(self, Reg::L , Reg::HL), 0x6F => instr::ld(self, Reg::L , Reg::A),
-            0x70 => instr::ld(self, Reg::HL, Reg::B), 0x71 => instr::ld(self, Reg::HL, Reg::C), 0x72 => instr::ld(self, Reg::HL, Reg::D) , 0x73 => instr::ld(self, Reg::HL, Reg::E),
-            0x74 => instr::ld(self, Reg::HL, Reg::H), 0x75 => instr::ld(self, Reg::HL, Reg::L), 0x76 => instr::halt(self)                , 0x77 => instr::ld(self, Reg::HL, Reg::A),
-            0x78 => instr::ld(self, Reg::A , Reg::B), 0x79 => instr::ld(self, Reg::A , Reg::C), 0x7A => instr::ld(self, Reg::A , Reg::D) , 0x7B => instr::ld(self, Reg::A , Reg::E),
-            0x7C => instr::ld(self, Reg::A , Reg::H), 0x7D => instr::ld(self, Reg::A , Reg::L), 0x7E => instr::ld(self, Reg::A , Reg::HL), 0x7F => instr::ld(self, Reg::A , Reg::A),
+            0x40...0x7F => {
+                let dest = Reg::from_num(op >> 3);
+                let src = Reg::from_num(op);
+                if op == 0x76 {
+                    instr::halt(self);
+                } else {
+                    instr::ld(self, dest, src);
+                }
+            }
 
             0x80 => instr::add(self, MathReg::R(Reg::B )), 0x81 => instr::add(self, MathReg::R(Reg::C)),
             0x82 => instr::add(self, MathReg::R(Reg::D )), 0x83 => instr::add(self, MathReg::R(Reg::E)),
@@ -451,35 +444,35 @@ impl Cpu {
             0xBC => instr::cp (self, MathReg::R(Reg::H )), 0xBD => instr::cp (self, MathReg::R(Reg::L)),
             0xBE => instr::cp (self, MathReg::R(Reg::HL)), 0xBF => instr::cp (self, MathReg::R(Reg::A)),
 
-            0xC0 => {let j = !self.regs.get_flag(Flag::Z); instr::retc(self, j)}
+            0xC0 => instr::retc(self, !self.regs.get_flag(Flag::Z)),
             0xC1 => instr::pop(self, R16::BC),
-            0xC2 => {let j = !self.regs.get_flag(Flag::Z); instr::jp  (self, j)}
-            0xC3 => instr::jp (self, true ),
-            0xC4 => {let j = !self.regs.get_flag(Flag::Z); instr::call(self, j)}
+            0xC2 => instr::jp(self, !self.regs.get_flag(Flag::Z)),
+            0xC3 => instr::jp(self, true),
+            0xC4 => instr::call(self, !self.regs.get_flag(Flag::Z)),
             0xC5 => instr::push(self, R16::BC),
             0xC6 => instr::add(self, MathReg::Imm),
             0xC7 => instr::rst(self, 0x00),
-            0xC8 => {let j =  self.regs.get_flag(Flag::Z); instr::retc(self, j)}
+            0xC8 => instr::retc(self, self.regs.get_flag(Flag::Z)),
             0xC9 => instr::ret(self, false),
-            0xCA => {let j =  self.regs.get_flag(Flag::Z); instr::jp  (self, j)}
+            0xCA => instr::jp(self, self.regs.get_flag(Flag::Z)),
             0xCB => self.run_extended(),
-            0xCC => {let j =  self.regs.get_flag(Flag::Z); instr::call(self, j)}
+            0xCC => instr::call(self, self.regs.get_flag(Flag::Z)),
             0xCD => instr::call(self, true),
             0xCE => instr::adc(self, MathReg::Imm),
             0xCF => instr::rst(self, 0x08),
-            0xD0 => {let j = !self.regs.get_flag(Flag::C); instr::retc(self, j)}
+            0xD0 => instr::retc(self, !self.regs.get_flag(Flag::C)),
             0xD1 => instr::pop(self, R16::DE),
-            0xD2 => {let j = !self.regs.get_flag(Flag::C); instr::jp  (self, j)}
+            0xD2 => instr::jp(self, !self.regs.get_flag(Flag::C)),
             0xD3 => instr::invalid(self),
-            0xD4 => {let j = !self.regs.get_flag(Flag::C); instr::call(self, j)}
+            0xD4 => instr::call(self, !self.regs.get_flag(Flag::C)),
             0xD5 => instr::push(self, R16::DE),
             0xD6 => instr::sub(self, MathReg::Imm),
             0xD7 => instr::rst(self, 0x10),
-            0xD8 => {let j =  self.regs.get_flag(Flag::C); instr::retc(self, j)}
+            0xD8 => instr::retc(self, self.regs.get_flag(Flag::C)),
             0xD9 => instr::ret(self, true),
-            0xDA => {let j =  self.regs.get_flag(Flag::C); instr::jp  (self, j)}
+            0xDA => instr::jp  (self, self.regs.get_flag(Flag::C)),
             0xDB => instr::invalid(self),
-            0xDC => {let j =  self.regs.get_flag(Flag::C); instr::call(self, j)}
+            0xDC => instr::call(self, self.regs.get_flag(Flag::C)),
             0xDD => instr::invalid(self),
             0xDE => instr::sbc(self, MathReg::Imm),
             0xDF => instr::rst(self, 0x18),
@@ -522,80 +515,26 @@ impl Cpu {
 
     fn run_extended(&mut self) {
         let op = self.read_ipc_cycle();
-        match op {
-            0x00 => instr::rlc (self, Reg::B), 0x01 => instr::rlc (self, Reg::C), 0x02 => instr::rlc (self, Reg::D) , 0x03 => instr::rlc (self, Reg::E),
-            0x04 => instr::rlc (self, Reg::H), 0x05 => instr::rlc (self, Reg::L), 0x06 => instr::rlc (self, Reg::HL), 0x07 => instr::rlc (self, Reg::A),
-            0x08 => instr::rrc (self, Reg::B), 0x09 => instr::rrc (self, Reg::C), 0x0A => instr::rrc (self, Reg::D) , 0x0B => instr::rrc (self, Reg::E),
-            0x0C => instr::rrc (self, Reg::H), 0x0D => instr::rrc (self, Reg::L), 0x0E => instr::rrc (self, Reg::HL), 0x0F => instr::rrc (self, Reg::A),
+        let reg = Reg::from_num(op);
 
-            0x10 => instr::rl  (self, Reg::B), 0x11 => instr::rl  (self, Reg::C), 0x12 => instr::rl  (self, Reg::D) , 0x13 => instr::rl  (self, Reg::E),
-            0x14 => instr::rl  (self, Reg::H), 0x15 => instr::rl  (self, Reg::L), 0x16 => instr::rl  (self, Reg::HL), 0x17 => instr::rl  (self, Reg::A),
-            0x18 => instr::rr  (self, Reg::B), 0x19 => instr::rr  (self, Reg::C), 0x1A => instr::rr  (self, Reg::D) , 0x1B => instr::rr  (self, Reg::E),
-            0x1C => instr::rr  (self, Reg::H), 0x1D => instr::rr  (self, Reg::L), 0x1E => instr::rr  (self, Reg::HL), 0x1F => instr::rr  (self, Reg::A),
+        match op >> 6 {
+            0b00 => match op >> 3 {
+                0b000 => instr::rlc (self, reg),
+                0b001 => instr::rrc (self, reg),
+                0b010 => instr::rl  (self, reg),
+                0b011 => instr::rr  (self, reg),
+                0b100 => instr::sla (self, reg),
+                0b101 => instr::sra (self, reg),
+                0b110 => instr::swap(self, reg),
+                0b111 => instr::srl (self, reg),
+                _ => unreachable!(),
+            }
 
-            0x20 => instr::sla (self, Reg::B), 0x21 => instr::sla (self, Reg::C), 0x22 => instr::sla (self, Reg::D) , 0x23 => instr::sla (self, Reg::E),
-            0x24 => instr::sla (self, Reg::H), 0x25 => instr::sla (self, Reg::L), 0x26 => instr::sla (self, Reg::HL), 0x27 => instr::sla (self, Reg::A),
-            0x28 => instr::sra (self, Reg::B), 0x29 => instr::sra (self, Reg::C), 0x2A => instr::sra (self, Reg::D) , 0x2B => instr::sra (self, Reg::E),
-            0x2C => instr::sra (self, Reg::H), 0x2D => instr::sra (self, Reg::L), 0x2E => instr::sra (self, Reg::HL), 0x2F => instr::sra (self, Reg::A),
-
-            0x30 => instr::swap(self, Reg::B), 0x31 => instr::swap(self, Reg::C), 0x32 => instr::swap(self, Reg::D) , 0x33 => instr::swap(self, Reg::E),
-            0x34 => instr::swap(self, Reg::H), 0x35 => instr::swap(self, Reg::L), 0x36 => instr::swap(self, Reg::HL), 0x37 => instr::swap(self, Reg::A),
-            0x38 => instr::srl (self, Reg::B), 0x39 => instr::srl (self, Reg::C), 0x3A => instr::srl (self, Reg::D) , 0x3B => instr::srl (self, Reg::E),
-            0x3C => instr::srl (self, Reg::H), 0x3D => instr::srl (self, Reg::L), 0x3E => instr::srl (self, Reg::HL), 0x3F => instr::srl (self, Reg::A),
-
-            0x40 => instr::bit(self, Reg::B, 0x01), 0x41 => instr::bit(self, Reg::C, 0x01), 0x42 => instr::bit(self, Reg::D , 0x01), 0x43 => instr::bit(self, Reg::E, 0x01),
-            0x44 => instr::bit(self, Reg::H, 0x01), 0x45 => instr::bit(self, Reg::L, 0x01), 0x46 => instr::bit(self, Reg::HL, 0x01), 0x47 => instr::bit(self, Reg::A, 0x01),
-            0x48 => instr::bit(self, Reg::B, 0x02), 0x49 => instr::bit(self, Reg::C, 0x02), 0x4A => instr::bit(self, Reg::D , 0x02), 0x4B => instr::bit(self, Reg::E, 0x02),
-            0x4C => instr::bit(self, Reg::H, 0x02), 0x4D => instr::bit(self, Reg::L, 0x02), 0x4E => instr::bit(self, Reg::HL, 0x02), 0x4F => instr::bit(self, Reg::A, 0x02),
-            0x50 => instr::bit(self, Reg::B, 0x04), 0x51 => instr::bit(self, Reg::C, 0x04), 0x52 => instr::bit(self, Reg::D , 0x04), 0x53 => instr::bit(self, Reg::E, 0x04),
-            0x54 => instr::bit(self, Reg::H, 0x04), 0x55 => instr::bit(self, Reg::L, 0x04), 0x56 => instr::bit(self, Reg::HL, 0x04), 0x57 => instr::bit(self, Reg::A, 0x04),
-            0x58 => instr::bit(self, Reg::B, 0x08), 0x59 => instr::bit(self, Reg::C, 0x08), 0x5A => instr::bit(self, Reg::D , 0x08), 0x5B => instr::bit(self, Reg::E, 0x08),
-            0x5C => instr::bit(self, Reg::H, 0x08), 0x5D => instr::bit(self, Reg::L, 0x08), 0x5E => instr::bit(self, Reg::HL, 0x08), 0x5F => instr::bit(self, Reg::A, 0x08),
-            0x60 => instr::bit(self, Reg::B, 0x10), 0x61 => instr::bit(self, Reg::C, 0x10), 0x62 => instr::bit(self, Reg::D , 0x10), 0x63 => instr::bit(self, Reg::E, 0x10),
-            0x64 => instr::bit(self, Reg::H, 0x10), 0x65 => instr::bit(self, Reg::L, 0x10), 0x66 => instr::bit(self, Reg::HL, 0x10), 0x67 => instr::bit(self, Reg::A, 0x10),
-            0x68 => instr::bit(self, Reg::B, 0x20), 0x69 => instr::bit(self, Reg::C, 0x20), 0x6A => instr::bit(self, Reg::D , 0x20), 0x6B => instr::bit(self, Reg::E, 0x20),
-            0x6C => instr::bit(self, Reg::H, 0x20), 0x6D => instr::bit(self, Reg::L, 0x20), 0x6E => instr::bit(self, Reg::HL, 0x20), 0x6F => instr::bit(self, Reg::A, 0x20),
-            0x70 => instr::bit(self, Reg::B, 0x40), 0x71 => instr::bit(self, Reg::C, 0x40), 0x72 => instr::bit(self, Reg::D , 0x40), 0x73 => instr::bit(self, Reg::E, 0x40),
-            0x74 => instr::bit(self, Reg::H, 0x40), 0x75 => instr::bit(self, Reg::L, 0x40), 0x76 => instr::bit(self, Reg::HL, 0x40), 0x77 => instr::bit(self, Reg::A, 0x40),
-            0x78 => instr::bit(self, Reg::B, 0x80), 0x79 => instr::bit(self, Reg::C, 0x80), 0x7A => instr::bit(self, Reg::D , 0x80), 0x7B => instr::bit(self, Reg::E, 0x80),
-            0x7C => instr::bit(self, Reg::H, 0x80), 0x7D => instr::bit(self, Reg::L, 0x80), 0x7E => instr::bit(self, Reg::HL, 0x80), 0x7F => instr::bit(self, Reg::A, 0x80),
-
-            0x80 => instr::res(self, Reg::B, 0x01), 0x81 => instr::res(self, Reg::C, 0x01), 0x82 => instr::res(self, Reg::D , 0x01), 0x83 => instr::res(self, Reg::E, 0x01),
-            0x84 => instr::res(self, Reg::H, 0x01), 0x85 => instr::res(self, Reg::L, 0x01), 0x86 => instr::res(self, Reg::HL, 0x01), 0x87 => instr::res(self, Reg::A, 0x01),
-            0x88 => instr::res(self, Reg::B, 0x02), 0x89 => instr::res(self, Reg::C, 0x02), 0x8A => instr::res(self, Reg::D , 0x02), 0x8B => instr::res(self, Reg::E, 0x02),
-            0x8C => instr::res(self, Reg::H, 0x02), 0x8D => instr::res(self, Reg::L, 0x02), 0x8E => instr::res(self, Reg::HL, 0x02), 0x8F => instr::res(self, Reg::A, 0x02),
-            0x90 => instr::res(self, Reg::B, 0x04), 0x91 => instr::res(self, Reg::C, 0x04), 0x92 => instr::res(self, Reg::D , 0x04), 0x93 => instr::res(self, Reg::E, 0x04),
-            0x94 => instr::res(self, Reg::H, 0x04), 0x95 => instr::res(self, Reg::L, 0x04), 0x96 => instr::res(self, Reg::HL, 0x04), 0x97 => instr::res(self, Reg::A, 0x04),
-            0x98 => instr::res(self, Reg::B, 0x08), 0x99 => instr::res(self, Reg::C, 0x08), 0x9A => instr::res(self, Reg::D , 0x08), 0x9B => instr::res(self, Reg::E, 0x08),
-            0x9C => instr::res(self, Reg::H, 0x08), 0x9D => instr::res(self, Reg::L, 0x08), 0x9E => instr::res(self, Reg::HL, 0x08), 0x9F => instr::res(self, Reg::A, 0x08),
-            0xA0 => instr::res(self, Reg::B, 0x10), 0xA1 => instr::res(self, Reg::C, 0x10), 0xA2 => instr::res(self, Reg::D , 0x10), 0xA3 => instr::res(self, Reg::E, 0x10),
-            0xA4 => instr::res(self, Reg::H, 0x10), 0xA5 => instr::res(self, Reg::L, 0x10), 0xA6 => instr::res(self, Reg::HL, 0x10), 0xA7 => instr::res(self, Reg::A, 0x10),
-            0xA8 => instr::res(self, Reg::B, 0x20), 0xA9 => instr::res(self, Reg::C, 0x20), 0xAA => instr::res(self, Reg::D , 0x20), 0xAB => instr::res(self, Reg::E, 0x20),
-            0xAC => instr::res(self, Reg::H, 0x20), 0xAD => instr::res(self, Reg::L, 0x20), 0xAE => instr::res(self, Reg::HL, 0x20), 0xAF => instr::res(self, Reg::A, 0x20),
-            0xB0 => instr::res(self, Reg::B, 0x40), 0xB1 => instr::res(self, Reg::C, 0x40), 0xB2 => instr::res(self, Reg::D , 0x40), 0xB3 => instr::res(self, Reg::E, 0x40),
-            0xB4 => instr::res(self, Reg::H, 0x40), 0xB5 => instr::res(self, Reg::L, 0x40), 0xB6 => instr::res(self, Reg::HL, 0x40), 0xB7 => instr::res(self, Reg::A, 0x40),
-            0xB8 => instr::res(self, Reg::B, 0x80), 0xB9 => instr::res(self, Reg::C, 0x80), 0xBA => instr::res(self, Reg::D , 0x80), 0xBB => instr::res(self, Reg::E, 0x80),
-            0xBC => instr::res(self, Reg::H, 0x80), 0xBD => instr::res(self, Reg::L, 0x80), 0xBE => instr::res(self, Reg::HL, 0x80), 0xBF => instr::res(self, Reg::A, 0x80),
-
-            0xC0 => instr::set(self, Reg::B, 0x01), 0xC1 => instr::set(self, Reg::C, 0x01), 0xC2 => instr::set(self, Reg::D , 0x01), 0xC3 => instr::set(self, Reg::E, 0x01),
-            0xC4 => instr::set(self, Reg::H, 0x01), 0xC5 => instr::set(self, Reg::L, 0x01), 0xC6 => instr::set(self, Reg::HL, 0x01), 0xC7 => instr::set(self, Reg::A, 0x01),
-            0xC8 => instr::set(self, Reg::B, 0x02), 0xC9 => instr::set(self, Reg::C, 0x02), 0xCA => instr::set(self, Reg::D , 0x02), 0xCB => instr::set(self, Reg::E, 0x02),
-            0xCC => instr::set(self, Reg::H, 0x02), 0xCD => instr::set(self, Reg::L, 0x02), 0xCE => instr::set(self, Reg::HL, 0x02), 0xCF => instr::set(self, Reg::A, 0x02),
-            0xD0 => instr::set(self, Reg::B, 0x04), 0xD1 => instr::set(self, Reg::C, 0x04), 0xD2 => instr::set(self, Reg::D , 0x04), 0xD3 => instr::set(self, Reg::E, 0x04),
-            0xD4 => instr::set(self, Reg::H, 0x04), 0xD5 => instr::set(self, Reg::L, 0x04), 0xD6 => instr::set(self, Reg::HL, 0x04), 0xD7 => instr::set(self, Reg::A, 0x04),
-            0xD8 => instr::set(self, Reg::B, 0x08), 0xD9 => instr::set(self, Reg::C, 0x08), 0xDA => instr::set(self, Reg::D , 0x08), 0xDB => instr::set(self, Reg::E, 0x08),
-            0xDC => instr::set(self, Reg::H, 0x08), 0xDD => instr::set(self, Reg::L, 0x08), 0xDE => instr::set(self, Reg::HL, 0x08), 0xDF => instr::set(self, Reg::A, 0x08),
-            0xE0 => instr::set(self, Reg::B, 0x10), 0xE1 => instr::set(self, Reg::C, 0x10), 0xE2 => instr::set(self, Reg::D , 0x10), 0xE3 => instr::set(self, Reg::E, 0x10),
-            0xE4 => instr::set(self, Reg::H, 0x10), 0xE5 => instr::set(self, Reg::L, 0x10), 0xE6 => instr::set(self, Reg::HL, 0x10), 0xE7 => instr::set(self, Reg::A, 0x10),
-            0xE8 => instr::set(self, Reg::B, 0x20), 0xE9 => instr::set(self, Reg::C, 0x20), 0xEA => instr::set(self, Reg::D , 0x20), 0xEB => instr::set(self, Reg::E, 0x20),
-            0xEC => instr::set(self, Reg::H, 0x20), 0xED => instr::set(self, Reg::L, 0x20), 0xEE => instr::set(self, Reg::HL, 0x20), 0xEF => instr::set(self, Reg::A, 0x20),
-            0xF0 => instr::set(self, Reg::B, 0x40), 0xF1 => instr::set(self, Reg::C, 0x40), 0xF2 => instr::set(self, Reg::D , 0x40), 0xF3 => instr::set(self, Reg::E, 0x40),
-            0xF4 => instr::set(self, Reg::H, 0x40), 0xF5 => instr::set(self, Reg::L, 0x40), 0xF6 => instr::set(self, Reg::HL, 0x40), 0xF7 => instr::set(self, Reg::A, 0x40),
-            0xF8 => instr::set(self, Reg::B, 0x80), 0xF9 => instr::set(self, Reg::C, 0x80), 0xFA => instr::set(self, Reg::D , 0x80), 0xFB => instr::set(self, Reg::E, 0x80),
-            0xFC => instr::set(self, Reg::H, 0x80), 0xFD => instr::set(self, Reg::L, 0x80), 0xFE => instr::set(self, Reg::HL, 0x80), 0xFF => instr::set(self, Reg::A, 0x80),
+            0b01 => instr::bit(self, reg, 1 << ((op >> 3) & 0b111)),
+            0b10 => instr::res(self, reg, 1 << ((op >> 3) & 0b111)),
+            0b11 => instr::set(self, reg, 1 << ((op >> 3) & 0b111)),
             _ => unreachable!(),
         }
-
     }
 
     fn handle_interrupts(&mut self) {

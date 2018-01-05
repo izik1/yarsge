@@ -196,15 +196,18 @@ impl Ppu {
                 self.stat_mode = 0;
                 self.ly_cp() || (self.stat_upper & 4) == 4
             }
+
             04 => {
                 self.stat_mode = 2;
                 self.ly_cp() || bits::has_bit(self.stat_upper, 5)
             }
+
             40 => {
                 self.stat_mode = 3;
                 self.render_line();
                 self.ly_cp()
             }
+
             _ => {
                 self.ly_cp() || (self.stat_mode == 2 && bits::has_bit(self.stat_upper, 5))
                     || (self.stat_mode == 0 && bits::has_bit(self.stat_upper, 3))
