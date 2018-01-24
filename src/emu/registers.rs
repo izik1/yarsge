@@ -27,7 +27,6 @@ impl Reg {
             0b111 => Reg::A,
             _ => unreachable!(),
         }
-
     }
 }
 
@@ -50,25 +49,25 @@ pub struct Registers {
 }
 
 impl Registers {
-    pub fn get_reg(&self, reg: &Reg) -> u8 {
+    pub fn get_reg(&self, reg: Reg) -> u8 {
         match reg {
-            &Reg::B => (self.bc >> 8) as u8,
-            &Reg::C => (self.bc >> 0) as u8,
-            &Reg::D => (self.de >> 8) as u8,
-            &Reg::E => (self.de >> 0) as u8,
-            &Reg::H => (self.hl >> 8) as u8,
-            &Reg::L => (self.hl >> 0) as u8,
-            &Reg::HL => panic!(),
-            &Reg::A => self.a,
+            Reg::B => (self.bc >> 8) as u8,
+            Reg::C => (self.bc >> 0) as u8,
+            Reg::D => (self.de >> 8) as u8,
+            Reg::E => (self.de >> 0) as u8,
+            Reg::H => (self.hl >> 8) as u8,
+            Reg::L => (self.hl >> 0) as u8,
+            Reg::HL => panic!(),
+            Reg::A => self.a,
         }
     }
 
-    pub fn get_reg_16(&self, reg: &R16) -> u16 {
+    pub fn get_reg_16(&self, reg: R16) -> u16 {
         match reg {
-            &R16::BC => self.bc,
-            &R16::DE => self.de,
-            &R16::HL => self.hl,
-            &R16::SP => self.sp,
+            R16::BC => self.bc,
+            R16::DE => self.de,
+            R16::HL => self.hl,
+            R16::SP => self.sp,
         }
     }
 
@@ -117,6 +116,25 @@ impl Registers {
 
     pub fn res_all_flags(&mut self) {
         self.f = 0b0000_0000;
+    }
+
+    pub fn assign_all_flags(&mut self, z: bool, n: bool, h: bool, c: bool) {
+        self.res_all_flags();
+        if z {
+            self.set_flag(Flag::Z);
+        }
+
+        if n {
+            self.set_flag(Flag::N);
+        }
+
+        if h {
+            self.set_flag(Flag::H);
+        }
+
+        if c {
+            self.set_flag(Flag::C);
+        }
     }
 
     pub fn set_flag(&mut self, flag: Flag) {

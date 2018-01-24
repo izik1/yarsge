@@ -57,12 +57,17 @@ impl Ppu {
     }
 
     pub fn get_vram(&self, addr: u16) -> u8 {
-        if self.vram_blocked() {0xFF}
-        else {self.vram[addr as usize]}
+        if self.vram_blocked() {
+            0xFF
+        } else {
+            self.vram[addr as usize]
+        }
     }
 
     pub fn set_vram(&mut self, addr: u16, val: u8) {
-        if !self.vram_blocked() {self.vram[addr as usize] = val}
+        if !self.vram_blocked() {
+            self.vram[addr as usize] = val
+        }
     }
 
     pub fn set_reg(&mut self, addr: u8, val: u8) {

@@ -11,7 +11,7 @@ pub enum MathReg {
 fn get_reg(cpu: &mut Cpu, reg: Reg) -> u8 {
     match reg {
         Reg::HL => cpu.read_hl_cycle(),
-        r => cpu.regs.get_reg(&r),
+        r => cpu.regs.get_reg(r),
     }
 }
 
@@ -63,9 +63,9 @@ pub fn jp(cpu: &mut Cpu, jump: bool) {
 pub fn ld(cpu: &mut Cpu, dest: Reg, src: Reg) {
     match (dest, src) {
         (Reg::HL, Reg::HL) => unreachable!("This while theoretically reachable, should *never* be reached, since this instruction is instead HALT"),
-        (Reg::HL, src) =>     {let val = cpu.regs.get_reg(&src); cpu.write_hl_cycle(val)}
+        (Reg::HL, src) =>     {let val = cpu.regs.get_reg(src); cpu.write_hl_cycle(val)}
         (dest, Reg::HL) =>    {let val = cpu.read_hl_cycle(); cpu.regs.set_reg(dest, val)}
-        (dest, src) =>        {let val = cpu.regs.get_reg(&src); cpu.regs.set_reg(dest, val)}
+        (dest, src) =>        {let val = cpu.regs.get_reg(src); cpu.regs.set_reg(dest, val)}
     }
 }
 
@@ -111,23 +111,15 @@ pub fn ld_r16_d16(cpu: &mut Cpu, reg: R16) {
 // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
 // Timing: Write
 pub fn ld_r16_a(cpu: &mut Cpu, reg: R16) {
-    let a = cpu.regs.a;
-    let reg = match reg {
-        R16::BC => cpu.regs.bc,
-        R16::DE => cpu.regs.de,
-        R16::HL => {
-            let v = cpu.regs.hl;
-            cpu.regs.hl += 1;
-            v
-        }
-        R16::SP => {
-            let v = cpu.regs.hl;
-            cpu.regs.hl -= 1;
-            v
-        }
+    let (addr, hl_mod) = match reg {
+        R16::BC => (cpu.regs.bc, 0x0000),
+        R16::DE => (cpu.regs.de, 0x0000),
+        R16::HL => (cpu.regs.hl, 0x0001),
+        R16::SP => (cpu.regs.hl, 0xFFFF),
     };
 
-    cpu.write_cycle(reg, a);
+    cpu.regs.hl = cpu.regs.hl.wrapping_add(hl_mod);
+    cpu.write_cycle(addr, cpu.regs.a);
 }
 
 // Mnemonic: INC r16
@@ -138,7 +130,7 @@ pub fn ld_r16_a(cpu: &mut Cpu, reg: R16) {
 // Timing: Internal Delay.
 pub fn inc_16(cpu: &mut Cpu, reg: R16) {
     cpu.update(4);
-    let v = cpu.regs.get_reg_16(&reg).wrapping_add(1);
+    let v = cpu.regs.get_reg_16(reg).wrapping_add(1);
     cpu.regs.set_reg_16(reg, v);
 }
 
@@ -158,17 +150,17 @@ pub fn inc_8(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(val.wrapping_add(1))
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, val.wrapping_add(1))
         }
     };
 
     if val == 0xFF {
-        cpu.regs.set_flag(Flag::Z)
-    };
+        cpu.regs.set_flag(Flag::Z);
+    }
     if get_hca(val, 1) {
-        cpu.regs.set_flag(Flag::H)
-    };
+        cpu.regs.set_flag(Flag::H);
+    }
 }
 
 // Mnemonic: DEC reg8
@@ -186,7 +178,7 @@ pub fn dec_8(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(val.wrapping_sub(1))
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, val.wrapping_sub(1))
         }
     };
@@ -223,7 +215,7 @@ pub fn ld_r8_d8(cpu: &mut Cpu, reg: Reg) {
 // Timing: Instant.
 pub fn rlca(cpu: &mut Cpu) {
     cpu.regs.res_all_flags();
-    if (cpu.regs.a & 0x80) > 0 {
+    if cpu.regs.a >= 0x80 {
         cpu.regs.set_flag(Flag::C);
     }
 
@@ -249,7 +241,7 @@ pub fn ld_a16_sp(cpu: &mut Cpu) {
 // Remarks: Half Carry is set if there is a carry between bits 11 and 12. Carry is set if there is a carry out. Otherwise reset Half Carry or Carry respectively
 // Timing: Internal Delay
 pub fn add_hl_reg16(cpu: &mut Cpu, reg: R16) {
-    let val = cpu.regs.get_reg_16(&reg);
+    let val = cpu.regs.get_reg_16(reg);
     let res = cpu.regs.hl.wrapping_add(val);
     cpu.regs.f &= Flag::Z.to_mask();
     if (((cpu.regs.hl & 0xFFF) + (val & 0xFFF)) & 0x1000) == 0x1000 {
@@ -270,22 +262,15 @@ pub fn add_hl_reg16(cpu: &mut Cpu, reg: R16) {
 // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
 // Timing: Read
 pub fn ld_a_r16(cpu: &mut Cpu, reg: R16) {
-    let reg = match reg {
-        R16::BC => cpu.regs.bc,
-        R16::DE => cpu.regs.de,
-        R16::HL => {
-            let v = cpu.regs.hl;
-            cpu.regs.hl += 1;
-            v
-        }
-        R16::SP => {
-            let v = cpu.regs.hl;
-            cpu.regs.hl -= 1;
-            v
-        }
+    let (addr, hl_mod) = match reg {
+        R16::BC => (cpu.regs.bc, 0x0000),
+        R16::DE => (cpu.regs.de, 0x0000),
+        R16::HL => (cpu.regs.hl, 0x0001),
+        R16::SP => (cpu.regs.hl, 0xFFFF),
     };
 
-    let val = cpu.read_cycle(reg);
+    cpu.regs.hl = cpu.regs.hl.wrapping_add(hl_mod);
+    let val = cpu.read_cycle(addr);
     cpu.regs.set_reg(Reg::A, val);
 }
 
@@ -297,8 +282,8 @@ pub fn ld_a_r16(cpu: &mut Cpu, reg: R16) {
 // Timing: Internal Delay.
 pub fn dec_16(cpu: &mut Cpu, reg: R16) {
     cpu.update(4);
-    let v = cpu.regs.get_reg_16(&reg).wrapping_sub(1);
-    cpu.regs.set_reg_16(reg, v);
+    cpu.regs
+        .set_reg_16(reg, cpu.regs.get_reg_16(reg).wrapping_sub(1));
 }
 
 // Mnemonic: RRCA
@@ -429,18 +414,8 @@ pub fn add(cpu: &mut Cpu, reg: MathReg) {
     let val = get_math_reg(cpu, reg);
 
     cpu.regs.a = a.wrapping_add(val);
-    cpu.regs.res_all_flags();
-    if cpu.regs.a == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if get_hca(a, val) {
-        cpu.regs.set_flag(Flag::H);
-    }
-
-    if cpu.regs.a < a {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(cpu.regs.a == 0, false, get_hca(a, val), cpu.regs.a < a);
 }
 
 // Mnemonic: ADC
@@ -456,20 +431,12 @@ pub fn adc(cpu: &mut Cpu, reg: MathReg) {
 
     cpu.regs.a = a.wrapping_add(val).wrapping_add(c_in as u8);
 
-    cpu.regs.res_all_flags();
-    if cpu.regs.a == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-    if (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF {
-        cpu.regs.set_flag(Flag::H);
-    }
-
-    if (a as u16)
-        .wrapping_add(val as u16)
-        .wrapping_add(c_in as u16) > 0xFF
-    {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs.assign_all_flags(
+        cpu.regs.a == 0,
+        false,
+        (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF,
+        (a as u16) + (val as u16) + (c_in as u16) > 0xFF,
+    );
 }
 
 // Mnemonic: SUB
@@ -479,25 +446,14 @@ pub fn adc(cpu: &mut Cpu, reg: MathReg) {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn sub(cpu: &mut Cpu, reg: MathReg) {
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     let val = get_math_reg(cpu, reg);
 
     let res = a.wrapping_sub(val);
     cpu.regs.set_reg(Reg::A, res);
     cpu.regs.res_all_flags();
-    if res == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    cpu.regs.set_flag(Flag::N);
-
-    if (a & 0xF) < (val & 0xF) {
-        cpu.regs.set_flag(Flag::H);
-    }
-
-    if val > a {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(res == 0, true, (a & 0xF) < (val & 0xF), val > a);
 }
 
 // Mnemonic: SBC
@@ -507,28 +463,22 @@ pub fn sub(cpu: &mut Cpu, reg: MathReg) {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn sbc(cpu: &mut Cpu, reg: MathReg) {
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     let c_in = cpu.regs.get_flag(Flag::C);
     let val = get_math_reg(cpu, reg);
 
     let res = (a as u16)
         .wrapping_sub(val as u16)
         .wrapping_sub(c_in as u16);
+
     cpu.regs.set_reg(Reg::A, res as u8);
-    cpu.regs.res_all_flags();
-    if (res & 0xFF) == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
 
-    cpu.regs.set_flag(Flag::N);
-
-    if (a & 0xF) < ((val & 0xF) + c_in as u8) {
-        cpu.regs.set_flag(Flag::H);
-    }
-
-    if res > 0xFF {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs.assign_all_flags(
+        (res & 0xFF) == 0,
+        true,
+        (a & 0xF) < ((val & 0xF) + c_in as u8),
+        res > 0xFF,
+    );
 }
 
 // Mnemonic: AND
@@ -538,7 +488,7 @@ pub fn sbc(cpu: &mut Cpu, reg: MathReg) {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn and(cpu: &mut Cpu, reg: MathReg) {
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     let val = get_math_reg(cpu, reg);
 
     let res = a & val;
@@ -558,7 +508,7 @@ pub fn and(cpu: &mut Cpu, reg: MathReg) {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn xor(cpu: &mut Cpu, reg: MathReg) {
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     let val = get_math_reg(cpu, reg);
 
     let res = a ^ val;
@@ -576,7 +526,7 @@ pub fn xor(cpu: &mut Cpu, reg: MathReg) {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn or(cpu: &mut Cpu, reg: MathReg) {
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     let val = get_math_reg(cpu, reg);
 
     let res = a | val;
@@ -594,23 +544,11 @@ pub fn or(cpu: &mut Cpu, reg: MathReg) {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn cp(cpu: &mut Cpu, reg: MathReg) {
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     let val = get_math_reg(cpu, reg);
 
-    cpu.regs.res_all_flags();
-    if a == val {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    cpu.regs.set_flag(Flag::N);
-
-    if (a & 0xF) < (val & 0xF) {
-        cpu.regs.set_flag(Flag::H);
-    }
-
-    if a < val {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(a == val, true, (a & 0xF) < (val & 0xF), a < val);
 }
 
 // Mnemonic: RET <COND>
@@ -666,7 +604,7 @@ pub fn call(cpu: &mut Cpu, jump: bool) {
 pub fn push(cpu: &mut Cpu, reg: R16) {
     let val = match reg {
         R16::SP => cpu.regs.g_af(),
-        r => cpu.regs.get_reg_16(&r),
+        r => cpu.regs.get_reg_16(r),
     };
     cpu.update(4);
     cpu.write_push_16_cycle(val);
@@ -706,7 +644,7 @@ pub fn ret(cpu: &mut Cpu, reti: bool) {
 // Timing: Read, Write
 pub fn ldh_a8_a(cpu: &mut Cpu) {
     let addr = 0xFF00 | cpu.read_ipc_cycle() as u16;
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     cpu.write_cycle(addr, a);
 }
 
@@ -717,8 +655,8 @@ pub fn ldh_a8_a(cpu: &mut Cpu) {
 // Remarks: ----
 // Timing: Write
 pub fn ldh_c_a(cpu: &mut Cpu) {
-    let addr = 0xFF00 | cpu.regs.get_reg(&Reg::C) as u16;
-    let a = cpu.regs.get_reg(&Reg::A);
+    let addr = 0xFF00 | cpu.regs.get_reg(Reg::C) as u16;
+    let a = cpu.regs.get_reg(Reg::A);
     cpu.write_cycle(addr, a);
 }
 
@@ -741,7 +679,7 @@ pub fn ldh_a_a8(cpu: &mut Cpu) {
 // Remarks: ----
 // Timing: Read
 pub fn ldh_a_c(cpu: &mut Cpu) {
-    let addr = 0xFF00 | cpu.regs.get_reg(&Reg::C) as u16;
+    let addr = 0xFF00 | cpu.regs.get_reg(Reg::C) as u16;
     let val = cpu.read_cycle(addr);
     cpu.regs.set_reg(Reg::A, val);
 }
@@ -818,7 +756,7 @@ pub fn ld_a_a16(cpu: &mut Cpu) {
 // Timing: Read, Read, Write
 pub fn ld_a16_a(cpu: &mut Cpu) {
     let addr = cpu.read_u16_cycle();
-    let a = cpu.regs.get_reg(&Reg::A);
+    let a = cpu.regs.get_reg(Reg::A);
     cpu.write_cycle(addr, a);
 }
 
@@ -874,18 +812,13 @@ pub fn rlc(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle((val << 1) | (val >> 7))
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, (val << 1) | (val >> 7))
         }
     };
 
-    if val == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x80) > 0 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(val == 0, false, false, (val & 0x80) == 0x80);
 }
 
 // Mnemonic: RRC
@@ -903,18 +836,13 @@ pub fn rrc(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle((val >> 1) | (val << 7))
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, (val >> 1) | (val << 7))
         }
     };
 
-    if val == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x01) == 1 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(val == 0, false, false, (val & 0x01) == 0x01);
 }
 
 // Mnemonic: RL
@@ -934,20 +862,14 @@ pub fn rl(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(res)
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             res = (val << 1) | (carry_in);
             cpu.regs.set_reg(r, res)
         }
     };
 
-    cpu.regs.res_all_flags();
-    if res == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x80) == 0x80 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(res == 0, false, false, (val & 0x80) == 0x80);
 }
 
 // Mnemonic: RR
@@ -957,12 +879,13 @@ pub fn rl(cpu: &mut Cpu, reg: Reg) {
 // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
 pub fn rr(cpu: &mut Cpu, reg: Reg) {
-    let val;
     let carry_in = if cpu.regs.get_flag(Flag::C) {
         0x80
     } else {
         0x00
     };
+
+    let val;
     let res;
     match reg {
         Reg::HL => {
@@ -971,20 +894,14 @@ pub fn rr(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(res)
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             res = (val >> 1) | (carry_in);
             cpu.regs.set_reg(r, res)
         }
     };
 
-    cpu.regs.res_all_flags();
-    if res == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x01) == 0x01 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(res == 0, false, false, (val & 0x01) == 0x01);
 }
 
 // Mnemonic: SLA
@@ -1003,20 +920,14 @@ pub fn sla(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(res)
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             res = val << 1;
             cpu.regs.set_reg(r, res)
         }
     };
 
-    cpu.regs.res_all_flags();
-    if res == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x80) == 0x80 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(res == 0, false, false, (val & 0x80) == 0x80);
 }
 
 // Mnemonic: SRA
@@ -1035,20 +946,14 @@ pub fn sra(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(res)
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             res = (val >> 1) | (val & 0x80);
             cpu.regs.set_reg(r, res)
         }
     };
 
-    cpu.regs.res_all_flags();
-    if res == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x01) == 0x01 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(res == 0, false, false, (val & 0x01) == 0x01);
 }
 
 // Mnemonic: SWAP
@@ -1065,7 +970,7 @@ pub fn swap(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle((val << 4) | (val >> 4))
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, (val << 4) | (val >> 4))
         }
     };
@@ -1093,19 +998,14 @@ pub fn srl(cpu: &mut Cpu, reg: Reg) {
             cpu.write_hl_cycle(res);
         }
         r => {
-            val = cpu.regs.get_reg(&r);
+            val = cpu.regs.get_reg(r);
             res = val >> 1;
             cpu.regs.set_reg(r, res);
         }
     };
 
-    if res == 0 {
-        cpu.regs.set_flag(Flag::Z);
-    }
-
-    if (val & 0x01) == 0x01 {
-        cpu.regs.set_flag(Flag::C);
-    }
+    cpu.regs
+        .assign_all_flags(res == 0, false, false, (val & 0x01) == 0x01);
 }
 
 // Mnemonic: BIT
@@ -1125,7 +1025,7 @@ pub fn bit(cpu: &mut Cpu, reg: Reg, mask: u8) {
             }
         }
         r => {
-            if (cpu.regs.get_reg(&r) & mask) == 0 {
+            if (cpu.regs.get_reg(r) & mask) == 0 {
                 cpu.regs.set_flag(Flag::Z)
             }
         }
@@ -1146,7 +1046,7 @@ pub fn res(cpu: &mut Cpu, reg: Reg, mask: u8) {
             cpu.write_hl_cycle(val & !mask)
         }
         r => {
-            let val = cpu.regs.get_reg(&r);
+            let val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, val & !mask)
         }
     }
@@ -1166,7 +1066,7 @@ pub fn set(cpu: &mut Cpu, reg: Reg, mask: u8) {
             cpu.write_hl_cycle(val | mask)
         }
         r => {
-            let val = cpu.regs.get_reg(&r);
+            let val = cpu.regs.get_reg(r);
             cpu.regs.set_reg(r, val | mask)
         }
     }

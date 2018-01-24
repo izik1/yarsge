@@ -57,7 +57,9 @@ impl Mbc {
         match self {
             &Mbc::Mbc0 => addr as usize,
             &Mbc::Mbc1(ref desc) => if !desc.ram_bank_mode {
-                (addr as usize).wrapping_add(((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as usize)) * 0x4000)
+                (addr as usize).wrapping_add(
+                    ((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as usize)) * 0x4000,
+                )
             } else {
                 addr as usize
             },
@@ -67,7 +69,10 @@ impl Mbc {
     fn get_physical_addr_high(&self, addr: u16) -> usize {
         match self {
             &Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
-            &Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as usize) * 0x4000),
+            &Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(
+                ((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as usize)
+                    * 0x4000,
+            ),
         }
     }
 }
@@ -151,8 +156,11 @@ impl Cpu {
     }
 
     fn read_oam(&self, addr: u16) -> u8 {
-        if self.ppu.oam_blocked() {0xFF}
-        else {self.ppu.oam[addr as usize]}
+        if self.ppu.oam_blocked() {
+            0xFF
+        } else {
+            self.ppu.oam[addr as usize]
+        }
     }
 
     fn read_io(&self, addr: u8) -> u8 {
@@ -222,7 +230,9 @@ impl Cpu {
     }
 
     fn write_oam(&mut self, addr: u16, val: u8) {
-        if !self.ppu.oam_blocked() {self.ppu.oam[addr as usize] = val};
+        if !self.ppu.oam_blocked() {
+            self.ppu.oam[addr as usize] = val
+        };
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {
@@ -249,15 +259,13 @@ impl Cpu {
     fn mbc_write(&mut self, addr: u16, val: u8) {
         match self.mbc {
             Mbc::Mbc0 => {}
-            Mbc::Mbc1(ref mut desc) => {
-                match addr {
-                    0x0000...0x1FFF => unimplemented!(),
-                    0x2000...0x3FFF => desc.rom_bank = if val & 0x1F == 0 {1} else {val & 0x1F},
-                    0x4000...0x5FFF => desc.ram_bank = val & 0b11,
-                    0x6000...0x7FFF => desc.ram_bank_mode = bits::has_bit(val, 0),
-                    _ => unreachable!(),
-                }
-            }
+            Mbc::Mbc1(ref mut desc) => match addr {
+                0x0000...0x1FFF => unimplemented!(),
+                0x2000...0x3FFF => desc.rom_bank = if val & 0x1F == 0 { 1 } else { val & 0x1F },
+                0x4000...0x5FFF => desc.ram_bank = val & 0b11,
+                0x6000...0x7FFF => desc.ram_bank_mode = bits::has_bit(val, 0),
+                _ => unreachable!(),
+            },
         }
     }
 
@@ -470,7 +478,7 @@ impl Cpu {
             0xD7 => instr::rst(self, 0x10),
             0xD8 => instr::retc(self, self.regs.get_flag(Flag::C)),
             0xD9 => instr::ret(self, true),
-            0xDA => instr::jp  (self, self.regs.get_flag(Flag::C)),
+            0xDA => instr::jp(self, self.regs.get_flag(Flag::C)),
             0xDB => instr::invalid(self),
             0xDC => instr::call(self, self.regs.get_flag(Flag::C)),
             0xDD => instr::invalid(self),
@@ -519,16 +527,16 @@ impl Cpu {
 
         match op >> 6 {
             0b00 => match op >> 3 {
-                0b000 => instr::rlc (self, reg),
-                0b001 => instr::rrc (self, reg),
-                0b010 => instr::rl  (self, reg),
-                0b011 => instr::rr  (self, reg),
-                0b100 => instr::sla (self, reg),
-                0b101 => instr::sra (self, reg),
+                0b000 => instr::rlc(self, reg),
+                0b001 => instr::rrc(self, reg),
+                0b010 => instr::rl(self, reg),
+                0b011 => instr::rr(self, reg),
+                0b100 => instr::sla(self, reg),
+                0b101 => instr::sra(self, reg),
                 0b110 => instr::swap(self, reg),
-                0b111 => instr::srl (self, reg),
+                0b111 => instr::srl(self, reg),
                 _ => unreachable!(),
-            }
+            },
 
             0b01 => instr::bit(self, reg, 1 << ((op >> 3) & 0b111)),
             0b10 => instr::res(self, reg, 1 << ((op >> 3) & 0b111)),
