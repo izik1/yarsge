@@ -1,4 +1,4 @@
-// Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
+// Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
 use super::flags::Flag;
 
