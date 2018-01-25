@@ -2,9 +2,11 @@
 
 #![feature(nll)]
 
-extern crate clap;
 extern crate rgb;
 extern crate sdl2;
+extern crate structopt;
+#[macro_use]
+extern crate structopt_derive;
 mod emu;
 
 use sdl2::pixels::Color;
@@ -14,66 +16,53 @@ use emu::cpu;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
-use clap::{App, Arg};
 use rgb::RGB8;
+use structopt::StructOpt;
 
-fn load_rom(path: String) -> io::Result<Vec<u8>> {
+fn load_file(path: &str) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
-    File::open(path)?.read_to_end(&mut buf)?;
-    Result::Ok(buf)
+    File::open(path.to_string())?.read_to_end(&mut buf)?;
+    Ok(buf)
 }
 
-fn unwrap_rom(vec: io::Result<Vec<u8>>) -> Vec<u8> {
-    if let Result::Ok(rom) = vec {
-        rom
-    } else {
-        println!("Error loading rom");
-        std::process::exit(1)
+fn load_rom(path: &str, name: &str) -> Result<Vec<u8>, String> {
+    match load_file(path) {
+        Ok(v) => Ok(v),
+        Err(e) => Err(format!(
+            "Failed to open the \"{}\" ({}) because: {:?}",
+            name,
+            path,
+            e.kind()
+        )),
     }
 }
 
-pub fn main() {
-    const VERSION: &str = env!("CARGO_PKG_VERSION");
-    const AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
-    const NAME: &str = env!("CARGO_PKG_NAME");
-    let matches = App::new(NAME)
-        .version(VERSION)
-        .author(AUTHORS)
-        .about("Emulates GameBoy games")
-        .arg(
-            Arg::with_name("boot_rom")
-                .help("The path to the boot rom")
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("game_rom")
-                .help("The path to the game rom")
-                .required(true),
-        )
-        .arg(
-            Arg::with_name("scale")
-                .help("Screen scale size")
-                .takes_value(true)
-                .short("s")
-                .long("scale"),
-        )
-        .get_matches();
+const NAME: &str = env!("CARGO_PKG_NAME");
 
+#[derive(StructOpt, Debug)]
+#[structopt(about = "Emulates GameBoy games.")]
+struct Opt {
+    #[structopt(short = "s", long = "scale", help = "Screen scale size", default_value = "1")]
+    scale: u32,
+
+    #[structopt(help = "The path to the boot rom")]
+    boot_rom: String,
+
+    #[structopt(help = "The path to the game rom")]
+    game_rom: String,
+}
+
+fn run() -> Result<(), String> {
+    let opt = Opt::from_args();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
-    let scale = match matches.value_of("scale") {
-        Some(num) => if let Ok(n) = num.to_string().parse() {
-            n
-        } else {
-            eprintln!("Couldn't convert scale to number ({})", num);
-            std::process::exit(1)
-        },
-        None => 1,
-    };
-    const WIDTH: u32 = 160;
-    const HEIGHT: u32 = 144;
+
+    const WIDTH: usize = 160;
+    const HEIGHT: usize = 144;
+    const WIDTH_32X: u32 = 160;
+    const HEIGHT_32X: u32 = 144;
     let window = video_subsystem
-        .window(NAME, WIDTH * scale, HEIGHT * scale)
+        .window(NAME, WIDTH_32X * opt.scale, HEIGHT_32X * opt.scale)
         .position_centered()
         .opengl()
         .build()
@@ -82,25 +71,22 @@ pub fn main() {
     let mut canvas = window.into_canvas().build().unwrap();
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
-    const BUFFER_SIZE: usize = 160 * 144 * 3;
+    const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3;
     let mut array: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
 
     let texcr = canvas.texture_creator();
     let mut tex = texcr
-        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGB24, 160, 144)
+        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGB24, WIDTH_32X, HEIGHT_32X)
         .unwrap();
-    tex.update(None, &array, 160 * 3).unwrap();
-    canvas.copy(&tex, None, None).unwrap();
-    canvas.present();
+
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    let boot_rom = unwrap_rom(load_rom(matches.value_of("boot_rom").unwrap().to_string()));
-    let game_rom = unwrap_rom(load_rom(matches.value_of("game_rom").unwrap().to_string()));
-    let mut gb = if let Some(c) = cpu::Cpu::new(boot_rom, game_rom) {
-        c
-    } else {
-        println!("Error loading cpu");
-        std::process::exit(1)
+    let boot_rom = load_rom(&opt.boot_rom, "boot_rom")?;
+    let game_rom = load_rom(&opt.game_rom, "game_rom")?;
+
+    let mut gb = match cpu::Cpu::new(boot_rom, game_rom) {
+        Some(c) => c,
+        None => return Err("Error loading cpu".to_string()),
     };
 
     'running: loop {
@@ -110,14 +96,14 @@ pub fn main() {
                 | Event::KeyDown {
                     keycode: Some(Keycode::Escape),
                     ..
-                } => break 'running,
+                } => break 'running Ok(()),
                 _ => {}
             }
         }
 
         gb.run(0x40000);
         let disp = gb.ppu.get_display();
-        for i in 0..160 * 144 {
+        for i in 0..WIDTH * HEIGHT {
             use emu::ppu::DisplayPixel;
             let px = match disp[i] {
                 DisplayPixel::White => RGB8 {
@@ -147,8 +133,15 @@ pub fn main() {
             array[i * 3 + 2] = px.b;
         }
 
-        tex.update(None, &array, 160 * 3).unwrap();
+        tex.update(None, &array, WIDTH * 3).unwrap();
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
+    }
+}
+
+pub fn main() {
+    if let Err(e) = run() {
+        eprintln!("{}", e);
+        std::process::exit(1)
     }
 }

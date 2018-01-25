@@ -5,5 +5,6 @@ authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
 
 [dependencies]
 sdl2 = "0.31"
-clap = "2"
 rgb = "0.8.6"
+structopt = "0.1.7"
+structopt-derive = "0.1.6"
