@@ -412,45 +412,20 @@ impl Cpu {
                 }
             }
 
-            0x80 => instr::add(self, MathReg::R(Reg::B )), 0x81 => instr::add(self, MathReg::R(Reg::C)),
-            0x82 => instr::add(self, MathReg::R(Reg::D )), 0x83 => instr::add(self, MathReg::R(Reg::E)),
-            0x84 => instr::add(self, MathReg::R(Reg::H )), 0x85 => instr::add(self, MathReg::R(Reg::L)),
-            0x86 => instr::add(self, MathReg::R(Reg::HL)), 0x87 => instr::add(self, MathReg::R(Reg::A)),
-
-            0x88 => instr::adc(self, MathReg::R(Reg::B )), 0x89 => instr::adc(self, MathReg::R(Reg::C)),
-            0x8A => instr::adc(self, MathReg::R(Reg::D )), 0x8B => instr::adc(self, MathReg::R(Reg::E)),
-            0x8C => instr::adc(self, MathReg::R(Reg::H )), 0x8D => instr::adc(self, MathReg::R(Reg::L)),
-            0x8E => instr::adc(self, MathReg::R(Reg::HL)), 0x8F => instr::adc(self, MathReg::R(Reg::A)),
-
-            0x90 => instr::sub(self, MathReg::R(Reg::B )), 0x91 => instr::sub(self, MathReg::R(Reg::C)),
-            0x92 => instr::sub(self, MathReg::R(Reg::D )), 0x93 => instr::sub(self, MathReg::R(Reg::E)),
-            0x94 => instr::sub(self, MathReg::R(Reg::H )), 0x95 => instr::sub(self, MathReg::R(Reg::L)),
-            0x96 => instr::sub(self, MathReg::R(Reg::HL)), 0x97 => instr::sub(self, MathReg::R(Reg::A)),
-
-            0x98 => instr::sbc(self, MathReg::R(Reg::B )), 0x99 => instr::sbc(self, MathReg::R(Reg::C)),
-            0x9A => instr::sbc(self, MathReg::R(Reg::D )), 0x9B => instr::sbc(self, MathReg::R(Reg::E)),
-            0x9C => instr::sbc(self, MathReg::R(Reg::H )), 0x9D => instr::sbc(self, MathReg::R(Reg::L)),
-            0x9E => instr::sbc(self, MathReg::R(Reg::HL)), 0x9F => instr::sbc(self, MathReg::R(Reg::A)),
-
-            0xA0 => instr::and(self, MathReg::R(Reg::B )), 0xA1 => instr::and(self, MathReg::R(Reg::C)),
-            0xA2 => instr::and(self, MathReg::R(Reg::D )), 0xA3 => instr::and(self, MathReg::R(Reg::E)),
-            0xA4 => instr::and(self, MathReg::R(Reg::H )), 0xA5 => instr::and(self, MathReg::R(Reg::L)),
-            0xA6 => instr::and(self, MathReg::R(Reg::HL)), 0xA7 => instr::and(self, MathReg::R(Reg::A)),
-
-            0xA8 => instr::xor(self, MathReg::R(Reg::B )), 0xA9 => instr::xor(self, MathReg::R(Reg::C)),
-            0xAA => instr::xor(self, MathReg::R(Reg::D )), 0xAB => instr::xor(self, MathReg::R(Reg::E)),
-            0xAC => instr::xor(self, MathReg::R(Reg::H )), 0xAD => instr::xor(self, MathReg::R(Reg::L)),
-            0xAE => instr::xor(self, MathReg::R(Reg::HL)), 0xAF => instr::xor(self, MathReg::R(Reg::A)),
-
-            0xB0 => instr::or (self, MathReg::R(Reg::B )), 0xB1 => instr::or (self, MathReg::R(Reg::C)),
-            0xB2 => instr::or (self, MathReg::R(Reg::D )), 0xB3 => instr::or (self, MathReg::R(Reg::E)),
-            0xB4 => instr::or (self, MathReg::R(Reg::H )), 0xB5 => instr::or (self, MathReg::R(Reg::L)),
-            0xB6 => instr::or (self, MathReg::R(Reg::HL)), 0xB7 => instr::or (self, MathReg::R(Reg::A)),
-
-            0xB8 => instr::cp (self, MathReg::R(Reg::B )), 0xB9 => instr::cp (self, MathReg::R(Reg::C)),
-            0xBA => instr::cp (self, MathReg::R(Reg::D )), 0xBB => instr::cp (self, MathReg::R(Reg::E)),
-            0xBC => instr::cp (self, MathReg::R(Reg::H )), 0xBD => instr::cp (self, MathReg::R(Reg::L)),
-            0xBE => instr::cp (self, MathReg::R(Reg::HL)), 0xBF => instr::cp (self, MathReg::R(Reg::A)),
+            op @ 0x40...0xBF => {
+                let reg = MathReg::R(Reg::from_num(op));
+                match (op >> 0b11) & 0b111 {
+                    0b000 => instr::add(self, reg),
+                    0b001 => instr::adc(self, reg),
+                    0b010 => instr::sub(self, reg),
+                    0b011 => instr::sbc(self, reg),
+                    0b100 => instr::and(self, reg),
+                    0b101 => instr::xor(self, reg),
+                    0b110 => instr::or(self, reg),
+                    0b111 => instr::cp(self, reg),
+                    _ => unreachable!(),
+                }
+            }
 
             0xC0 => instr::retc(self, !self.regs.get_flag(Flag::Z)),
             0xC1 => instr::pop(self, R16::BC),
