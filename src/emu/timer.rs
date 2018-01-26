@@ -1,3 +1,5 @@
+// Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
+
 use super::bits;
 
 pub struct Timer {
@@ -64,7 +66,7 @@ impl Timer {
         let b = bits::has_bit(self.tac, 2) && (self.sys_timer & (1 << if self.tac == 0b100 {
             9
         } else {
-            ((self.tac as u16) & 0b11) * 2 + 1
+            (u16::from(self.tac) & 0b11) * 2 + 1
         }) > 0);
         if self.prev_timer_in && !b {
             self.tima = self.tima.wrapping_add(1);

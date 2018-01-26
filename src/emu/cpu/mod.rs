@@ -9,6 +9,7 @@ use super::timer::Timer;
 use super::ppu::Ppu;
 use super::dma::Dma;
 use super::bits;
+
 #[derive(Clone, Copy)]
 pub enum State {
     Okay,
@@ -54,9 +55,9 @@ impl Mbc {
     }
 
     fn get_physical_addr_low(&self, addr: u16) -> usize {
-        match self {
-            &Mbc::Mbc0 => addr as usize,
-            &Mbc::Mbc1(ref desc) => if !desc.ram_bank_mode {
+        match *self {
+            Mbc::Mbc0 => addr as usize,
+            Mbc::Mbc1(ref desc) => if !desc.ram_bank_mode {
                 (addr as usize).wrapping_add(
                     ((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as usize)) * 0x4000,
                 )
@@ -67,9 +68,9 @@ impl Mbc {
     }
 
     fn get_physical_addr_high(&self, addr: u16) -> usize {
-        match self {
-            &Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
-            &Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(
+        match *self {
+            Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
+            Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(
                 ((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as usize)
                     * 0x4000,
             ),
@@ -164,12 +165,13 @@ impl Cpu {
     }
 
     fn read_io(&self, addr: u8) -> u8 {
+        #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         match addr {
             0x04...0x07 => self.tim.read_reg(addr),
             0x0F => self.r_if | 0xE0,
             0x10...0x3F => 0xFF, // TODO: APU, silently ignore
             0x46 => (self.dma.addr >> 8) as u8,
-            0x40...0x4B => self.ppu.get_reg(addr),
+            0x40...0x45 | 0x47...0x4B => self.ppu.get_reg(addr),
             0x4C...0x7F => 0xFF, // Empty range.
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
             _ => {
@@ -214,7 +216,7 @@ impl Cpu {
     }
 
     fn read_u16_cycle(&mut self) -> u16 {
-        (self.read_ipc_cycle() as u16) | ((self.read_ipc_cycle() as u16) << 8)
+        u16::from(self.read_ipc_cycle()) | (u16::from(self.read_ipc_cycle()) << 8)
     }
 
     fn write_u16_cycle(&mut self, address: u16, value: u16) {
@@ -236,18 +238,19 @@ impl Cpu {
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {
+        #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         match addr {
             0x01 | 0x02 => {} // TODO: serial, silently ignore
             0x04...0x07 => self.tim.write_reg(addr, val),
             0x0F => self.r_if = val & 0x1F,
             0x10...0x3F => {} // TODO: APU, silently ignore
             0x46 => {
-                self.dma.ld_addr = (val as u16) << 8;
+                self.dma.ld_addr = u16::from(val) << 8;
                 self.dma.ld_timer = 4
             }
             0x40...0x45 | 0x47...0x4B => self.ppu.set_reg(addr, val),
             0x50 => self.boot_rom_enabled = false,
-            0x4C...0x7F => {}
+            0x4C...0x4F | 0x51...0x7F => {}
             0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
             _ => eprintln!(
                 "Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})",
@@ -315,7 +318,7 @@ impl Cpu {
     }
 
     fn read_pop_16_cycle(&mut self) -> u16 {
-        self.read_pop_cycle() as u16 | ((self.read_pop_cycle() as u16) << 8)
+        u16::from(self.read_pop_cycle()) | (u16::from(self.read_pop_cycle()) << 8)
     }
 
     fn write_push_16_cycle(&mut self, val: u16) {
@@ -446,7 +449,9 @@ impl Cpu {
             0xD0 => instr::retc(self, !self.regs.get_flag(Flag::C)),
             0xD1 => instr::pop(self, R16::DE),
             0xD2 => instr::jp(self, !self.regs.get_flag(Flag::C)),
-            0xD3 => instr::invalid(self),
+            0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xF4 | 0xEB...0xED | 0xFC | 0xFD => {
+                instr::invalid(self)
+            }
             0xD4 => instr::call(self, !self.regs.get_flag(Flag::C)),
             0xD5 => instr::push(self, R16::DE),
             0xD6 => instr::sub(self, MathReg::Imm),
@@ -454,33 +459,25 @@ impl Cpu {
             0xD8 => instr::retc(self, self.regs.get_flag(Flag::C)),
             0xD9 => instr::ret(self, true),
             0xDA => instr::jp(self, self.regs.get_flag(Flag::C)),
-            0xDB => instr::invalid(self),
             0xDC => instr::call(self, self.regs.get_flag(Flag::C)),
-            0xDD => instr::invalid(self),
             0xDE => instr::sbc(self, MathReg::Imm),
             0xDF => instr::rst(self, 0x18),
 
             0xE0 => instr::ldh_a8_a(self),
             0xE1 => instr::pop(self, R16::HL),
             0xE2 => instr::ldh_c_a(self),
-            0xE3 => instr::invalid(self),
-            0xE4 => instr::invalid(self),
             0xE5 => instr::push(self, R16::HL),
             0xE6 => instr::and(self, MathReg::Imm),
             0xE7 => instr::rst(self, 0x20),
             0xE8 => instr::add_sp_r8(self),
             0xE9 => instr::jp_hl(self),
             0xEA => instr::ld_a16_a(self),
-            0xEB => instr::invalid(self),
-            0xEC => instr::invalid(self),
-            0xED => instr::invalid(self),
             0xEE => instr::xor(self, MathReg::Imm),
             0xEF => instr::rst(self, 0x28),
             0xF0 => instr::ldh_a_a8(self),
             0xF1 => instr::pop(self, R16::SP),
             0xF2 => instr::ldh_a_c(self),
             0xF3 => instr::di(self),
-            0xF4 => instr::invalid(self),
             0xF5 => instr::push(self, R16::SP),
             0xF6 => instr::or(self, MathReg::Imm),
             0xF7 => instr::rst(self, 0x30),
@@ -488,8 +485,6 @@ impl Cpu {
             0xF9 => instr::ld_sp_hl(self),
             0xFA => instr::ld_a_a16(self),
             0xFB => instr::ei(self),
-            0xFC => instr::invalid(self),
-            0xFD => instr::invalid(self),
             0xFE => instr::cp(self, MathReg::Imm),
             0xFF => instr::rst(self, 0x38),
             _ => unreachable!(),

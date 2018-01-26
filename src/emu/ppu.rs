@@ -143,7 +143,7 @@ impl Ppu {
     }
 
     fn get_pixel_index(&self, tile: usize, y: usize, x: u8) -> u8 {
-        let lower = self.vram[tile * 16 + y + 0];
+        let lower = self.vram[tile * 16 + y];
         let upper = self.vram[tile * 16 + y + 1];
         ((upper >> (7 - x) & 1) | ((lower >> (7 - x) & 1) * 2)) * 2
     }
@@ -202,7 +202,7 @@ impl Ppu {
                 self.ly_cp() || (self.stat_upper & 4) == 4
             }
 
-            04 => {
+            4 => {
                 self.stat_mode = 2;
                 self.ly_cp() || bits::has_bit(self.stat_upper, 5)
             }
@@ -286,7 +286,7 @@ impl Ppu {
         }
     }
 
-    pub fn display_to_bytes(&self) -> [u8; (160 * 144) / 4] {
+    pub fn _display_to_bytes(&self) -> [u8; (160 * 144) / 4] {
         let mut arr = [0; 160 * 144 / 4];
         for i in 0..160 * 144 {
             arr[i / 4] |= match self.display_memory[i] {

@@ -1,6 +1,7 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
 #![feature(nll)]
+#![cfg_attr(feature = "cargo-clippy", allow(verbose_bit_mask))]
 
 extern crate rgb;
 extern crate sdl2;
@@ -101,7 +102,7 @@ fn run() -> Result<(), String> {
             }
         }
 
-        gb.run(0x40000);
+        gb.run(0x4_0000);
         let disp = gb.ppu.get_display();
         for i in 0..WIDTH * HEIGHT {
             use emu::ppu::DisplayPixel;
@@ -128,7 +129,7 @@ fn run() -> Result<(), String> {
                 },
             };
 
-            array[i * 3 + 0] = px.r;
+            array[i * 3] = px.r;
             array[i * 3 + 1] = px.g;
             array[i * 3 + 2] = px.b;
         }

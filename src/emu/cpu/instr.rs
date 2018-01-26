@@ -338,7 +338,7 @@ pub fn rra(cpu: &mut Cpu) {
 // Remarks: Confusing
 // Timing: Instant.
 pub fn daa(cpu: &mut Cpu) {
-    let mut res = cpu.regs.a as i32;
+    let mut res = i32::from(cpu.regs.a); // todo: check if this can be i16.
     if cpu.regs.get_flag(Flag::N) {
         if cpu.regs.get_flag(Flag::H) {
             res = (res - 6) & 0xFF;
@@ -435,7 +435,7 @@ pub fn adc(cpu: &mut Cpu, reg: MathReg) {
         cpu.regs.a == 0,
         false,
         (a & 0xF) + (val & 0xF) + c_in as u8 > 0xF,
-        (a as u16) + (val as u16) + (c_in as u16) > 0xFF,
+        u16::from(a) + u16::from(val) + c_in as u16 > 0xFF,
     );
 }
 
@@ -467,8 +467,8 @@ pub fn sbc(cpu: &mut Cpu, reg: MathReg) {
     let c_in = cpu.regs.get_flag(Flag::C);
     let val = get_math_reg(cpu, reg);
 
-    let res = (a as u16)
-        .wrapping_sub(val as u16)
+    let res = u16::from(a)
+        .wrapping_sub(u16::from(val))
         .wrapping_sub(c_in as u16);
 
     cpu.regs.set_reg(Reg::A, res as u8);
@@ -643,7 +643,7 @@ pub fn ret(cpu: &mut Cpu, reti: bool) {
 // Remarks: ----
 // Timing: Read, Write
 pub fn ldh_a8_a(cpu: &mut Cpu) {
-    let addr = 0xFF00 | cpu.read_ipc_cycle() as u16;
+    let addr = 0xFF00 | u16::from(cpu.read_ipc_cycle());
     let a = cpu.regs.get_reg(Reg::A);
     cpu.write_cycle(addr, a);
 }
@@ -655,7 +655,7 @@ pub fn ldh_a8_a(cpu: &mut Cpu) {
 // Remarks: ----
 // Timing: Write
 pub fn ldh_c_a(cpu: &mut Cpu) {
-    let addr = 0xFF00 | cpu.regs.get_reg(Reg::C) as u16;
+    let addr = 0xFF00 | u16::from(cpu.regs.get_reg(Reg::C));
     let a = cpu.regs.get_reg(Reg::A);
     cpu.write_cycle(addr, a);
 }
@@ -667,7 +667,7 @@ pub fn ldh_c_a(cpu: &mut Cpu) {
 // Remarks: ----
 // Timing: Read, Read
 pub fn ldh_a_a8(cpu: &mut Cpu) {
-    let addr = 0xFF00 | cpu.read_ipc_cycle() as u16;
+    let addr = 0xFF00 | u16::from(cpu.read_ipc_cycle());
     let val = cpu.read_cycle(addr);
     cpu.regs.set_reg(Reg::A, val);
 }
@@ -679,7 +679,7 @@ pub fn ldh_a_a8(cpu: &mut Cpu) {
 // Remarks: ----
 // Timing: Read
 pub fn ldh_a_c(cpu: &mut Cpu) {
-    let addr = 0xFF00 | cpu.regs.get_reg(Reg::C) as u16;
+    let addr = 0xFF00 | u16::from(cpu.regs.get_reg(Reg::C));
     let val = cpu.read_cycle(addr);
     cpu.regs.set_reg(Reg::A, val);
 }
