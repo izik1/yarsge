@@ -6,9 +6,12 @@
 extern crate rgb;
 extern crate sdl2;
 extern crate structopt;
+
 #[macro_use]
 extern crate structopt_derive;
-mod emu;
+
+#[macro_use]
+extern crate bitflags;
 
 use sdl2::pixels::Color;
 use sdl2::event::Event;
@@ -19,6 +22,8 @@ use std::io::prelude::*;
 use std::fs::File;
 use rgb::RGB8;
 use structopt::StructOpt;
+
+mod emu;
 
 fn load_file(path: &str) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();

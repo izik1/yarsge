@@ -41,7 +41,7 @@ pub enum R16 {
 pub struct Registers {
     pub pc: u16,
     pub a: u8,
-    pub f: u8,
+    pub f: Flag,
     pub bc: u16,
     pub de: u16,
     pub hl: u16,
@@ -85,11 +85,11 @@ impl Registers {
     }
 
     pub fn g_af(&self) -> u16 {
-        (u16::from(self.a) << 8) | u16::from(self.f)
+        (u16::from(self.a) << 8) | u16::from(self.f.bits())
     }
 
     pub fn s_af(&mut self, val: u16) {
-        self.f = (val as u8) & 0b1111_0000;
+        self.f = Flag::from_bits_truncate(val as u8);
         self.a = (val >> 8) as u8;
     }
 
@@ -106,42 +106,11 @@ impl Registers {
         Registers {
             pc: 0,
             a: 0,
-            f: 0,
+            f: Flag::empty(),
             bc: 0,
             de: 0,
             hl: 0,
             sp: 0,
         }
-    }
-
-    pub fn res_all_flags(&mut self) {
-        self.f = 0b0000_0000;
-    }
-
-    pub fn assign_all_flags(&mut self, z: bool, n: bool, h: bool, c: bool) {
-        self.res_all_flags();
-        if z {
-            self.set_flag(Flag::Z);
-        }
-
-        if n {
-            self.set_flag(Flag::N);
-        }
-
-        if h {
-            self.set_flag(Flag::H);
-        }
-
-        if c {
-            self.set_flag(Flag::C);
-        }
-    }
-
-    pub fn set_flag(&mut self, flag: Flag) {
-        self.f |= flag.to_mask();
-    }
-
-    pub fn get_flag(&self, flag: Flag) -> bool {
-        (self.f & flag.to_mask()) > 0
     }
 }
