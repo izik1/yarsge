@@ -5,10 +5,9 @@
 
 extern crate rgb;
 extern crate sdl2;
-extern crate structopt;
 
 #[macro_use]
-extern crate structopt_derive;
+extern crate structopt;
 
 #[macro_use]
 extern crate bitflags;
