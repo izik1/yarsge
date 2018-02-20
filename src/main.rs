@@ -26,7 +26,7 @@ mod emu;
 
 fn load_file(path: &str) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
-    File::open(path.to_string())?.read_to_end(&mut buf)?;
+    File::open(path)?.read_to_end(&mut buf)?;
     Ok(buf)
 }
 
@@ -57,8 +57,7 @@ struct Opt {
     game_rom: String,
 }
 
-fn run() -> Result<(), String> {
-    let opt = Opt::from_args();
+fn run(opt: &Opt) -> Result<(), String> {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
@@ -145,7 +144,7 @@ fn run() -> Result<(), String> {
 }
 
 pub fn main() {
-    if let Err(e) = run() {
+    if let Err(e) = run(&Opt::from_args()) {
         eprintln!("{}", e);
         std::process::exit(1)
     }

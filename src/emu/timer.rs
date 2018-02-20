@@ -48,6 +48,16 @@ impl Timer {
         }
     }
 
+    fn has_timer_bit(&self) -> bool {
+        let bit = if self.tac & 0b11 == 0b00 {
+            9
+        } else {
+            ((u16::from(self.tac) & 0b11) << 1) + 1
+        };
+
+        (self.sys_timer & (1 << bit)) > 0
+    }
+
     pub fn update(&mut self) -> u8 {
         let r_if = if self.tima_overflow > 0 {
             self.tima_overflow -= 1;
@@ -63,11 +73,7 @@ impl Timer {
 
         self.prev_tima_overflow = self.tima_overflow;
         self.sys_timer = self.sys_timer.wrapping_add(1);
-        let b = bits::has_bit(self.tac, 2) && (self.sys_timer & (1 << if self.tac == 0b100 {
-            9
-        } else {
-            (u16::from(self.tac) & 0b11) * 2 + 1
-        }) > 0);
+        let b = bits::has_bit(self.tac, 2) && self.has_timer_bit();
         if self.prev_timer_in && !b {
             self.tima = self.tima.wrapping_add(1);
             if self.tima == 0 {

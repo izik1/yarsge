@@ -494,8 +494,7 @@ pub fn xor(cpu: &mut Cpu, reg: MathReg) {
 
     let res = a ^ val;
     cpu.regs.set_reg(Reg::A, res);
-    cpu.regs.f = Flag::empty();
-    cpu.regs.f.set(Flag::Z, res == 0);
+    cpu.regs.f = if res == 0 { Flag::Z } else { Flag::empty() }
 }
 
 // Mnemonic: OR
@@ -614,7 +613,7 @@ pub fn ret(cpu: &mut Cpu, reti: bool) {
     cpu.update(4);
 }
 
-// Mnemonic: ldh (a8),A
+// Mnemonic: LDH (a8),A
 // Full Name: Load High (a8),A
 // Description: loads A into (0xFF00 | a8).
 // Affected Flags: ----
@@ -626,7 +625,7 @@ pub fn ldh_a8_a(cpu: &mut Cpu) {
     cpu.write_cycle(addr, a);
 }
 
-// Mnemonic: ldh (c),A
+// Mnemonic: LDH (c),A
 // Full Name: Load High (c),A
 // Description: loads A into (0xFF00 | c).
 // Affected Flags: ----
@@ -638,7 +637,7 @@ pub fn ldh_c_a(cpu: &mut Cpu) {
     cpu.write_cycle(addr, a);
 }
 
-// Mnemonic: ldh (a8),A
+// Mnemonic: LDH (a8),A
 // Full Name: Load High (a8),A
 // Description: loads A into (0xFF00 | a8).
 // Affected Flags: ----
@@ -650,7 +649,7 @@ pub fn ldh_a_a8(cpu: &mut Cpu) {
     cpu.regs.set_reg(Reg::A, val);
 }
 
-// Mnemonic: ldh (c),A
+// Mnemonic: LDH (c),A
 // Full Name: Load High (c),A
 // Description: loads A into (0xFF00 | c).
 // Affected Flags: ----
