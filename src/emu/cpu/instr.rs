@@ -562,10 +562,11 @@ pub fn pop(cpu: &mut Cpu, reg: R16) {
 // Description: Calls (possibly conditionally (NZ/Z/NC/C))
 // Affected Flags: ----
 // Remarks: ----
-// Timing: "Read, Read" | "Read, Read, Write, Write"
+// Timing: "Read, Read" | "Read, Read, Delay, Write, Write"
 pub fn call(cpu: &mut Cpu, jump: bool) {
     let addr = cpu.read_u16_cycle();
     if jump {
+	    cpu.update(4);
         let pc = cpu.regs.pc;
         cpu.write_push_16_cycle(pc);
         cpu.regs.pc = addr;
