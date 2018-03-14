@@ -44,7 +44,10 @@ impl Timer {
             tima: 0,
             tima_overflow: 0,
             tma: 0,
-            sys_timer: 0,
+            // Gekkio got access to per clock timings!
+            // On another note, yeah, the clock starts 8 t-cycles before
+            // the first byte of the boot-rom is fetched.
+            sys_timer: 8,
         }
     }
 
