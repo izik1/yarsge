@@ -149,7 +149,7 @@ impl Ppu {
     }
 
     fn render_line_bg(&mut self) {
-        fn get_map_base(lcdc: u8) {
+        fn get_map_base(lcdc: u8) -> usize {
             if bits::has_bit(lcdc, 3) { 0x1C00 } else { 0x1800 }
         }
 
