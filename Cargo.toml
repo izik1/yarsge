@@ -8,3 +8,6 @@ sdl2 = "0.31"
 rgb = "0.8.6"
 structopt = "0.2.0"
 bitflags = "1.0"
+
+[profile.release]
+lto = true

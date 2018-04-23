@@ -2,13 +2,7 @@
 
 mod instr;
 use std::vec::*;
-use super::registers;
-use super::registers::*;
-use super::flags::*;
-use super::timer::Timer;
-use super::ppu::Ppu;
-use super::dma::Dma;
-use super::bits;
+use super::{bits, dma::Dma, flags::*, ppu::Ppu, registers::{self, *}, timer::Timer};
 
 #[derive(Clone, Copy)]
 pub enum State {

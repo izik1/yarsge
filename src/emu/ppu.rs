@@ -150,10 +150,15 @@ impl Ppu {
 
     fn render_line_bg(&mut self) {
         fn get_map_base(lcdc: u8) -> usize {
-            if bits::has_bit(lcdc, 3) { 0x1C00 } else { 0x1800 }
+            if bits::has_bit(lcdc, 3) {
+                0x1C00
+            } else {
+                0x1800
+            }
         }
 
-        let map_offset = get_map_base(self.lcdc) + (((self.scy as usize + self.ly as usize) & 0xFF) >> 3) * 32;
+        let map_offset =
+            get_map_base(self.lcdc) + (((self.scy as usize + self.ly as usize) & 0xFF) >> 3) * 32;
 
         let mut line_offset = self.scx as usize >> 3;
         let y = ((self.ly as usize + self.scy as usize) & 7) * 2;
