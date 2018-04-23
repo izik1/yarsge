@@ -1,6 +1,6 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
-#![feature(nll)]
+#![feature(nll, termination_trait)]
 #![cfg_attr(feature = "cargo-clippy", allow(verbose_bit_mask))]
 
 extern crate rgb;
@@ -11,6 +11,10 @@ extern crate structopt;
 
 #[macro_use]
 extern crate bitflags;
+
+extern crate failure;
+
+use failure::{Error, ResultExt};
 
 mod emu;
 
@@ -23,22 +27,12 @@ use std::{fs::File, io::{self, prelude::*}};
 use rgb::RGB8;
 use structopt::StructOpt;
 
+type Result<T> = std::result::Result<T, failure::Error>;
+
 fn load_file(path: &str) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
     File::open(path)?.read_to_end(&mut buf)?;
     Ok(buf)
-}
-
-fn load_rom(path: &str, name: &str) -> Result<Vec<u8>, String> {
-    match load_file(path) {
-        Ok(v) => Ok(v),
-        Err(e) => Err(format!(
-            "Failed to open the \"{}\" ({}) because: {:?}",
-            name,
-            path,
-            e.kind()
-        )),
-    }
 }
 
 const NAME: &str = env!("CARGO_PKG_NAME");
@@ -56,7 +50,7 @@ struct Opt {
     game_rom: String,
 }
 
-fn run(opt: &Opt) -> Result<(), String> {
+fn run(opt: &Opt) -> Result<()> {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
@@ -84,12 +78,12 @@ fn run(opt: &Opt) -> Result<(), String> {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    let boot_rom = load_rom(&opt.boot_rom, "boot_rom")?;
-    let game_rom = load_rom(&opt.game_rom, "game_rom")?;
+    let boot_rom = load_file(&opt.boot_rom).context("Failed to open the boot rom")?;
+    let game_rom = load_file(&opt.game_rom, ).context("Failed to open the game rom")?;
 
     let mut gb = match cpu::Cpu::new(boot_rom, game_rom) {
         Some(c) => c,
-        None => return Err("Error loading cpu".to_string()),
+        None => return Err(failure::err_msg("Error loading cpu".to_string())),
     };
 
     'running: loop {
