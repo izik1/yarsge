@@ -219,7 +219,8 @@ impl Ppu {
             }
 
             _ => {
-                self.ly_cp() || (self.stat_mode == 2 && bits::has_bit(self.stat_upper, 5))
+                self.ly_cp()
+                    || (self.stat_mode == 2 && bits::has_bit(self.stat_upper, 5))
                     || (self.stat_mode == 0 && bits::has_bit(self.stat_upper, 3))
             }
         }
@@ -239,7 +240,8 @@ impl Ppu {
 
             (
                 vblank,
-                self.ly_cp() || bits::has_bit(self.stat_upper, 4)
+                self.ly_cp()
+                    || bits::has_bit(self.stat_upper, 4)
                     || bits::has_bit(self.stat_upper, 5),
             )
         }

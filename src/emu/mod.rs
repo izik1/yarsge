@@ -1,10 +1,10 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
 pub mod cpu;
+pub mod dma;
+pub mod ppu;
 pub mod registers;
 pub mod timer;
-pub mod ppu;
-pub mod dma;
 
 pub mod bits {
     pub fn get(num: u8) -> u8 {

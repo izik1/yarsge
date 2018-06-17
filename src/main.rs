@@ -22,7 +22,9 @@ use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
 use emu::cpu;
 
-use std::{fs::File, io::{self, prelude::*}};
+use std::{
+    fs::File, io::{self, prelude::*},
+};
 
 use rgb::RGB8;
 use structopt::StructOpt;
@@ -79,7 +81,7 @@ fn run(opt: &Opt) -> Result<()> {
     let mut event_pump = sdl_context.event_pump().unwrap();
 
     let boot_rom = load_file(&opt.boot_rom).context("Failed to open the boot rom")?;
-    let game_rom = load_file(&opt.game_rom, ).context("Failed to open the game rom")?;
+    let game_rom = load_file(&opt.game_rom).context("Failed to open the game rom")?;
 
     let mut gb = match cpu::Cpu::new(boot_rom, game_rom) {
         Some(c) => c,

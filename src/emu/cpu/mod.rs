@@ -1,8 +1,10 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
 mod instr;
+use super::{
+    bits, dma::Dma, flags::*, ppu::Ppu, registers::{self, *}, timer::Timer,
+};
 use std::vec::*;
-use super::{bits, dma::Dma, flags::*, ppu::Ppu, registers::{self, *}, timer::Timer};
 
 #[derive(Clone, Copy)]
 pub enum State {
