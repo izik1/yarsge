@@ -1,0 +1,10 @@
+[package]
+name = "yarsge-webasm"
+version = "0.1.0"
+authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
+
+[dependencies]
+stdweb = "0.4"
+
+[dependencies.yarsge-core]
+path = "../yarsge-core"
