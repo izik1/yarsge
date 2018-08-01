@@ -101,8 +101,10 @@ impl Registers {
             R16::SP => self.sp = val,
         }
     }
+}
 
-    pub fn new() -> Registers {
+impl Default for Registers {
+    fn default() -> Self {
         Registers {
             pc: 0,
             a: 0,

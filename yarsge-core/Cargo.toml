@@ -4,6 +4,5 @@ version = "0.1.0"
 authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
 
 [dependencies]
-structopt = "0.2.0"
 bitflags = "1.0"
 failure = "0.1.1"

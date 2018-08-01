@@ -119,29 +119,6 @@ impl Ppu {
         }
     }
 
-    pub fn new() -> Ppu {
-        Ppu {
-            display_memory: [DisplayPixel::White; 160 * 144],
-            obj_pallet_a: 0,
-            obj_pallet_b: 0,
-            vram: [0; 0x2000],
-            oam: [0; 0xA0],
-            scx: 0,
-            scy: 0,
-            lcdc: 0,
-            ly: 0,
-            lyc: 0,
-            window_ly: 0,
-            bg_pallet: 0,
-            stat_upper: 0,
-            stat_mode: 0,
-            cycle_mod: 0,
-            visible_ly: 0,
-            disabled: false,
-            pirq: false,
-        }
-    }
-
     fn get_pixel_index(&self, tile: usize, y: usize, x: u8) -> u8 {
         let lower = self.vram[tile * 16 + y];
         let upper = self.vram[tile * 16 + y + 1];
@@ -247,6 +224,8 @@ impl Ppu {
         }
     }
 
+    // nonminimal_bool seems to be messed up here.
+    #[cfg_attr(feature = "cargo-clippy", allow(nonminimal_bool))]
     fn ly_cp(&mut self) -> bool {
         if (self.cycle_mod >= 4 && self.lyc == self.ly) || (self.cycle_mod < 4 && self.lyc == 0) {
             self.stat_upper |= bits::get(2);
@@ -305,5 +284,30 @@ impl Ppu {
         }
 
         arr
+    }
+}
+
+impl Default for Ppu {
+    fn default() -> Ppu {
+        Ppu {
+            display_memory: [DisplayPixel::White; 160 * 144],
+            obj_pallet_a: 0,
+            obj_pallet_b: 0,
+            vram: [0; 0x2000],
+            oam: [0; 0xA0],
+            scx: 0,
+            scy: 0,
+            lcdc: 0,
+            ly: 0,
+            lyc: 0,
+            window_ly: 0,
+            bg_pallet: 0,
+            stat_upper: 0,
+            stat_mode: 0,
+            cycle_mod: 0,
+            visible_ly: 0,
+            disabled: false,
+            pirq: false,
+        }
     }
 }

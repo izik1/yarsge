@@ -42,10 +42,10 @@ const NAME: &str = env!("CARGO_PKG_NAME");
 #[structopt(about = "Emulates GameBoy games.")]
 struct Opt {
     #[structopt(
-    short = "s",
-    long = "scale",
-    help = "Screen scale size",
-    default_value = "1"
+        short = "s",
+        long = "scale",
+        help = "Screen scale size",
+        default_value = "1"
     )]
     scale: u32,
 

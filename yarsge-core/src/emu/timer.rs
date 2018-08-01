@@ -36,21 +36,6 @@ impl Timer {
         }
     }
 
-    pub fn new() -> Self {
-        Timer {
-            prev_tima_overflow: 0,
-            prev_timer_in: false,
-            tac: 0,
-            tima: 0,
-            tima_overflow: 0,
-            tma: 0,
-            // Gekkio got access to per clock timings!
-            // On another note, yeah, the clock starts 8 t-cycles before
-            // the first byte of the boot-rom is fetched.
-            sys_timer: 8,
-        }
-    }
-
     fn has_timer_bit(&self) -> bool {
         let bit = if self.tac & 0b11 == 0b00 {
             9
@@ -86,5 +71,22 @@ impl Timer {
 
         self.prev_timer_in = b;
         r_if
+    }
+}
+
+impl Default for Timer {
+    fn default() -> Self {
+        Timer {
+            prev_tima_overflow: 0,
+            prev_timer_in: false,
+            tac: 0,
+            tima: 0,
+            tima_overflow: 0,
+            tma: 0,
+            // Gekkio got access to per clock timings!
+            // On another note, yeah, the clock starts 8 t-cycles before
+            // the first byte of the boot-rom is fetched.
+            sys_timer: 8,
+        }
     }
 }

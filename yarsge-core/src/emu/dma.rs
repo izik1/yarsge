@@ -9,8 +9,8 @@ pub struct Dma {
     pub ld_addr: u16,
 }
 
-impl Dma {
-    pub fn new() -> Self {
+impl Default for Dma {
+    fn default() -> Self {
         Dma {
             modulus: 0,
             time: 0,
