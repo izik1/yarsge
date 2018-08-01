@@ -1,29 +1,28 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
 #![feature(nll)]
-#![cfg_attr(feature = "cargo-clippy", allow(verbose_bit_mask))]
 
 extern crate rgb;
 extern crate sdl2;
 
+extern crate yarsge_core;
+
 #[macro_use]
 extern crate structopt;
 
-#[macro_use]
-extern crate bitflags;
-
 extern crate failure;
 
-use failure::{Error, ResultExt};
+use failure::ResultExt;
 
-mod emu;
+use yarsge_core::emu;
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
 use emu::cpu;
 
 use std::{
-    fs::File, io::{self, prelude::*},
+    fs::File,
+    io::{self, prelude::*},
 };
 
 use rgb::RGB8;
@@ -42,7 +41,12 @@ const NAME: &str = env!("CARGO_PKG_NAME");
 #[derive(StructOpt, Debug)]
 #[structopt(about = "Emulates GameBoy games.")]
 struct Opt {
-    #[structopt(short = "s", long = "scale", help = "Screen scale size", default_value = "1")]
+    #[structopt(
+    short = "s",
+    long = "scale",
+    help = "Screen scale size",
+    default_value = "1"
+    )]
     scale: u32,
 
     #[structopt(help = "The path to the boot rom")]

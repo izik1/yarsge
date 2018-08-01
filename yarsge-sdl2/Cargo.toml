@@ -1,5 +1,5 @@
 [package]
-name = "yarsge"
+name = "yarsge-sdl2"
 version = "0.1.0"
 authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
 
@@ -10,5 +10,5 @@ structopt = "0.2.0"
 bitflags = "1.0"
 failure = "0.1.1"
 
-[profile.release]
-lto = true
+[dependencies.yarsge-core]
+path = "../yarsge-core"

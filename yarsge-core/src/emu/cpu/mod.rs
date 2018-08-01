@@ -2,7 +2,12 @@
 
 mod instr;
 use super::{
-    bits, dma::Dma, flags::*, ppu::Ppu, registers::{self, *}, timer::Timer,
+    bits,
+    dma::Dma,
+    flags::*,
+    ppu::Ppu,
+    registers::{self, *},
+    timer::Timer,
 };
 use std::vec::*;
 
@@ -67,7 +72,8 @@ impl Mbc {
         match *self {
             Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
             Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(
-                ((desc.get_real_bank_count() - 1) & (desc.rom_bank | (desc.ram_bank << 5)) as usize)
+                ((desc.get_real_bank_count() - 1)
+                    & (desc.rom_bank | (desc.ram_bank << 5)) as usize)
                     * 0x4000,
             ),
         }
