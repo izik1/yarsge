@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "yarsge-core",
+    "yarsge-sdl2",
+    "yarsge-webasm",
+]
