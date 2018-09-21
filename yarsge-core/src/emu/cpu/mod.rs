@@ -6,7 +6,7 @@ use super::{
     dma::Dma,
     flags::*,
     ppu::Ppu,
-    registers::{self, *},
+    registers::{self, R16, Reg},
     timer::Timer,
 };
 use std::vec::*;
@@ -169,13 +169,15 @@ impl Cpu {
     fn read_io(&self, addr: u8) -> u8 {
         #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         match addr {
-            0x04...0x07 => self.tim.read_reg(addr),
+            0x00 => 0xFF, // joypad, not implemented, 0xFF = no buttons pressed down...
+            0x04..=0x07 => self.tim.read_reg(addr),
+            0x08..=0x0E => 0xFF, // Empty range.
             0x0F => self.r_if | 0xE0,
-            0x10...0x3F => 0xFF, // TODO: APU, silently ignore
+            0x10..=0x3F => 0xFF, // TODO: APU, silently ignore
             0x46 => (self.dma.addr >> 8) as u8,
-            0x40...0x45 | 0x47...0x4B => self.ppu.get_reg(addr),
-            0x4C...0x7F => 0xFF, // Empty range.
-            0x80...0xFF => unreachable!("Invalid address range for IO regs! (read)"),
+            0x40..=0x45 | 0x47..=0x4B => self.ppu.get_reg(addr),
+            0x4C..=0x7F => 0xFF, // Empty range.
+            0x80..=0xFF => unreachable!("Invalid address range for IO regs! (read)"),
             _ => {
                 eprintln!("Unimplemented IO reg (read): (addr: 0xFF{:01$X})", addr, 2);
                 0xFF
@@ -185,14 +187,15 @@ impl Cpu {
 
     pub fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0x0000...0x3FFF => self.read_rom_low(addr),
-            0x4000...0x7FFF => self.read_rom_high(addr - 0x4000),
-            0x8000...0x9FFF => self.ppu.get_vram(addr - 0x8000),
-            0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize],
-            0xE000...0xFDFF => self.wram[(addr - 0xE000) as usize],
-            0xFE00...0xFE9F => self.read_oam(addr - 0xFE00),
-            0xFF00...0xFF7F => self.read_io(addr as u8),
-            0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80],
+            0x0000..=0x3FFF => self.read_rom_low(addr),
+            0x4000..=0x7FFF => self.read_rom_high(addr - 0x4000),
+            0x8000..=0x9FFF => self.ppu.get_vram(addr - 0x8000),
+            0xC000..=0xDFFF => self.wram[(addr - 0xC000) as usize],
+            0xE000..=0xFDFF => self.wram[(addr - 0xE000) as usize],
+            0xFE00..=0xFE9F => self.read_oam(addr - 0xFE00),
+            0xFF00..=0xFF7F => self.read_io(addr as u8),
+            0xFEA0..=0xFEFF => 0,
+            0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80],
             0xFFFF => self.r_ier,
             _ => unimplemented!(
                 "Unimplemented address range (read): (addr: {:01$X})",
@@ -243,17 +246,18 @@ impl Cpu {
         #[cfg_attr(feature = "cargo-clippy", allow(match_same_arms))]
         match addr {
             0x01 | 0x02 => {} // TODO: serial, silently ignore
-            0x04...0x07 => self.tim.write_reg(addr, val),
+            0x04..=0x07 => self.tim.write_reg(addr, val),
+            0x08..=0x0E => {}, // Empty range.
             0x0F => self.r_if = val & 0x1F,
-            0x10...0x3F => {} // TODO: APU, silently ignore
+            0x10..=0x3F => {} // TODO: APU, silently ignore
             0x46 => {
                 self.dma.ld_addr = u16::from(val) << 8;
                 self.dma.ld_timer = 4
             }
-            0x40...0x45 | 0x47...0x4B => self.ppu.set_reg(addr, val),
+            0x40..=0x45 | 0x47..=0x4B => self.ppu.set_reg(addr, val),
             0x50 => self.boot_rom_enabled = false,
-            0x4C...0x4F | 0x51...0x7F => {}
-            0x80...0xFF => unreachable!("Invalid address range for IO regs! (write)"),
+            0x4C..=0x4F | 0x51..=0x7F => {}
+            0x80..=0xFF => unreachable!("Invalid address range for IO regs! (write)"),
             _ => eprintln!(
                 "Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})",
                 addr, 2, val, 2
@@ -265,10 +269,10 @@ impl Cpu {
         match self.mbc {
             Mbc::Mbc0 => {}
             Mbc::Mbc1(ref mut desc) => match addr {
-                0x0000...0x1FFF => unimplemented!(),
-                0x2000...0x3FFF => desc.rom_bank = if val & 0x1F == 0 { 1 } else { val & 0x1F },
-                0x4000...0x5FFF => desc.ram_bank = val & 0b11,
-                0x6000...0x7FFF => desc.ram_bank_mode = bits::has_bit(val, 0),
+                0x0000..=0x1FFF => unimplemented!(),
+                0x2000..=0x3FFF => desc.rom_bank = if val & 0x1F == 0 { 1 } else { val & 0x1F },
+                0x4000..=0x5FFF => desc.ram_bank = val & 0b11,
+                0x6000..=0x7FFF => desc.ram_bank_mode = bits::has_bit(val, 0),
                 _ => unreachable!(),
             },
         }
@@ -277,14 +281,14 @@ impl Cpu {
     fn write_cycle(&mut self, addr: u16, val: u8) {
         self.update(4); // TODO (TEST): Hardware timing might be different.
         match addr {
-            0x0000...0x7FFF => self.mbc_write(addr, val),
-            0x8000...0x9FFF => self.ppu.set_vram(addr - 0x8000, val),
-            0xC000...0xDFFF => self.wram[(addr - 0xC000) as usize] = val,
-            0xE000...0xFDFF => self.wram[(addr - 0xE000) as usize] = val,
-            0xFE00...0xFE9F => self.write_oam(addr - 0xFE00, val),
-            0xFEA0...0xFEFF => {}
-            0xFF00...0xFF7F => self.write_io(addr as u8, val),
-            0xFF80...0xFFFE => self.hram[addr as usize - 0xFF80] = val,
+            0x0000..=0x7FFF => self.mbc_write(addr, val),
+            0x8000..=0x9FFF => self.ppu.set_vram(addr - 0x8000, val),
+            0xC000..=0xDFFF => self.wram[(addr - 0xC000) as usize] = val,
+            0xE000..=0xFDFF => self.wram[(addr - 0xE000) as usize] = val,
+            0xFE00..=0xFE9F => self.write_oam(addr - 0xFE00, val),
+            0xFEA0..=0xFEFF => {}
+            0xFF00..=0xFF7F => self.write_io(addr as u8, val),
+            0xFF80..=0xFFFE => self.hram[addr as usize - 0xFF80] = val,
             0xFFFF => self.r_ier = val,
             _ => unimplemented!(
                 "Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})",
@@ -407,7 +411,7 @@ impl Cpu {
             0x3E => instr::ld_r8_d8(self, Reg::A),
             0x3F => instr::ccf(self),
 
-            0x40...0x7F => {
+            0x40..=0x7F => {
                 let dest = Reg::from_num(op >> 3);
                 let src = Reg::from_num(op);
                 if op == 0x76 {
@@ -417,7 +421,7 @@ impl Cpu {
                 }
             }
 
-            op @ 0x40...0xBF => {
+            op @ 0x40..=0xBF => {
                 let reg = MathReg::R(Reg::from_num(op));
                 match (op >> 0b11) & 0b111 {
                     0b000 => instr::add(self, reg),
@@ -451,7 +455,7 @@ impl Cpu {
             0xD0 => instr::retc(self, !self.regs.f.contains(Flag::C)),
             0xD1 => instr::pop(self, R16::DE),
             0xD2 => instr::jp(self, !self.regs.f.contains(Flag::C)),
-            0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xF4 | 0xEB...0xED | 0xFC | 0xFD => {
+            0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xF4 | 0xEB..=0xED | 0xFC | 0xFD => {
                 instr::invalid(self)
             }
             0xD4 => instr::call(self, !self.regs.f.contains(Flag::C)),
@@ -555,6 +559,11 @@ impl Cpu {
         }
     }
 
+    fn handle_stop(&mut self) {
+        // TODO: wait for controller input, there is no controller right now.
+        self.cycle_counter = 0;
+    }
+
     pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Self> {
         if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
@@ -587,9 +596,9 @@ impl Cpu {
         while self.cycle_counter > 0 {
             match self.status {
                 State::Okay => self.handle_okay(),
-                State::Stop => unimplemented!("Implement CPU stop behavior!"),
+                State::Stop => self.handle_stop(),
                 State::Halt => self.handle_halt(),
-                State::Hang => unimplemented!("Implement CPU hung behavior!"),
+                State::Hang => self.update(self.cycle_counter),
             };
         }
     }
