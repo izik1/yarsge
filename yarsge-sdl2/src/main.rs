@@ -1,24 +1,10 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
-#![feature(nll)]
-
-extern crate rgb;
-extern crate sdl2;
-
-extern crate yarsge_core;
-
-#[macro_use]
-extern crate structopt;
-
-extern crate failure;
-
 use failure::ResultExt;
 
-use yarsge_core::emu;
+use yarsge_core::emu::cpu;
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
-
-use emu::cpu;
 
 use std::{
     fs::File,
@@ -108,7 +94,7 @@ fn run(opt: &Opt) -> Result<()> {
 
         let disp = gb.ppu.get_display();
         for i in 0..WIDTH * HEIGHT {
-            use emu::ppu::DisplayPixel;
+            use yarsge_core::emu::ppu::DisplayPixel;
             let px = match disp[i] {
                 DisplayPixel::White => RGB8 {
                     r: 0x9B,

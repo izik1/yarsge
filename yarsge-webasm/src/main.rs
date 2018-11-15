@@ -8,22 +8,21 @@ extern crate stdweb;
 extern crate yarsge_core;
 
 use std::cell::RefCell;
-use std::ops::DerefMut;
 use std::rc::Rc;
 
-use stdweb::traits::*;
-use stdweb::unstable::TryInto;
-use stdweb::web::{
-    self, document,
-    event::{ChangeEvent, ProgressLoadEvent},
-    Element, FileList, FileReader, FileReaderResult, HtmlElement, WebSocket,
+use stdweb::{
+    traits::*,
+    unstable::TryInto,
+    web::{
+        self,
+        event::{ChangeEvent, ProgressLoadEvent},
+        html_element::InputElement,
+        Element, FileList, FileReader, FileReaderResult,
+    },
+    UnsafeTypedArray, Value,
 };
 
-use stdweb::{Once, UnsafeTypedArray, Value};
-
-use stdweb::web::html_element::InputElement;
-
-use yarsge_core::emu::{self, cpu::Cpu};
+use yarsge_core::emu::cpu::Cpu;
 
 macro_rules! enclose {
     ( ($( $x:ident ),*) $y:expr ) => {
@@ -72,7 +71,7 @@ impl Emulator {
     fn draw(&mut self) {
         let disp = self.core.ppu.get_display();
         for i in 0..160 * 144 {
-            use emu::ppu::DisplayPixel;
+            use yarsge_core::emu::ppu::DisplayPixel;
             // framebuffer is abgr... or big endian.
             self.framebuffer[i] = match disp[i] {
                 DisplayPixel::White => 0xFF0FBC9B,
