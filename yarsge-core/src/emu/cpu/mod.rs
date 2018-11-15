@@ -6,7 +6,7 @@ use super::{
     dma::Dma,
     flags::*,
     ppu::Ppu,
-    registers::{self, R16, Reg},
+    registers::{self, Reg, R16},
     timer::Timer,
 };
 use std::vec::*;
@@ -17,6 +17,12 @@ pub enum State {
     Halt,
     Stop,
     Hang,
+}
+
+#[derive(Clone, Copy)]
+pub enum Mode {
+    Step,
+    Run,
 }
 
 #[derive(Debug)]
@@ -98,6 +104,8 @@ pub struct Cpu {
     boot_rom_enabled: bool,
     pub ppu: Ppu,
     dma: Dma,
+    break_point_addresses: Vec<u16>,
+    pub mode: Mode,
 }
 
 impl Cpu {
@@ -125,6 +133,10 @@ impl Cpu {
                 self.dma.ld_timer = -1;
             }
         }
+    }
+
+    pub fn register_breakpoint(&mut self, address: u16) {
+        self.break_point_addresses.push(address);
     }
 
     fn update(&mut self, cycles: i64) {
@@ -247,7 +259,7 @@ impl Cpu {
         match addr {
             0x01 | 0x02 => {} // TODO: serial, silently ignore
             0x04..=0x07 => self.tim.write_reg(addr, val),
-            0x08..=0x0E => {}, // Empty range.
+            0x08..=0x0E => {} // Empty range.
             0x0F => self.r_if = val & 0x1F,
             0x10..=0x3F => {} // TODO: APU, silently ignore
             0x46 => {
@@ -587,6 +599,8 @@ impl Cpu {
                 boot_rom_enabled: true,
                 ppu: Default::default(),
                 dma: Default::default(),
+                break_point_addresses: Vec::new(),
+                mode: Mode::Run,
             })
         }
     }
@@ -598,8 +612,17 @@ impl Cpu {
                 State::Okay => self.handle_okay(),
                 State::Stop => self.handle_stop(),
                 State::Halt => self.handle_halt(),
-                State::Hang => self.update(self.cycle_counter),
+                State::Hang => self.update(4),
             };
+
+            if self.break_point_addresses.contains(&self.regs.pc) {
+                self.mode = Mode::Step;
+            }
+
+            if let Mode::Step = self.mode {
+                self.cycle_counter = 0;
+                break;
+            }
         }
     }
 }

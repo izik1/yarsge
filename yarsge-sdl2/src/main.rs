@@ -105,6 +105,7 @@ fn run(opt: &Opt) -> Result<()> {
         }
 
         gb.run(0x4_0000);
+
         let disp = gb.ppu.get_display();
         for i in 0..WIDTH * HEIGHT {
             use emu::ppu::DisplayPixel;

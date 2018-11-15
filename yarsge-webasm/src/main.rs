@@ -1,6 +1,6 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
-#![recursion_limit="2048"]
+#![recursion_limit = "2048"]
 
 #[macro_use]
 extern crate stdweb;
@@ -13,7 +13,11 @@ use std::rc::Rc;
 
 use stdweb::traits::*;
 use stdweb::unstable::TryInto;
-use stdweb::web::{self, document, event::{ChangeEvent, ProgressLoadEvent}, Element, HtmlElement, WebSocket, FileList, FileReader, FileReaderResult};
+use stdweb::web::{
+    self, document,
+    event::{ChangeEvent, ProgressLoadEvent},
+    Element, FileList, FileReader, FileReaderResult, HtmlElement, WebSocket,
+};
 
 use stdweb::{Once, UnsafeTypedArray, Value};
 
@@ -93,8 +97,8 @@ fn load_boot_rom(emulator: Rc<RefCell<Emulator>>) {
         let input: InputElement = event.target().unwrap().try_into().unwrap();
         let files: FileList = js!( return @{input}.files ).try_into().unwrap();
         let file = match files.iter().next() {
-            Some( file ) => file,
-            None => return
+            Some(file) => file,
+            None => return,
         };
 
         let reader = FileReader::new();
@@ -107,7 +111,7 @@ fn load_boot_rom(emulator: Rc<RefCell<Emulator>>) {
             emulator.borrow_mut().core = Cpu::new(data, vec![0x00u8; 0x150]).unwrap();
         }));
 
-        reader.read_as_array_buffer( &file ).unwrap();
+        reader.read_as_array_buffer(&file).unwrap();
     });
 }
 
