@@ -70,6 +70,20 @@ impl Ppu {
         }
     }
 
+    pub fn read_oam(&self, addr: u16) -> Option<u8> {
+        if self.oam_blocked() {
+            None
+        } else {
+            Some(self.oam[addr as usize])
+        }
+    }
+
+    pub fn write_oam(&mut self, addr: u16, val: u8) {
+        if !self.oam_blocked() {
+            self.oam[addr as usize] = val;
+        }
+    }
+
     pub fn set_reg(&mut self, addr: u8, val: u8) {
         match addr {
             0x40 => self.lcdc = val,
@@ -225,7 +239,7 @@ impl Ppu {
     }
 
     // nonminimal_bool seems to be messed up here.
-    #[cfg_attr(feature = "cargo-clippy", allow(nonminimal_bool))]
+    #[allow(clippy::nonminimal_bool)]
     fn ly_cp(&mut self) -> bool {
         if (self.cycle_mod >= 4 && self.lyc == self.ly) || (self.cycle_mod < 4 && self.lyc == 0) {
             self.stat_upper |= bits::get(2);

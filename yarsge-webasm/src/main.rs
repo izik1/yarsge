@@ -22,7 +22,7 @@ use stdweb::{
     UnsafeTypedArray, Value,
 };
 
-use yarsge_core::emu::cpu::Cpu;
+use yarsge_core::emu;
 
 macro_rules! enclose {
     ( ($( $x:ident ),*) $y:expr ) => {
@@ -34,14 +34,14 @@ macro_rules! enclose {
 }
 
 struct Emulator {
-    core: Cpu,
+    core: emu::GameBoy,
     ctx: Value,
     framebuffer: [u32; 160 * 144],
 }
 
 impl Emulator {
     fn new(canvas: &Element) -> Self {
-        let core = Cpu::new(vec![0x00u8; 0x100], vec![0x00u8; 0x150]).unwrap();
+        let core = emu::GameBoy::new(vec![0x00u8; 0x100], vec![0x00u8; 0x150]).unwrap();
 
         let ctx = js! {
             var c = {};
@@ -69,7 +69,7 @@ impl Emulator {
     }
 
     fn draw(&mut self) {
-        let disp = self.core.ppu.get_display();
+        let disp = self.core.get_display();
         for i in 0..160 * 144 {
             use yarsge_core::emu::ppu::DisplayPixel;
             // framebuffer is abgr... or big endian.
@@ -107,7 +107,7 @@ fn load_boot_rom(emulator: Rc<RefCell<Emulator>>) {
                 _ => unreachable!()
             }.into();
 
-            emulator.borrow_mut().core = Cpu::new(data, vec![0x00u8; 0x150]).unwrap();
+            emulator.borrow_mut().core = emu::GameBoy::new(data, vec![0x00u8; 0x150]).unwrap();
         }));
 
         reader.read_as_array_buffer(&file).unwrap();

@@ -2,7 +2,7 @@
 
 use failure::ResultExt;
 
-use yarsge_core::emu::cpu;
+use yarsge_core::emu;
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
@@ -73,10 +73,8 @@ fn run(opt: &Opt) -> Result<()> {
     let boot_rom = load_file(&opt.boot_rom).context("Failed to open the boot rom")?;
     let game_rom = load_file(&opt.game_rom).context("Failed to open the game rom")?;
 
-    let mut gb = match cpu::Cpu::new(boot_rom, game_rom) {
-        Some(c) => c,
-        None => return Err(failure::err_msg("Error loading cpu".to_string())),
-    };
+    let mut gb = emu::GameBoy::new(boot_rom, game_rom)
+        .ok_or(failure::err_msg("Error loading cpu".to_string()))?;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -92,7 +90,7 @@ fn run(opt: &Opt) -> Result<()> {
 
         gb.run(0x4_0000);
 
-        let disp = gb.ppu.get_display();
+        let disp = gb.get_display();
         for i in 0..WIDTH * HEIGHT {
             use yarsge_core::emu::ppu::DisplayPixel;
             let px = match disp[i] {
