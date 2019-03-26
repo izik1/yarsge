@@ -58,7 +58,7 @@ impl Hardware {
         match addr {
             0x0000..=0x3FFF => self.memory.read_rom_low(addr),
             0x4000..=0x7FFF => self.memory.read_rom_high(addr - 0x4000),
-            0x8000..=0x9FFF => self.ppu.get_vram(addr - 0x8000),
+            0x8000..=0x9FFF => self.ppu.get_vram(addr - 0x8000).unwrap_or(0xFF),
             0xC000..=0xDFFF => self.memory.wram[(addr - 0xC000) as usize],
             0xE000..=0xFDFF => self.memory.wram[(addr - 0xE000) as usize],
             0xFE00..=0xFE9F => self.ppu.read_oam(addr - 0xFE00).unwrap_or(0xFF),

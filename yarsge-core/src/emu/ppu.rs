@@ -48,7 +48,7 @@ impl Ppu {
         &self.display_memory
     }
 
-    pub fn oam_blocked(&self) -> bool {
+    fn oam_blocked(&self) -> bool {
         self.stat_mode > 1
     }
 
@@ -56,11 +56,11 @@ impl Ppu {
         self.stat_mode == 3
     }
 
-    pub fn get_vram(&self, addr: u16) -> u8 {
+    pub fn get_vram(&self, addr: u16) -> Option<u8> {
         if self.vram_blocked() {
-            0xFF
+            None
         } else {
-            self.vram[addr as usize]
+            Some(self.vram[addr as usize])
         }
     }
 
@@ -284,20 +284,6 @@ impl Ppu {
             self.pirq = irq;
             vblank | if irq && !pirq { bits::get(1) } else { 0 }
         }
-    }
-
-    pub fn _display_to_bytes(&self) -> [u8; (160 * 144) / 4] {
-        let mut arr = [0; 160 * 144 / 4];
-        for i in 0..160 * 144 {
-            arr[i / 4] |= match self.display_memory[i] {
-                DisplayPixel::White => 0,
-                DisplayPixel::LightGrey => 1,
-                DisplayPixel::DarkGrey => 2,
-                DisplayPixel::Black => 3,
-            } << (i & 3);
-        }
-
-        arr
     }
 }
 

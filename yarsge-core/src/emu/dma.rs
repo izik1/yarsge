@@ -26,28 +26,23 @@ impl Dma {
     pub fn update(&mut self) -> Option<(usize, u16)> {
         let mut return_val = None;
 
-        self.modulus = if self.modulus == 0 {
-            self.enabled = if self.time == 0 {
-                false
-            } else {
+        if self.modulus == 0 {
+            self.enabled = self.time > 0;
+            if self.enabled {
                 return_val = Some((160 - self.time, self.addr));
                 self.time -= 1;
-                true
-            };
+            }
 
-            3
+            self.modulus = 3;
         } else {
-            self.modulus - 1
+            self.modulus -= 1;
         };
-
-        let return_val = return_val;
-
+        
         if self.ld_timer > 0 {
             self.ld_timer -= 1;
             if self.ld_timer == 0 {
                 self.time = 160;
                 self.addr = self.ld_addr;
-                self.ld_timer = -1;
             }
         }
 
