@@ -1,8 +1,8 @@
 // Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
 
 use crate::emu::cpu::Cpu;
-use crate::emu::ppu::DisplayPixel;
 use crate::emu::hardware::Hardware;
+use crate::emu::ppu::DisplayPixel;
 
 pub mod cpu;
 pub mod dma;

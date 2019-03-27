@@ -1,4 +1,9 @@
-use super::{ppu::{Ppu, DisplayPixel}, timer::Timer, dma::Dma, memory::Memory};
+use super::{
+    dma::Dma,
+    memory::Memory,
+    ppu::{DisplayPixel, Ppu},
+    timer::Timer,
+};
 
 pub struct Hardware {
     ppu: Ppu,
@@ -25,7 +30,7 @@ impl Hardware {
         }
     }
 
-    pub fn get_display(&self) -> &[DisplayPixel]{
+    pub fn get_display(&self) -> &[DisplayPixel] {
         self.ppu.get_display()
     }
 
@@ -81,14 +86,15 @@ impl Hardware {
         val
     }
 
-    pub fn interrupt_check(&mut self) {
+    pub fn interrupt_check(&mut self, handler: impl FnOnce(&mut Self)) {
         self.update(2);
         self.mid_check = true;
+        handler(self)
     }
 
     fn read_io(&self, addr: u8) -> u8 {
         #[allow(clippy::match_same_arms)]
-            match addr {
+        match addr {
             0x00 => 0xFF, // joypad, not implemented, 0xFF = no buttons pressed down...
             0x04..=0x07 => self.timer.read_reg(addr),
             0x08..=0x0E => 0xFF, // Empty range.
@@ -134,7 +140,7 @@ impl Hardware {
 
     fn write_io(&mut self, addr: u8, val: u8) {
         #[allow(clippy::match_same_arms)]
-            match addr {
+        match addr {
             0x01 | 0x02 => {} // TODO: serial, silently ignore
             0x04..=0x07 => self.timer.write_reg(addr, val),
             0x08..=0x0E => {} // Empty range.

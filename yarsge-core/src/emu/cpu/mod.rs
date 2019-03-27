@@ -265,7 +265,6 @@ impl Cpu {
     }
 
     fn handle_interrupts(&mut self, hw: &mut Hardware) {
-        hw.interrupt_check();
         if !self.ime || (hw.r_ier & hw.r_if & 0x1F) == 0 {
             self.ime |= self.ei;
         } else {
@@ -290,7 +289,7 @@ impl Cpu {
     }
 
     fn handle_okay(&mut self, hw: &mut Hardware) {
-        self.handle_interrupts(hw);
+        hw.interrupt_check(|hw| self.handle_interrupts(hw));
         self.run_instruction(hw);
     }
 
@@ -333,7 +332,6 @@ impl Cpu {
         None
     }
 }
-
 
 impl Default for Cpu {
     fn default() -> Self {
