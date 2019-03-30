@@ -13,6 +13,7 @@ use std::{
 
 use rgb::RGB8;
 use structopt::StructOpt;
+use yarsge_core::emu::TCycle;
 
 type Result<T> = std::result::Result<T, failure::Error>;
 
@@ -74,7 +75,7 @@ fn run(opt: &Opt) -> Result<()> {
     let game_rom = load_file(&opt.game_rom).context("Failed to open the game rom")?;
 
     let mut gb = emu::GameBoy::new(boot_rom, game_rom)
-        .ok_or(failure::err_msg("Error loading cpu".to_string()))?;
+        .ok_or_else(|| failure::err_msg("Error loading cpu".to_string()))?;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -88,7 +89,7 @@ fn run(opt: &Opt) -> Result<()> {
             }
         }
 
-        gb.run(0x4_0000);
+        gb.run(TCycle(0x4_0000));
 
         let disp = gb.get_display();
         for i in 0..WIDTH * HEIGHT {

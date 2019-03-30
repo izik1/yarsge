@@ -6,9 +6,9 @@ use super::{
     registers::{self, Reg, R16},
 };
 
-use crate::emu::{Hardware, Mode};
-use std::vec::*;
+use crate::emu::{Hardware, MCycle, Mode};
 use boolinator::Boolinator;
+use std::vec::*;
 
 #[derive(Clone, Copy)]
 pub enum State {
@@ -19,7 +19,6 @@ pub enum State {
 }
 
 pub struct Cpu {
-    cycle_counter: i64,
     pub regs: registers::Registers,
     pub status: State,
     ime: bool,
@@ -270,7 +269,7 @@ impl Cpu {
             self.ime |= self.ei;
         } else {
             self.ime = false;
-            hw.stall(2);
+            hw.stall(MCycle(2));
             let old_pc = self.regs.pc;
             self.write_push_cycle(hw, (old_pc >> 8) as u8);
             let b = hw.r_ier & hw.r_if & 0x1F;
@@ -295,7 +294,7 @@ impl Cpu {
     }
 
     fn handle_halt(&mut self, hw: &mut Hardware) {
-        hw.stall(1);
+        hw.stall_one();
         if hw.r_if & hw.r_ier & 0x1F > 0 {
             self.status = State::Okay;
         }
@@ -303,12 +302,10 @@ impl Cpu {
 
     fn handle_stop(&mut self) {
         // TODO: wait for controller input, there is no controller right now.
-        self.cycle_counter = 0;
     }
 
     pub fn new() -> Self {
         Cpu {
-            cycle_counter: 0,
             regs: Default::default(),
             status: State::Okay,
             ime: false,
@@ -323,10 +320,12 @@ impl Cpu {
             State::Okay => self.handle_okay(hw),
             State::Stop => self.handle_stop(),
             State::Halt => self.handle_halt(hw),
-            State::Hang => hw.stall(1),
+            State::Hang => hw.stall_one(),
         };
 
-        self.break_point_addresses.contains(&self.regs.pc).as_some(Mode::Step)
+        self.break_point_addresses
+            .contains(&self.regs.pc)
+            .as_some(Mode::Step)
     }
 }
 

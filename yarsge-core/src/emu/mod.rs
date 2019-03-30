@@ -38,6 +38,24 @@ pub mod flags {
     }
 }
 
+#[derive(Add, Sub, AddAssign, SubAssign, PartialOrd, Ord, Eq, PartialEq)]
+pub struct TCycle(pub isize);
+
+impl From<MCycle> for TCycle {
+    fn from(m: MCycle) -> Self {
+        Self(m.0 * 4)
+    }
+}
+
+#[derive(Add, Sub)]
+pub struct MCycle(pub isize);
+
+impl From<TCycle> for (MCycle, TCycle) {
+    fn from(t: TCycle) -> Self {
+        (MCycle(t.0 / 4), TCycle(t.0 % 4))
+    }
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Mode {
     Step,
@@ -63,15 +81,15 @@ impl GameBoy {
         self.hw.get_display()
     }
 
-    pub fn run(&mut self, ticks: i64) {
+    pub fn run(&mut self, ticks: TCycle) {
         self.hw.cycle_counter += ticks;
-        while self.hw.cycle_counter > 0 {
+        while self.hw.cycle_counter > TCycle(0) {
             if let Some(new_mode) = self.cpu.run(&mut self.hw) {
                 self.mode = new_mode;
             }
 
             if self.mode == Mode::Step {
-                self.hw.cycle_counter = 0;
+                self.hw.cycle_counter = TCycle(0);
             }
         }
     }

@@ -4,6 +4,7 @@ use super::{
     ppu::{DisplayPixel, Ppu},
     timer::Timer,
 };
+use crate::emu::{MCycle, TCycle};
 
 pub struct Hardware {
     ppu: Ppu,
@@ -12,14 +13,14 @@ pub struct Hardware {
     memory: Memory,
     pub r_if: u8,
     pub r_ier: u8,
-    pub cycle_counter: i64,
+    pub cycle_counter: TCycle,
     mid_check: bool,
 }
 
 impl Hardware {
     pub fn new(memory: Memory) -> Self {
         Self {
-            cycle_counter: 0,
+            cycle_counter: TCycle(0),
             ppu: Default::default(),
             memory,
             timer: Default::default(),
@@ -35,21 +36,25 @@ impl Hardware {
     }
 
     pub fn read_cycle(&mut self, addr: u16) -> u8 {
-        self.update(4);
+        self.update(MCycle(1).into());
         self.read_byte(addr)
     }
 
-    pub fn stall(&mut self, m_cycles: i64) {
-        self.update(m_cycles * 4);
+    pub fn stall(&mut self, m_cycles: MCycle) {
+        self.update(m_cycles.into());
     }
 
-    fn update(&mut self, mut cycles: i64) {
+    pub fn stall_one(&mut self) {
+        self.stall(MCycle(1));
+    }
+
+    fn update(&mut self, mut cycles: TCycle) {
         if self.mid_check {
-            cycles += 2;
+            cycles += TCycle(2);
             self.mid_check = false;
         }
 
-        for _ in 0..cycles {
+        for _ in 0..cycles.0 {
             self.r_if |= (self.timer.update() | self.ppu.update()) & 0x1F;
             if let Some((oam_offset, addr)) = self.dma.update() {
                 self.ppu.oam[oam_offset] = self.read_byte(addr)
@@ -80,14 +85,14 @@ impl Hardware {
     }
 
     pub fn fetch(&mut self, addr: u16) -> u8 {
-        self.update(3);
+        self.update(TCycle(3));
         let val = self.read_byte(addr);
-        self.update(1);
+        self.update(TCycle(1));
         val
     }
 
     pub fn interrupt_check(&mut self, handler: impl FnOnce(&mut Self)) {
-        self.update(2);
+        self.update(TCycle(2));
         self.mid_check = true;
         handler(self)
     }
@@ -117,7 +122,7 @@ impl Hardware {
     }
 
     pub fn write_cycle(&mut self, addr: u16, val: u8) {
-        self.update(4); // TODO (TEST): Hardware timing might be different.
+        self.update(MCycle(1).into()); // TODO (TEST): Hardware timing might be different.
         match addr {
             0x0000..=0x7FFF => self.memory.mbc_write(addr, val),
             0x8000..=0x9FFF => self.ppu.set_vram(addr - 0x8000, val),

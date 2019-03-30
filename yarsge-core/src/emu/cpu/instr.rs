@@ -54,7 +54,7 @@ pub fn invalid(cpu: &mut Cpu) {
 pub fn jr(cpu: &mut Cpu, hw: &mut Hardware, jump: bool) {
     let val = cpu.read_ipc_cycle(hw) as i8;
     if jump {
-        hw.stall(1);
+        hw.stall_one();
         cpu.regs.pc = cpu.regs.pc.wrapping_add(val as u16);
     }
 }
@@ -68,7 +68,7 @@ pub fn jr(cpu: &mut Cpu, hw: &mut Hardware, jump: bool) {
 pub fn jp(cpu: &mut Cpu, hw: &mut Hardware, jump: bool) {
     let addr = cpu.read_u16_cycle(hw);
     if jump {
-        hw.stall(1);
+        hw.stall_one();
         cpu.regs.pc = addr;
     }
 }
@@ -148,7 +148,7 @@ pub fn ld_r16_a(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
 // Remarks: ----
 // Timing: Internal Delay.
 pub fn inc_16(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
-    hw.stall(1);
+    hw.stall_one();
     let v = cpu.regs.get_reg_16(reg).wrapping_add(1);
     cpu.regs.set_reg_16(reg, v);
 }
@@ -238,7 +238,7 @@ pub fn add_hl_reg16(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
     );
     cpu.regs.f.set(Flag::C, res < cpu.regs.hl);
 
-    hw.stall(1);
+    hw.stall_one();
     cpu.regs.hl = res;
 }
 
@@ -268,7 +268,7 @@ pub fn ld_a_r16(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
 // Remarks: ----
 // Timing: Internal Delay.
 pub fn dec_16(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
-    hw.stall(1);
+    hw.stall_one();
     cpu.regs
         .set_reg_16(reg, cpu.regs.get_reg_16(reg).wrapping_sub(1));
 }
@@ -535,11 +535,11 @@ pub fn cp(cpu: &mut Cpu, hw: &mut Hardware, reg: MathReg) {
 // Remarks: ----
 // Timing: "Internal Delay" or "Read, Read, Internal Delay"
 pub fn retc(cpu: &mut Cpu, hw: &mut Hardware, jump: bool) {
-    hw.stall(1);
+    hw.stall_one();
     if jump {
         let addr = cpu.read_pop_16_cycle(hw);
         cpu.regs.pc = addr;
-        hw.stall(1);
+        hw.stall_one();
     }
 }
 
@@ -566,7 +566,7 @@ pub fn pop(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
 pub fn call(cpu: &mut Cpu, hw: &mut Hardware, jump: bool) {
     let addr = cpu.read_u16_cycle(hw);
     if jump {
-        hw.stall(1);
+        hw.stall_one();
         let pc = cpu.regs.pc;
         cpu.write_push_16_cycle(hw, pc);
         cpu.regs.pc = addr;
@@ -584,7 +584,7 @@ pub fn push(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
         R16::SP => cpu.regs.g_af(),
         r => cpu.regs.get_reg_16(r),
     };
-    hw.stall(1);
+    hw.stall_one();
     cpu.write_push_16_cycle(hw, val);
 }
 
@@ -595,7 +595,7 @@ pub fn push(cpu: &mut Cpu, hw: &mut Hardware, reg: R16) {
 // Remarks: ----
 // Timing: Delay, Write, Write
 pub fn rst(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) {
-    hw.stall(1);
+    hw.stall_one();
     let pc = cpu.regs.pc;
     cpu.write_push_16_cycle(hw, pc);
     cpu.regs.pc = addr;
@@ -611,7 +611,7 @@ pub fn ret(cpu: &mut Cpu, hw: &mut Hardware, reti: bool) {
     let addr = cpu.read_pop_16_cycle(hw);
     cpu.regs.pc = addr;
     cpu.ime |= reti;
-    hw.stall(1);
+    hw.stall_one();
 }
 
 // Mnemonic: LDH (a8),A
@@ -700,7 +700,7 @@ pub fn jp_hl(cpu: &mut Cpu) {
 // Timing: Read, Internal Delay
 pub fn ld_hl_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) {
     let r8 = (cpu.read_ipc_cycle(hw) as i8) as u16;
-    hw.stall(1);
+    hw.stall_one();
 
     cpu.regs.f = Flag::empty();
     cpu.regs
@@ -745,7 +745,7 @@ pub fn ld_a16_a(cpu: &mut Cpu, hw: &mut Hardware) {
 // Timing: Internal delay
 pub fn ld_sp_hl(cpu: &mut Cpu, hw: &mut Hardware) {
     let hl = cpu.regs.hl;
-    hw.stall(1);
+    hw.stall_one();
     cpu.regs.sp = hl;
 }
 
@@ -757,7 +757,7 @@ pub fn ld_sp_hl(cpu: &mut Cpu, hw: &mut Hardware) {
 // Timing: Read, Internal Delay, Internal Delay
 pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) {
     let r8 = cpu.read_ipc_cycle(hw) as i8;
-    hw.stall(2);
+    hw.stall(MCycle(2));
 
     cpu.regs.f = Flag::empty();
     cpu.regs

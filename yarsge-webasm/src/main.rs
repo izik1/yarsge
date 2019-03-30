@@ -23,6 +23,7 @@ use stdweb::{
 };
 
 use yarsge_core::emu;
+use yarsge_core::emu::TCycle;
 
 macro_rules! enclose {
     ( ($( $x:ident ),*) $y:expr ) => {
@@ -59,25 +60,26 @@ impl Emulator {
         Emulator {
             core,
             ctx,
-            framebuffer: [0xFFFFFFFF; 160 * 144],
+            framebuffer: [0xFFFF_FFFF; 160 * 144],
         }
     }
 
     fn run_frame(&mut self) {
         // todo: this has timing offset issues.
-        self.core.run(4194304 / 60);
+        self.core.run(TCycle(4_194_304 / 60));
     }
 
     fn draw(&mut self) {
+        use yarsge_core::emu::ppu::DisplayPixel;
+
         let disp = self.core.get_display();
-        for i in 0..160 * 144 {
-            use yarsge_core::emu::ppu::DisplayPixel;
+        for (buffer_pixel, display_pixel) in self.framebuffer.iter_mut().zip(disp.iter()) {
             // framebuffer is abgr... or big endian.
-            self.framebuffer[i] = match disp[i] {
-                DisplayPixel::White => 0xFF0FBC9B,
-                DisplayPixel::LightGrey => 0xFFC0BA8B,
-                DisplayPixel::DarkGrey => 0xFF306230,
-                DisplayPixel::Black => 0xFF0F380F,
+            *buffer_pixel = match display_pixel {
+                DisplayPixel::White => 0xFF0F_BC9B,
+                DisplayPixel::LightGrey => 0xFFC_0BA8B,
+                DisplayPixel::DarkGrey => 0xFF30_6230,
+                DisplayPixel::Black => 0xFF0F_380F,
             }
         }
 
