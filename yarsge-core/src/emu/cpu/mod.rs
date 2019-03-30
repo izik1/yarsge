@@ -8,6 +8,7 @@ use super::{
 
 use crate::emu::{Hardware, Mode};
 use std::vec::*;
+use boolinator::Boolinator;
 
 #[derive(Clone, Copy)]
 pub enum State {
@@ -325,11 +326,7 @@ impl Cpu {
             State::Hang => hw.stall(1),
         };
 
-        if self.break_point_addresses.contains(&self.regs.pc) {
-            return Some(Mode::Step);
-        }
-
-        None
+        self.break_point_addresses.contains(&self.regs.pc).as_some(Mode::Step)
     }
 }
 
