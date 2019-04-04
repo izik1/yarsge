@@ -1,6 +1,12 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
-use super::*;
+use crate::emu::{
+    cpu::{Cpu, State},
+    flags::Flag,
+    hardware::Hardware,
+    registers::{Reg, R16},
+    MCycle,
+};
 
 #[derive(Clone, Copy)]
 pub enum MathReg {
@@ -10,14 +16,14 @@ pub enum MathReg {
 
 fn get_reg(cpu: &mut Cpu, hw: &mut Hardware, reg: Reg) -> u8 {
     match reg {
-        Reg::HL => cpu.read_hl_cycle(hw),
+        Reg::HL => hw.read_cycle(cpu.regs.hl),
         r => cpu.regs.get_reg(r),
     }
 }
 
 fn set_reg(cpu: &mut Cpu, hw: &mut Hardware, reg: Reg, value: u8) {
     match reg {
-        Reg::HL => cpu.write_hl_cycle(hw, value),
+        Reg::HL => hw.write_cycle(cpu.regs.hl, value),
         r => cpu.regs.set_reg(r, value),
     }
 }
@@ -81,10 +87,13 @@ pub fn jp(cpu: &mut Cpu, hw: &mut Hardware, jump: bool) {
 // Timing: either "write", "read" or instant.
 pub fn ld(cpu: &mut Cpu, hw: &mut Hardware, dest: Reg, src: Reg) {
     match (dest, src) {
-        (Reg::HL, Reg::HL) => unreachable!("This while theoretically reachable, should *never* be reached, since this instruction is instead HALT"),
-        (Reg::HL, src) =>     {let val = cpu.regs.get_reg(src); cpu.write_hl_cycle(hw, val)}
-        (dest, Reg::HL) =>    {let val = cpu.read_hl_cycle(hw); cpu.regs.set_reg(dest, val)}
-        (dest, src) =>        {let val = cpu.regs.get_reg(src); cpu.regs.set_reg(dest, val)}
+        (Reg::HL, Reg::HL) => halt(cpu, hw),
+        (Reg::HL, src) => hw.write_cycle(cpu.regs.hl, cpu.regs.get_reg(src)),
+        (dest, Reg::HL) => cpu.regs.set_reg(dest, hw.read_cycle(cpu.regs.hl)),
+        (dest, src) => {
+            let val = cpu.regs.get_reg(src);
+            cpu.regs.set_reg(dest, val)
+        }
     }
 }
 

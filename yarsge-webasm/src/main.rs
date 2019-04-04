@@ -66,7 +66,7 @@ impl Emulator {
 
     fn run_frame(&mut self) {
         // todo: this has timing offset issues.
-        self.core.run(TCycle(4_194_304 / 60));
+        self.core.run(TCycle(4_194_304 / 60), 0xFF);
     }
 
     fn draw(&mut self) {

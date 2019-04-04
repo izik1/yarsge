@@ -12,6 +12,7 @@ pub mod timer;
 
 mod hardware;
 mod memory;
+mod pad;
 
 pub mod bits {
     pub fn get(num: u8) -> u8 {
@@ -81,7 +82,9 @@ impl GameBoy {
         self.hw.get_display()
     }
 
-    pub fn run(&mut self, ticks: TCycle) {
+    pub fn run(&mut self, ticks: TCycle, pad: u8) {
+        self.hw.set_keys(pad);
+
         self.hw.cycle_counter += ticks;
         while self.hw.cycle_counter > TCycle(0) {
             if let Some(new_mode) = self.cpu.run(&mut self.hw) {

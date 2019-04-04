@@ -10,12 +10,13 @@ use crate::emu::{Hardware, MCycle, Mode};
 use boolinator::Boolinator;
 use std::vec::*;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Eq, PartialEq)]
 pub enum State {
     Okay,
     Halt,
     Stop,
     Hang,
+    HaltBug,
 }
 
 pub struct Cpu {
@@ -34,7 +35,13 @@ impl Cpu {
 
     fn fetch(&mut self, hw: &mut Hardware) -> u8 {
         let val = hw.fetch(self.regs.pc);
-        self.regs.pc = self.regs.pc.wrapping_add(1);
+
+        if self.status != State::HaltBug {
+            self.regs.pc = self.regs.pc.wrapping_add(1);
+        } else {
+            self.status = State::Okay;
+        }
+
         val
     }
 
@@ -43,25 +50,14 @@ impl Cpu {
     }
 
     fn read_ipc_cycle(&mut self, hw: &mut Hardware) -> u8 {
-        let pc = self.regs.pc;
-        let val = hw.read_cycle(pc);
+        let val = hw.read_cycle(self.regs.pc);
         self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
 
-    fn write_hl_cycle(&self, hw: &mut Hardware, val: u8) {
-        hw.write_cycle(self.regs.hl, val);
-    }
-
-    fn read_hl_cycle(&mut self, hw: &mut Hardware) -> u8 {
-        let hl = self.regs.hl;
-        hw.read_cycle(hl)
-    }
-
     fn read_pop_cycle(&mut self, hw: &mut Hardware) -> u8 {
-        let sp = self.regs.sp;
-        let val = hw.read_cycle(sp);
-        self.regs.sp = sp.wrapping_add(1);
+        let val = hw.read_cycle(self.regs.sp);
+        self.regs.sp = self.regs.sp.wrapping_add(1);
         val
     }
 
@@ -82,11 +78,6 @@ impl Cpu {
     fn run_instruction(&mut self, hw: &mut Hardware) {
         use self::instr::MathReg;
         let op = self.fetch(hw);
-
-        if self.halt_bugged {
-            self.regs.pc = self.regs.pc.wrapping_sub(1);
-            self.halt_bugged = false;
-        }
 
         match op {
             0x00 => {}
@@ -158,11 +149,7 @@ impl Cpu {
             0x40..=0x7F => {
                 let dest = Reg::from_num(op >> 3);
                 let src = Reg::from_num(op);
-                if op == 0x76 {
-                    instr::halt(self, hw);
-                } else {
-                    instr::ld(self, hw, dest, src);
-                }
+                instr::ld(self, hw, dest, src);
             }
 
             op @ 0x40..=0xBF => {
@@ -317,7 +304,7 @@ impl Cpu {
 
     pub fn run(&mut self, hw: &mut Hardware) -> Option<Mode> {
         match self.status {
-            State::Okay => self.handle_okay(hw),
+            State::Okay | State::HaltBug => self.handle_okay(hw),
             State::Stop => self.handle_stop(),
             State::Halt => self.handle_halt(hw),
             State::Hang => hw.stall_one(),

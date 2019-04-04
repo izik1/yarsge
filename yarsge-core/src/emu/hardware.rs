@@ -1,6 +1,7 @@
 use super::{
     dma::Dma,
     memory::Memory,
+    pad::Pad,
     ppu::{DisplayPixel, Ppu},
     timer::Timer,
 };
@@ -11,6 +12,7 @@ pub struct Hardware {
     timer: Timer,
     dma: Dma,
     memory: Memory,
+    pad: Pad,
     pub r_if: u8,
     pub r_ier: u8,
     pub cycle_counter: TCycle,
@@ -28,7 +30,12 @@ impl Hardware {
             r_ier: 0,
             mid_check: false,
             dma: Default::default(),
+            pad: Pad::new(),
         }
+    }
+
+    pub fn set_keys(&mut self, val: u8) {
+        self.pad.set_keys(val)
     }
 
     pub fn get_display(&self) -> &[DisplayPixel] {
@@ -58,6 +65,10 @@ impl Hardware {
             self.r_if |= (self.timer.update() | self.ppu.update()) & 0x1F;
             if let Some((oam_offset, addr)) = self.dma.update() {
                 self.ppu.oam[oam_offset] = self.read_byte(addr)
+            }
+
+            if self.pad.update() {
+                self.r_if |= 0x10;
             }
         }
 
@@ -100,7 +111,7 @@ impl Hardware {
     fn read_io(&self, addr: u8) -> u8 {
         #[allow(clippy::match_same_arms)]
         match addr {
-            0x00 => 0xFF, // joypad, not implemented, 0xFF = no buttons pressed down...
+            0x00 => self.pad.get_selected(),
             0x04..=0x07 => self.timer.read_reg(addr),
             0x08..=0x0E => 0xFF, // Empty range.
             0x0F => self.r_if | 0xE0,
@@ -146,6 +157,7 @@ impl Hardware {
     fn write_io(&mut self, addr: u8, val: u8) {
         #[allow(clippy::match_same_arms)]
         match addr {
+            0x00 => self.pad.set_status(val),
             0x01 | 0x02 => {} // TODO: serial, silently ignore
             0x04..=0x07 => self.timer.write_reg(addr, val),
             0x08..=0x0E => {} // Empty range.

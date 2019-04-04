@@ -43,6 +43,10 @@ struct Opt {
     game_rom: String,
 }
 
+fn index_of_key(keys: &[Keycode], code: Keycode) -> Option<usize> {
+    keys.iter().position(|key| *key == code)
+}
+
 fn run(opt: &Opt) -> Result<()> {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
@@ -74,8 +78,21 @@ fn run(opt: &Opt) -> Result<()> {
     let boot_rom = load_file(&opt.boot_rom).context("Failed to open the boot rom")?;
     let game_rom = load_file(&opt.game_rom).context("Failed to open the game rom")?;
 
+    let keymap = [
+        Keycode::A,
+        Keycode::S,
+        Keycode::Space,
+        Keycode::Return,
+        Keycode::Right,
+        Keycode::Left,
+        Keycode::Up,
+        Keycode::Down,
+    ];
+
     let mut gb = emu::GameBoy::new(boot_rom, game_rom)
         .ok_or_else(|| failure::err_msg("Error loading cpu".to_string()))?;
+
+    let mut key_state = 0xFF;
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -85,11 +102,30 @@ fn run(opt: &Opt) -> Result<()> {
                     keycode: Some(Keycode::Escape),
                     ..
                 } => break 'running Ok(()),
+
+                Event::KeyDown {
+                    keycode: Some(code),
+                    ..
+                } => {
+                    if let Some(pos) = index_of_key(&keymap, code) {
+                        key_state &= !(1 << pos) as u8;
+                    }
+                }
+
+                Event::KeyUp {
+                    keycode: Some(code),
+                    ..
+                } => {
+                    if let Some(pos) = index_of_key(&keymap, code) {
+                        key_state |= (1 << pos) as u8;
+                    }
+                }
+
                 _ => {}
             }
         }
 
-        gb.run(TCycle(0x4_0000));
+        gb.run(TCycle(0x4_0000), key_state);
 
         let disp = gb.get_display();
         for i in 0..WIDTH * HEIGHT {
