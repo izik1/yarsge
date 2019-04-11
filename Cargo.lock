@@ -513,7 +513,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "yarsge-webasm"
+name = "yarsge-web"
 version = "0.1.0"
 dependencies = [
  "stdweb 0.4.15 (registry+https://github.com/rust-lang/crates.io-index)",

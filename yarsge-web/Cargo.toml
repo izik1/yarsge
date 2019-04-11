@@ -1,5 +1,5 @@
 [package]
-name = "yarsge-webasm"
+name = "yarsge-web"
 version = "0.1.0"
 authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
 edition = "2018"
