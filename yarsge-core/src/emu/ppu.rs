@@ -238,7 +238,7 @@ impl Ppu {
             self.stat_upper |= bits::get(2);
             bits::has_bit(self.stat_upper, 6)
         } else {
-            self.stat_upper &= bits::nget(2);
+            self.stat_upper &= !bits::get(2);
             false
         }
     }

@@ -15,16 +15,15 @@ mod memory;
 mod pad;
 
 pub mod bits {
+    
+    #[inline(always)]
     pub fn get(num: u8) -> u8 {
         1 << num
     }
 
+    #[inline(always)]
     pub fn has_bit(num: u8, bit: u8) -> bool {
         (num & get(bit)) == get(bit)
-    }
-
-    pub fn nget(num: u8) -> u8 {
-        !(1 << num)
     }
 }
 
