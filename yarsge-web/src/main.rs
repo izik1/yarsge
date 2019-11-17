@@ -22,9 +22,9 @@ use stdweb::{
     UnsafeTypedArray, Value,
 };
 
-use yarsge_core::emu;
-use yarsge_core::emu::{TCycle, GameBoy};
 use stdweb::web::event::{ClickEvent, KeyDownEvent, KeyUpEvent};
+use yarsge_core::emu;
+use yarsge_core::emu::{GameBoy, TCycle};
 
 struct Emulator {
     core: Option<emu::GameBoy>,
@@ -146,7 +146,7 @@ fn load_rom(emulator: Rc<RefCell<Emulator>>) {
                         FileReaderResult::ArrayBuffer(buffer) => buffer,
                         _ => unreachable!(),
                     }
-                        .into()
+                    .into()
                 });
             }
         });
@@ -157,7 +157,7 @@ fn load_rom(emulator: Rc<RefCell<Emulator>>) {
 
 fn reload(emulator: Rc<RefCell<Emulator>>) {
     let reload_button = web::document().get_element_by_id("reload").unwrap();
-    reload_button.add_event_listener(move |_event: ClickEvent | {
+    reload_button.add_event_listener(move |_event: ClickEvent| {
         let mut emulator = emulator.borrow_mut();
 
         if let (Some(boot_rom), Some(rom)) = (emulator.boot_rom.clone(), emulator.rom.clone()) {
@@ -199,7 +199,6 @@ fn input_keydown(emulator: Rc<RefCell<Emulator>>) {
         js! {
             console.log(@{&event.key()});
         };
-
     });
 }
 
@@ -218,7 +217,6 @@ fn main() {
     load_rom(emulator.clone());
     reload(emulator.clone());
     input(emulator.clone());
-
 
     web::window().request_animation_frame(move |_| {
         main_loop(emulator);

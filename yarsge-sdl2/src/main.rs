@@ -26,7 +26,7 @@ fn load_file(path: &str) -> io::Result<Vec<u8>> {
 const NAME: &str = env!("CARGO_PKG_NAME");
 
 #[derive(StructOpt, Debug)]
-#[structopt(about = "Emulates GameBoy games.")]
+#[structopt(about = "Emulates GameBoy games.", author)]
 struct Opt {
     #[structopt(
         short = "s",

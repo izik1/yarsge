@@ -15,7 +15,7 @@ mod memory;
 mod pad;
 
 pub mod bits {
-    
+
     #[inline(always)]
     pub fn get(num: u8) -> u8 {
         1 << num
