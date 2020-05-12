@@ -6,6 +6,5 @@ edition = "2018"
 
 [dependencies]
 bitflags = "1.1"
-failure = "0.1.1"
 boolinator = "2"
 derive_more = "0.99.2"

@@ -1,6 +1,6 @@
 // Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
 
-use failure::ResultExt;
+use anyhow::Context;
 
 use yarsge_core::emu;
 
@@ -14,8 +14,6 @@ use std::{
 use rgb::RGB8;
 use structopt::StructOpt;
 use yarsge_core::emu::TCycle;
-
-type Result<T> = std::result::Result<T, failure::Error>;
 
 fn load_file(path: &str) -> io::Result<Vec<u8>> {
     let mut buf = Vec::new();
@@ -47,7 +45,7 @@ fn index_of_key(keys: &[Keycode], code: Keycode) -> Option<usize> {
     keys.iter().position(|key| *key == code)
 }
 
-fn run(opt: &Opt) -> Result<()> {
+fn run(opt: &Opt) -> anyhow::Result<()> {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
@@ -90,7 +88,7 @@ fn run(opt: &Opt) -> Result<()> {
     ];
 
     let mut gb = emu::GameBoy::new(boot_rom, game_rom)
-        .ok_or_else(|| failure::err_msg("Error loading cpu".to_string()))?;
+        .ok_or_else(|| anyhow::anyhow!("Error loading cpu"))?;
 
     let mut key_state = 0xFF;
 

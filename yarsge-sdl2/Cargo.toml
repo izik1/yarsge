@@ -5,11 +5,11 @@ authors = ["Zachery Gyurkovitz <zgyurkovitz@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-sdl2 = "0.32.2"
+sdl2 = "0.34.0"
 rgb = "0.8.6"
-structopt = "0.3.4"
+structopt = "0.3.14"
 bitflags = "1.1"
-failure = "0.1.1"
+anyhow = "1.0.28"
 
 [dependencies.yarsge-core]
 path = "../yarsge-core"
