@@ -52,6 +52,7 @@
                   pkgs.rustfmt
                   nixpkgs-fmt
                   cargo-watch
+                  cargo-outdated
                 ]);
               RUST_SRC_PATH = "${pkgs.rust-bin.${rustChannel}.latest.rust-src}/lib/rustlib/src/rust/library";
             };
