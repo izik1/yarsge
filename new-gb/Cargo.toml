@@ -1,8 +1,9 @@
 [package]
-name = "yarsge-core"
+name = "new-gb"
 version = "0.1.0"
 authors = ["Skyler Ross <orangesnowfox@gmail.com>"]
+edition = "2018"
 
 [dependencies]
 bitflags = "1.1"
-derive_more = "0.99.2"
+log = "0.4.14"

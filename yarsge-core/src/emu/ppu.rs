@@ -1,7 +1,4 @@
-// Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
-
 use crate::emu::bits;
-use boolinator::Boolinator;
 
 #[derive(Clone, Copy)]
 pub enum DisplayPixel {
@@ -58,7 +55,7 @@ impl Ppu {
     }
 
     pub fn get_vram(&self, addr: u16) -> Option<u8> {
-        (!self.vram_blocked()).as_some(self.vram[addr as usize])
+        (!self.vram_blocked()).then(|| self.vram[addr as usize])
     }
 
     pub fn set_vram(&mut self, addr: u16, val: u8) {
@@ -68,7 +65,7 @@ impl Ppu {
     }
 
     pub fn read_oam(&self, addr: u16) -> Option<u8> {
-        (!self.oam_blocked()).as_some(self.oam[addr as usize])
+        (!self.oam_blocked()).then(|| self.oam[addr as usize])
     }
 
     pub fn write_oam(&mut self, addr: u16, val: u8) {

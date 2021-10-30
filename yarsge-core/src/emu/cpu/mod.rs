@@ -1,5 +1,3 @@
-// Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
-
 mod instr;
 use super::{
     flags::*,
@@ -7,7 +5,6 @@ use super::{
 };
 
 use crate::emu::{Hardware, MCycle, Mode};
-use boolinator::Boolinator;
 use std::vec::*;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -312,7 +309,7 @@ impl Cpu {
 
         self.break_point_addresses
             .contains(&self.regs.pc)
-            .as_some(Mode::Step)
+            .then(|| Mode::Step)
     }
 }
 

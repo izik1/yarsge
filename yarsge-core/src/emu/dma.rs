@@ -1,5 +1,3 @@
-// Copyright Zachery Gyurkovitz 2017-2018 MIT License, see licence.md for more details.
-
 pub struct Dma {
     pub modulus: u8,
     pub time: usize,

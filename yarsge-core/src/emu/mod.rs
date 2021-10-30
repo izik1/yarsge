@@ -1,5 +1,3 @@
-// Copyright Zachery Gyurkovitz 2017 MIT License, see licence.md for more details.
-
 use crate::emu::cpu::Cpu;
 use crate::emu::hardware::Hardware;
 use crate::emu::ppu::DisplayPixel;
@@ -15,7 +13,6 @@ mod memory;
 mod pad;
 
 pub mod bits {
-
     #[inline(always)]
     pub fn get(num: u8) -> u8 {
         1 << num
