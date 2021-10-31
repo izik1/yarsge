@@ -42,6 +42,7 @@ pub struct Ppu {
 }
 
 impl Ppu {
+    #[must_use]
     pub fn get_display(&self) -> &[DisplayPixel] {
         &self.display_memory
     }
@@ -54,16 +55,18 @@ impl Ppu {
         self.stat_mode == 3
     }
 
+    #[must_use]
     pub fn get_vram(&self, addr: u16) -> Option<u8> {
         (!self.vram_blocked()).then(|| self.vram[addr as usize])
     }
 
     pub fn set_vram(&mut self, addr: u16, val: u8) {
         if !self.vram_blocked() {
-            self.vram[addr as usize] = val
+            self.vram[addr as usize] = val;
         }
     }
 
+    #[must_use]
     pub fn read_oam(&self, addr: u16) -> Option<u8> {
         (!self.oam_blocked()).then(|| self.oam[addr as usize])
     }
@@ -82,17 +85,19 @@ impl Ppu {
             0x43 => self.scx = val,
             0x44 => {}
             0x45 => self.lyc = val,
-            0x4A | 0x4B => eprintln!(
-                "Unimplemented PPU reg (write): (addr: 0xFF{:01$X} val: {2:03$X})",
-                addr, 2, val, 2
+            0x4A | 0x4B => log::warn!(
+                "todo: unimplemented PPU reg write: (addr: 0xff{:02x} val: {:02x})",
+                addr,
+                val,
             ),
             0x47 => self.bg_pallet = val,
             0x48 => self.obj_pallet_a = val & 0xFC,
             0x49 => self.obj_pallet_b = val & 0xFC,
-            _ => unreachable!(),
+            _ => log::error!("BUG: invalid PPU write (0xff{:02x} -> {:02x})", addr, val),
         }
     }
 
+    #[must_use]
     pub fn get_reg(&self, addr: u8) -> u8 {
         match addr {
             0x40 => self.lcdc,
@@ -101,14 +106,20 @@ impl Ppu {
             0x43 => self.scx,
             0x44 => self.visible_ly,
             0x45 => self.lyc,
-            0x4A | 0x4B => {
-                eprintln!("Unimplemented PPU reg (read): (addr: 0xFF{:01$X})", addr, 2);
-                0xFF
+            0x4a | 0x4b => {
+                eprintln!(
+                    "todo: unimplemented PPU reg (read): (addr: 0xFF{:02X})",
+                    addr
+                );
+                0xff
             }
             0x47 => self.bg_pallet,
             0x48 => self.obj_pallet_a,
             0x49 => self.obj_pallet_b,
-            _ => unreachable!(),
+            _ => {
+                log::error!("BUG: invalid PPU write (0xff{:02x} -> 0xff)", addr);
+                0xff
+            }
         }
     }
 

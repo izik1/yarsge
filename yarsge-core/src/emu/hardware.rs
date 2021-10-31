@@ -23,19 +23,19 @@ impl Hardware {
     pub fn new(memory: Memory) -> Self {
         Self {
             cycle_counter: TCycle(0),
-            ppu: Default::default(),
+            ppu: Ppu::default(),
             memory,
-            timer: Default::default(),
+            timer: Timer::default(),
             r_if: 0,
             r_ier: 0,
             mid_check: false,
-            dma: Default::default(),
+            dma: Dma::default(),
             pad: Pad::new(),
         }
     }
 
     pub fn set_keys(&mut self, val: u8) {
-        self.pad.set_keys(val)
+        self.pad.set_keys(val);
     }
 
     pub fn get_display(&self) -> &[DisplayPixel] {
@@ -64,7 +64,7 @@ impl Hardware {
         for _ in 0..cycles.0 {
             self.r_if |= (self.timer.update() | self.ppu.update()) & 0x1F;
             if let Some((oam_offset, addr)) = self.dma.update() {
-                self.ppu.oam[oam_offset] = self.read_byte(addr)
+                self.ppu.oam[oam_offset] = self.read_byte(addr);
             }
 
             if self.pad.update() {
@@ -105,7 +105,7 @@ impl Hardware {
     pub fn interrupt_check(&mut self, handler: impl FnOnce(&mut Self)) {
         self.update(TCycle(2));
         self.mid_check = true;
-        handler(self)
+        handler(self);
     }
 
     fn read_io(&self, addr: u8) -> u8 {
@@ -129,7 +129,7 @@ impl Hardware {
 
     pub fn write_u16_cycle(&mut self, address: u16, value: u16) {
         self.write_cycle(address, value as u8);
-        self.write_cycle(address.wrapping_add(1), (value >> 8) as u8)
+        self.write_cycle(address.wrapping_add(1), (value >> 8) as u8);
     }
 
     pub fn write_cycle(&mut self, addr: u16, val: u8) {
@@ -165,7 +165,7 @@ impl Hardware {
             0x10..=0x3F => {} // TODO: APU, silently ignore
             0x46 => {
                 self.dma.ld_addr = u16::from(val) << 8;
-                self.dma.ld_timer = 4
+                self.dma.ld_timer = 4;
             }
             0x40..=0x45 | 0x47..=0x4B => self.ppu.set_reg(addr, val),
             0x50 => self.memory.disable_boot_rom(),

@@ -4,38 +4,27 @@ use yarsge_core::emu;
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
-use std::{
-    fs::File,
-    io::{self, prelude::*},
-};
-
+use clap::Parser;
 use rgb::RGB8;
-use structopt::StructOpt;
 use yarsge_core::emu::TCycle;
-
-fn load_file(path: &str) -> io::Result<Vec<u8>> {
-    let mut buf = Vec::new();
-    File::open(path)?.read_to_end(&mut buf)?;
-    Ok(buf)
-}
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 
-#[derive(StructOpt, Debug)]
-#[structopt(about = "Emulates GameBoy games.", author)]
+#[derive(Parser, Debug)]
+#[clap(about = "Emulates GameBoy games.", author)]
 struct Opt {
-    #[structopt(
-        short = "s",
+    #[clap(
+        short = 's',
         long = "scale",
-        help = "Screen scale size",
+        about = "Screen scale size",
         default_value = "1"
     )]
     scale: u32,
 
-    #[structopt(help = "The path to the boot rom")]
+    #[clap(about = "Path to the boot rom")]
     boot_rom: String,
 
-    #[structopt(help = "The path to the game rom")]
+    #[clap(about = "Path to the game rom")]
     game_rom: String,
 }
 
@@ -71,8 +60,8 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    let boot_rom = load_file(&opt.boot_rom).context("Failed to open the boot rom")?;
-    let game_rom = load_file(&opt.game_rom).context("Failed to open the game rom")?;
+    let boot_rom = std::fs::read(&opt.boot_rom).context("Failed to open the boot rom")?;
+    let game_rom = std::fs::read(&opt.game_rom).context("Failed to open the game rom")?;
 
     let keymap = [
         Keycode::A,
@@ -161,8 +150,10 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 }
 
 pub fn main() {
-    if let Err(e) = run(&Opt::from_args()) {
-        eprintln!("{}", e);
+    env_logger::init();
+
+    if let Err(e) = run(&Opt::parse()) {
+        log::error!("fatal error: {:#?}", e);
         std::process::exit(1)
     }
 }

@@ -11,6 +11,7 @@ pub struct Timer {
 }
 
 impl Timer {
+    #[must_use]
     pub fn read_reg(&self, addr: u8) -> u8 {
         match addr {
             0x04 => (self.sys_timer >> 8) as u8,
@@ -26,7 +27,7 @@ impl Timer {
             0x04 => self.sys_timer = 0,
             0x05 => {
                 self.tima_overflow = 1;
-                self.tima = val
+                self.tima = val;
             }
             0x06 => self.tma = val,
             0x07 => self.tac = val & 0b111,

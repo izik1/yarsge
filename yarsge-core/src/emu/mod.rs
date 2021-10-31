@@ -14,18 +14,20 @@ mod pad;
 
 pub mod bits {
     #[inline(always)]
+    #[must_use]
     pub fn get(num: u8) -> u8 {
         1 << num
     }
 
     #[inline(always)]
+    #[must_use]
     pub fn has_bit(num: u8, bit: u8) -> bool {
         (num & get(bit)) == get(bit)
     }
 }
 
 pub mod flags {
-    bitflags! {
+    bitflags::bitflags! {
         pub struct Flag: u8 {
             const Z = 0b1000_0000;
             const N = 0b0100_0000;
@@ -35,7 +37,16 @@ pub mod flags {
     }
 }
 
-#[derive(Add, Sub, AddAssign, SubAssign, PartialOrd, Ord, Eq, PartialEq)]
+#[derive(
+    derive_more::Add,
+    derive_more::Sub,
+    derive_more::AddAssign,
+    derive_more::SubAssign,
+    PartialOrd,
+    Ord,
+    Eq,
+    PartialEq,
+)]
 pub struct TCycle(pub isize);
 
 impl From<MCycle> for TCycle {
@@ -44,7 +55,7 @@ impl From<MCycle> for TCycle {
     }
 }
 
-#[derive(Add, Sub)]
+#[derive(derive_more::Add, derive_more::Sub)]
 pub struct MCycle(pub isize);
 
 impl From<TCycle> for (MCycle, TCycle) {
@@ -66,6 +77,7 @@ pub struct GameBoy {
 }
 
 impl GameBoy {
+    #[must_use]
     pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Self> {
         Some(Self {
             hw: Hardware::new(memory::Memory::new(game_rom, boot_rom)?),
@@ -74,6 +86,7 @@ impl GameBoy {
         })
     }
 
+    #[must_use]
     pub fn get_display(&self) -> &[DisplayPixel] {
         self.hw.get_display()
     }

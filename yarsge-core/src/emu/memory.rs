@@ -104,13 +104,13 @@ impl Mbc {
         match *self {
             Mbc::Mbc0 => addr as usize,
             Mbc::Mbc1(ref desc) => {
-                if !desc.ram_bank_mode {
+                if desc.ram_bank_mode {
+                    addr as usize
+                } else {
                     (addr as usize).wrapping_add(
                         ((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as usize))
                             * 0x4000,
                     )
-                } else {
-                    addr as usize
                 }
             }
         }

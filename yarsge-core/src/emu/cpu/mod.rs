@@ -1,11 +1,11 @@
 mod instr;
+use super::registers::Registers;
 use super::{
-    flags::*,
+    flags::Flag,
     registers::{self, Reg, R16},
 };
 
 use crate::emu::{Hardware, MCycle, Mode};
-use std::vec::*;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum State {
@@ -33,10 +33,10 @@ impl Cpu {
     fn fetch(&mut self, hw: &mut Hardware) -> u8 {
         let val = hw.fetch(self.regs.pc);
 
-        if self.status != State::HaltBug {
-            self.regs.pc = self.regs.pc.wrapping_add(1);
-        } else {
+        if self.status == State::HaltBug {
             self.status = State::Okay;
+        } else {
+            self.regs.pc = self.regs.pc.wrapping_add(1);
         }
 
         val
@@ -72,6 +72,9 @@ impl Cpu {
         self.write_push_cycle(hw, val as u8);
     }
 
+    // there isn't much way to reduce the line count here,
+    // we literally need to pick 1 out of 256 possibilites. (512 even)
+    #[allow(clippy::too_many_lines)]
     fn run_instruction(&mut self, hw: &mut Hardware) {
         use self::instr::MathReg;
         let op = self.fetch(hw);
@@ -184,7 +187,7 @@ impl Cpu {
             0xD1 => instr::pop(self, hw, R16::DE),
             0xD2 => instr::jp(self, hw, !self.regs.f.contains(Flag::C)),
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xF4 | 0xEB..=0xED | 0xFC | 0xFD => {
-                instr::invalid(self)
+                instr::invalid(self);
             }
             0xD4 => instr::call(self, hw, !self.regs.f.contains(Flag::C)),
             0xD5 => instr::push(self, hw, R16::DE),
@@ -288,9 +291,10 @@ impl Cpu {
         // TODO: wait for controller input, there is no controller right now.
     }
 
+    #[must_use]
     pub fn new() -> Self {
         Cpu {
-            regs: Default::default(),
+            regs: Registers::default(),
             status: State::Okay,
             ime: false,
             ei: false,

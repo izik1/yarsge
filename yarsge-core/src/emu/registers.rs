@@ -13,6 +13,7 @@ pub enum Reg {
 }
 
 impl Reg {
+    #[must_use]
     pub fn from_num(num: u8) -> Self {
         match num & 7 {
             0b000 => Reg::B,
@@ -47,6 +48,7 @@ pub struct Registers {
 }
 
 impl Registers {
+    #[must_use]
     pub fn get_reg(&self, reg: Reg) -> u8 {
         match reg {
             Reg::B => (self.bc >> 8) as u8,
@@ -60,6 +62,7 @@ impl Registers {
         }
     }
 
+    #[must_use]
     pub fn get_reg_16(&self, reg: R16) -> u16 {
         match reg {
             R16::BC => self.bc,
@@ -82,11 +85,12 @@ impl Registers {
         }
     }
 
-    pub fn g_af(&self) -> u16 {
+    #[must_use]
+    pub fn get_af(&self) -> u16 {
         (u16::from(self.a) << 8) | u16::from(self.f.bits())
     }
 
-    pub fn s_af(&mut self, val: u16) {
+    pub fn set_af(&mut self, val: u16) {
         self.f = Flag::from_bits_truncate(val as u8);
         self.a = (val >> 8) as u8;
     }

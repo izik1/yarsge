@@ -37,7 +37,7 @@
           };
 
           # Configuration for the non-Rust dependencies
-          buildInputs = with pkgs; [ openssl.dev ];
+          buildInputs = with pkgs; [ openssl.dev SDL2 ];
           nativeBuildInputs = with pkgs; [ rustc cargo pkgconfig ];
         in
         rec {
@@ -53,6 +53,7 @@
                   nixpkgs-fmt
                   cargo-watch
                   cargo-outdated
+                  cargo-edit
                 ]);
               RUST_SRC_PATH = "${pkgs.rust-bin.${rustChannel}.latest.rust-src}/lib/rustlib/src/rust/library";
             };
