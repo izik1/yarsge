@@ -5,6 +5,7 @@ use super::{
     registers::{self, Reg, R16},
 };
 
+use crate::emu::registers::RegisterArg;
 use crate::emu::{Hardware, MCycle, Mode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -84,76 +85,76 @@ impl Cpu {
             0x01 => instr::ld_r16_d16(self, hw, R16::BC),
             0x02 => instr::ld_r16_a(self, hw, R16::BC),
             0x03 => instr::inc_16(self, hw, R16::BC),
-            0x04 => instr::inc_8(self, hw, Reg::B),
-            0x05 => instr::dec_8(self, hw, Reg::B),
-            0x06 => instr::ld_r8_d8(self, hw, Reg::B),
+            0x04 => instr::inc_8(self, hw, RegisterArg::Reg(Reg::B)),
+            0x05 => instr::dec_8(self, hw, RegisterArg::Reg(Reg::B)),
+            0x06 => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::B)),
             0x07 => instr::rlca(self),
             0x08 => instr::ld_a16_sp(self, hw),
             0x09 => instr::add_hl_reg16(self, hw, R16::BC),
             0x0A => instr::ld_a_r16(self, hw, R16::BC),
             0x0B => instr::dec_16(self, hw, R16::BC),
-            0x0C => instr::inc_8(self, hw, Reg::C),
-            0x0D => instr::dec_8(self, hw, Reg::C),
-            0x0E => instr::ld_r8_d8(self, hw, Reg::C),
+            0x0C => instr::inc_8(self, hw, RegisterArg::Reg(Reg::C)),
+            0x0D => instr::dec_8(self, hw, RegisterArg::Reg(Reg::C)),
+            0x0E => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::C)),
             0x0F => instr::rrca(self),
             0x10 => instr::stop(self),
             0x11 => instr::ld_r16_d16(self, hw, R16::DE),
             0x12 => instr::ld_r16_a(self, hw, R16::DE),
             0x13 => instr::inc_16(self, hw, R16::DE),
-            0x14 => instr::inc_8(self, hw, Reg::D),
-            0x15 => instr::dec_8(self, hw, Reg::D),
-            0x16 => instr::ld_r8_d8(self, hw, Reg::D),
+            0x14 => instr::inc_8(self, hw, RegisterArg::Reg(Reg::D)),
+            0x15 => instr::dec_8(self, hw, RegisterArg::Reg(Reg::D)),
+            0x16 => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::D)),
             0x17 => instr::rla(self),
             0x18 => instr::jr(self, hw, true),
             0x19 => instr::add_hl_reg16(self, hw, R16::DE),
             0x1A => instr::ld_a_r16(self, hw, R16::DE),
             0x1B => instr::dec_16(self, hw, R16::DE),
-            0x1C => instr::inc_8(self, hw, Reg::E),
-            0x1D => instr::dec_8(self, hw, Reg::E),
-            0x1E => instr::ld_r8_d8(self, hw, Reg::E),
+            0x1C => instr::inc_8(self, hw, RegisterArg::Reg(Reg::E)),
+            0x1D => instr::dec_8(self, hw, RegisterArg::Reg(Reg::E)),
+            0x1E => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::E)),
             0x1F => instr::rra(self),
 
             0x20 => instr::jr(self, hw, !self.regs.f.contains(Flag::Z)),
             0x21 => instr::ld_r16_d16(self, hw, R16::HL),
             0x22 => instr::ld_r16_a(self, hw, R16::HL),
             0x23 => instr::inc_16(self, hw, R16::HL),
-            0x24 => instr::inc_8(self, hw, Reg::H),
-            0x25 => instr::dec_8(self, hw, Reg::H),
-            0x26 => instr::ld_r8_d8(self, hw, Reg::H),
+            0x24 => instr::inc_8(self, hw, RegisterArg::Reg(Reg::H)),
+            0x25 => instr::dec_8(self, hw, RegisterArg::Reg(Reg::H)),
+            0x26 => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::H)),
             0x27 => instr::daa(self),
             0x28 => instr::jr(self, hw, self.regs.f.contains(Flag::Z)),
             0x29 => instr::add_hl_reg16(self, hw, R16::HL),
             0x2A => instr::ld_a_r16(self, hw, R16::HL),
             0x2B => instr::dec_16(self, hw, R16::HL),
-            0x2C => instr::inc_8(self, hw, Reg::L),
-            0x2D => instr::dec_8(self, hw, Reg::L),
-            0x2E => instr::ld_r8_d8(self, hw, Reg::L),
+            0x2C => instr::inc_8(self, hw, RegisterArg::Reg(Reg::L)),
+            0x2D => instr::dec_8(self, hw, RegisterArg::Reg(Reg::L)),
+            0x2E => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::L)),
             0x2F => instr::cpl(self),
             0x30 => instr::jr(self, hw, !self.regs.f.contains(Flag::C)),
             0x31 => instr::ld_r16_d16(self, hw, R16::SP),
             0x32 => instr::ld_r16_a(self, hw, R16::SP),
             0x33 => instr::inc_16(self, hw, R16::SP),
-            0x34 => instr::inc_8(self, hw, Reg::HL),
-            0x35 => instr::dec_8(self, hw, Reg::HL),
-            0x36 => instr::ld_r8_d8(self, hw, Reg::HL),
+            0x34 => instr::inc_8(self, hw, RegisterArg::Indirect),
+            0x35 => instr::dec_8(self, hw, RegisterArg::Indirect),
+            0x36 => instr::ld_r8_d8(self, hw, RegisterArg::Indirect),
             0x37 => instr::scf(self),
             0x38 => instr::jr(self, hw, self.regs.f.contains(Flag::C)),
             0x39 => instr::add_hl_reg16(self, hw, R16::SP),
             0x3A => instr::ld_a_r16(self, hw, R16::SP),
             0x3B => instr::dec_16(self, hw, R16::SP),
-            0x3C => instr::inc_8(self, hw, Reg::A),
-            0x3D => instr::dec_8(self, hw, Reg::A),
-            0x3E => instr::ld_r8_d8(self, hw, Reg::A),
+            0x3C => instr::inc_8(self, hw, RegisterArg::Reg(Reg::A)),
+            0x3D => instr::dec_8(self, hw, RegisterArg::Reg(Reg::A)),
+            0x3E => instr::ld_r8_d8(self, hw, RegisterArg::Reg(Reg::A)),
             0x3F => instr::ccf(self),
 
             0x40..=0x7F => {
-                let dest = Reg::from_num(op >> 3);
-                let src = Reg::from_num(op);
+                let dest = RegisterArg::from_num(op >> 3);
+                let src = RegisterArg::from_num(op);
                 instr::ld(self, hw, dest, src);
             }
 
             op @ 0x40..=0xBF => {
-                let reg = MathReg::R(Reg::from_num(op));
+                let reg = MathReg::R(RegisterArg::from_num(op));
                 match (op >> 0b11) & 0b111 {
                     0b000 => instr::add(self, hw, reg),
                     0b001 => instr::adc(self, hw, reg),
@@ -229,7 +230,7 @@ impl Cpu {
 
     fn run_extended(&mut self, hw: &mut Hardware) {
         let op = self.read_ipc_cycle(hw);
-        let reg = Reg::from_num(op);
+        let reg = RegisterArg::from_num(op);
 
         match op >> 6 {
             0b00 => match op >> 3 {

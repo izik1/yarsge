@@ -8,22 +8,27 @@ pub enum Reg {
     E,
     H,
     L,
-    HL,
     A,
 }
 
-impl Reg {
+#[derive(Clone, Copy)]
+pub enum RegisterArg {
+    Reg(Reg),
+    Indirect,
+}
+
+impl RegisterArg {
     #[must_use]
     pub fn from_num(num: u8) -> Self {
         match num & 7 {
-            0b000 => Reg::B,
-            0b001 => Reg::C,
-            0b010 => Reg::D,
-            0b011 => Reg::E,
-            0b100 => Reg::H,
-            0b101 => Reg::L,
-            0b110 => Reg::HL,
-            0b111 => Reg::A,
+            0b000 => Self::Reg(Reg::B),
+            0b001 => Self::Reg(Reg::C),
+            0b010 => Self::Reg(Reg::D),
+            0b011 => Self::Reg(Reg::E),
+            0b100 => Self::Reg(Reg::H),
+            0b101 => Self::Reg(Reg::L),
+            0b110 => Self::Indirect,
+            0b111 => Self::Reg(Reg::A),
             _ => unreachable!(),
         }
     }
@@ -57,7 +62,6 @@ impl Registers {
             Reg::E => self.de as u8,
             Reg::H => (self.hl >> 8) as u8,
             Reg::L => self.hl as u8,
-            Reg::HL => panic!(),
             Reg::A => self.a,
         }
     }
@@ -80,7 +84,6 @@ impl Registers {
             Reg::E => self.de = (self.de & 0xFF00) | u16::from(val),
             Reg::H => self.hl = (self.hl & 0xFF) | (u16::from(val) << 8),
             Reg::L => self.hl = (self.hl & 0xFF00) | u16::from(val),
-            Reg::HL => panic!(),
             Reg::A => self.a = val,
         }
     }
