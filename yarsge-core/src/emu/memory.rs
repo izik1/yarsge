@@ -12,7 +12,7 @@ impl Memory {
         if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
         } else {
-            let mbc = Mbc::new(game_rom[0x147], game_rom[0x148], game_rom[0x149])?;
+            let mbc = Mbc::new_detect(game_rom[0x147], game_rom[0x148], game_rom[0x149])?;
             Some(Self {
                 wram: [0; 0x2000],
                 hram: [0; 0x007F],
@@ -86,7 +86,7 @@ enum Mbc {
 }
 
 impl Mbc {
-    fn new(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
+    fn new_detect(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
         match cart_type {
             0x00 => Some(Mbc::Mbc0),
             0x01 => Some(Mbc::Mbc1(MbcDescriptor {

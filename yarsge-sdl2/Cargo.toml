@@ -1,16 +1,19 @@
 [package]
 name = "yarsge-sdl2"
-version = "0.1.0"
-authors = ["Skyler Ross <orangesnowfox@gmail.com>"]
-edition = "2018"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
 
 [dependencies]
-sdl2 = "0.35.0"
-rgb = "0.8.6"
+sdl2 = "0.38.0"
+rgb = "0.8.52"
 anyhow = "1.0.28"
-clap = "3.0.0-beta.5"
 env_logger = "0.9.0"
 log = "0.4.14"
+
+[dependencies.clap]
+version = "4.0.0"
+features = ["derive"]
 
 [dependencies.yarsge-core]
 path = "../yarsge-core"

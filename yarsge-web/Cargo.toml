@@ -1,8 +1,8 @@
 [package]
-name = "yarsge-web"
-version = "0.1.0"
-authors = ["Skyler Ross <orangesnowfox@gmail.com>"]
+authors.workspace = true
 edition = "2018"
+name = "yarsge-web"
+version.workspace = true
 
 [dependencies]
 stdweb = "0.4"

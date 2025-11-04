@@ -1,3 +1,5 @@
+use std::ops::{Add, AddAssign, Sub, SubAssign};
+
 use crate::emu::cpu::Cpu;
 use crate::emu::hardware::Hardware;
 use crate::emu::ppu::DisplayPixel;
@@ -28,6 +30,7 @@ pub mod bits {
 
 pub mod flags {
     bitflags::bitflags! {
+        #[derive(Copy, Clone)]
         pub struct Flag: u8 {
             const Z = 0b1000_0000;
             const N = 0b0100_0000;
@@ -37,17 +40,34 @@ pub mod flags {
     }
 }
 
-#[derive(
-    derive_more::Add,
-    derive_more::Sub,
-    derive_more::AddAssign,
-    derive_more::SubAssign,
-    PartialOrd,
-    Ord,
-    Eq,
-    PartialEq,
-)]
+#[derive(PartialOrd, Ord, Eq, PartialEq, Copy, Clone)]
 pub struct TCycle(pub isize);
+
+impl Add for TCycle {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Sub for TCycle {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+impl AddAssign for TCycle {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+impl SubAssign for TCycle {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0;
+    }
+}
 
 impl From<MCycle> for TCycle {
     fn from(m: MCycle) -> Self {
@@ -55,8 +75,22 @@ impl From<MCycle> for TCycle {
     }
 }
 
-#[derive(derive_more::Add, derive_more::Sub)]
 pub struct MCycle(pub isize);
+
+impl Add for MCycle {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+impl Sub for MCycle {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
 
 impl From<TCycle> for (MCycle, TCycle) {
     fn from(t: TCycle) -> Self {

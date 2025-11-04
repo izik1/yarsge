@@ -1,6 +1,3 @@
-# This file is pretty general, and you can adapt it in your project replacing
-# only `name` and `description` below.
-
 {
   description = "Yet another Game Boy emulator in rust";
 
@@ -16,8 +13,6 @@
 
   outputs = { self, nixpkgs, utils, rust-overlay, ... }:
     let
-      # If you change the name here, you must also do it in Cargo.toml
-      name = "rusty-feed-reader";
       rustChannel = "stable";
     in
     utils.lib.eachDefaultSystem
@@ -27,35 +22,28 @@
           pkgs = import nixpkgs {
             inherit system;
             overlays = [
-              rust-overlay.overlay
-              (self: super: {
-                rustc = self.rust-bin.${rustChannel}.latest.default;
-                cargo = self.rust-bin.${rustChannel}.latest.default;
-                rustfmt = self.rust-bin.${rustChannel}.latest.default;
-              })
+              (import rust-overlay)
             ];
           };
 
           # Configuration for the non-Rust dependencies
           buildInputs = with pkgs; [ openssl.dev SDL2 ];
-          nativeBuildInputs = with pkgs; [ rustc cargo pkgconfig ];
+          nativeBuildInputs = with pkgs; [ pkgconfig ];
         in
-        rec {
+         {
           # `nix develop`
           devShell = pkgs.mkShell
             {
               buildInputs = buildInputs ++ (with pkgs;
                 # Tools you need for development go here.
                 [
-                  pkgs.cargo
-                  pkgs.rustc
-                  pkgs.rustfmt
+                  rust-bin.stable.latest.default
                   nixpkgs-fmt
                   cargo-watch
                   cargo-outdated
                   cargo-edit
                 ]);
-              RUST_SRC_PATH = "${pkgs.rust-bin.${rustChannel}.latest.rust-src}/lib/rustlib/src/rust/library";
+              RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.rust-src}/lib/rustlib/src/rust/library";
             };
         }
       );

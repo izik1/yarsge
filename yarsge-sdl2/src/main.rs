@@ -16,15 +16,15 @@ struct Opt {
     #[clap(
         short = 's',
         long = "scale",
-        about = "Screen scale size",
+        help = "Screen scale size factor",
         default_value = "1"
     )]
     scale: u32,
 
-    #[clap(about = "Path to the boot rom")]
+    #[clap(help = "Path to the boot rom")]
     boot_rom: String,
 
-    #[clap(about = "Path to the game rom")]
+    #[clap(help = "Path to the game rom")]
     game_rom: String,
 }
 
