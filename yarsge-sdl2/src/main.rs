@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use anyhow::Context;
 
 use yarsge_core::emu;
@@ -6,7 +8,6 @@ use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
 use clap::Parser;
 use rgb::RGB8;
-use yarsge_core::emu::TCycle;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -40,6 +41,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     const HEIGHT: usize = 144;
     const WIDTH_32X: u32 = 160;
     const HEIGHT_32X: u32 = 144;
+
     let window = video_subsystem
         .window(NAME, WIDTH_32X * opt.scale, HEIGHT_32X * opt.scale)
         .position_centered()
@@ -60,8 +62,12 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    let boot_rom = std::fs::read(&opt.boot_rom).context("Failed to open the boot rom")?;
-    let game_rom = std::fs::read(&opt.game_rom).context("Failed to open the game rom")?;
+    let boot_rom = std::fs::read(&opt.boot_rom)
+        .context("Failed to open the boot rom")?
+        .into_boxed_slice();
+    let game_rom = std::fs::read(&opt.game_rom)
+        .context("Failed to open the game rom")?
+        .into_boxed_slice();
 
     let keymap = [
         Keycode::A,
@@ -78,6 +84,12 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Error loading cpu"))?;
 
     let mut key_state = 0xFF;
+
+    let start = Instant::now();
+    let mut last_subframe = start;
+    let mut last_display_frame = start;
+
+    // gb.register_breakpoint(0x0c);
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -110,9 +122,19 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
             }
         }
 
-        gb.run(TCycle(0x4_0000), key_state);
+        let current_frame = std::time::Instant::now();
+        let elapsed = current_frame.duration_since(last_subframe);
+        last_subframe = current_frame;
+
+        gb.run(elapsed, key_state);
 
         let disp = gb.get_display();
+
+        if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
+            continue;
+        }
+
+        last_display_frame = current_frame;
         for i in 0..WIDTH * HEIGHT {
             use yarsge_core::emu::ppu::DisplayPixel;
             let px = match disp[i] {

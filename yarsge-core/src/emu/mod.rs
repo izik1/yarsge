@@ -1,4 +1,5 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign};
+use std::time::Duration;
 
 use crate::emu::cpu::Cpu;
 use crate::emu::hardware::Hardware;
@@ -119,15 +120,25 @@ pub struct GameBoy {
     hw: Hardware,
     cpu: Cpu,
     mode: Mode,
+    bank_10ps: u64,
 }
 
+// const DMG_NOMINAL_CLOCK_FREQ: u64 = 4_194_304;
+// const DMG_PHI_FREQ: u64 = DMG_NOMINAL_CLOCK_FREQ / 4;
+const X10_PS_PER_CLOCK: u64 = 23_842;
+
 impl GameBoy {
+    pub fn register_breakpoint(&mut self, address: u16) {
+        self.cpu.register_breakpoint(address);
+    }
+
     #[must_use]
-    pub fn new(boot_rom: Vec<u8>, game_rom: Vec<u8>) -> Option<Self> {
+    pub fn new(boot_rom: Box<[u8]>, game_rom: Box<[u8]>) -> Option<Self> {
         Some(Self {
             hw: Hardware::new(memory::Memory::new(game_rom, boot_rom)?),
             cpu: Cpu::new(),
             mode: Mode::Run,
+            bank_10ps: 0,
         })
     }
 
@@ -136,10 +147,26 @@ impl GameBoy {
         self.hw.get_display()
     }
 
-    pub fn run(&mut self, ticks: TCycle, pad: u8) {
+    pub fn run(&mut self, elapsed: Duration, pad: u8) {
         self.hw.set_keys(pad);
 
-        self.hw.cycle_counter += ticks;
+        self.bank_10ps += u64::try_from(elapsed.as_nanos())
+            .ok()
+            .and_then(|it| it.checked_mul(100))
+            .unwrap_or(u64::MAX);
+
+        if self.bank_10ps >= 100_000_000_000 {
+            self.bank_10ps = 100_000_000_000;
+        }
+
+        // truncates
+        let bankable_clocks: u64 = self.bank_10ps / X10_PS_PER_CLOCK;
+
+        self.hw.cycle_counter += TCycle(bankable_clocks as isize);
+
+        // any leftovers remains in the bank.
+        self.bank_10ps -= bankable_clocks * X10_PS_PER_CLOCK;
+
         while self.hw.cycle_counter > TCycle(0) {
             if let Some(new_mode) = self.cpu.run(&mut self.hw) {
                 self.mode = new_mode;

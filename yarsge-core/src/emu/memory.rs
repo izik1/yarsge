@@ -1,14 +1,14 @@
 pub struct Memory {
     pub wram: [u8; 0x2000],
     pub hram: [u8; 0x007F],
-    game_rom: Vec<u8>,
-    boot_rom: Vec<u8>,
+    game_rom: Box<[u8]>,
+    boot_rom: Box<[u8]>,
     boot_rom_enabled: bool,
     mbc: Mbc,
 }
 
 impl Memory {
-    pub fn new(game_rom: Vec<u8>, boot_rom: Vec<u8>) -> Option<Self> {
+    pub fn new(game_rom: Box<[u8]>, boot_rom: Box<[u8]>) -> Option<Self> {
         if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
         } else {
