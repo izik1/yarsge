@@ -50,11 +50,12 @@ pub struct Registers {
     pub de: u16,
     pub hl: u16,
     pub sp: u16,
+    pub ir: u8,
 }
 
 impl Registers {
     #[must_use]
-    pub fn get_reg(&self, reg: Reg) -> u8 {
+    pub fn reg(&self, reg: Reg) -> u8 {
         match reg {
             Reg::B => (self.bc >> 8) as u8,
             Reg::C => self.bc as u8,
@@ -118,6 +119,7 @@ impl Default for Registers {
             de: 0,
             hl: 0,
             sp: 0,
+            ir: 0,
         }
     }
 }

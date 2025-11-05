@@ -34,7 +34,7 @@ impl Dma {
             self.modulus = 3;
         } else {
             self.modulus -= 1;
-        };
+        }
 
         if self.ld_timer > 0 {
             self.ld_timer -= 1;

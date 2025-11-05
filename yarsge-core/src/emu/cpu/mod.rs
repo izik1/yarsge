@@ -1,28 +1,23 @@
 mod instr;
 use super::registers::Registers;
-use super::{
-    flags::CpuFlags,
-    registers::{self, R16, Reg},
-};
+use super::registers::{self, R16, Reg};
 
 use crate::emu::registers::RegisterArg;
-use crate::emu::{Hardware, InterruptFlags, MCycle, Mode};
+use crate::emu::{Hardware, InterruptFlags, Mode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Status {
     Running,
     Halt,
+    HaltNop,
     Stop,
-    Hang,
-    HaltBug,
+    InterruptDispatch,
 }
 
 pub struct Cpu {
     pub regs: registers::Registers,
     pub status: Status,
     ime: bool,
-    ei: bool,
-    halt_bugged: bool,
     break_point_addresses: Vec<u16>,
 }
 
@@ -31,57 +26,63 @@ impl Cpu {
         self.break_point_addresses.push(address);
     }
 
-    fn fetch(&mut self, hw: &mut Hardware) -> u8 {
-        let val = hw.fetch(self.regs.pc);
+    fn generic_fetch(&mut self, hw: &mut Hardware) -> Status {
+        let (val, st) = self.fetch_cycle(hw);
+        self.regs.pc += 1;
+        self.regs.ir = val;
 
-        if self.status == Status::HaltBug {
-            self.status = Status::Running;
-        } else {
-            self.regs.pc = self.regs.pc.wrapping_add(1);
+        st
+    }
+
+    fn fetch_cycle(&self, hw: &mut Hardware) -> (u8, Status) {
+        let (val, interrupts) = hw.read_cycle_intr(self.regs.pc);
+        if self.ime && !interrupts.is_empty() {
+            return (val, Status::InterruptDispatch);
         }
 
-        val
+        (val, Status::Running)
     }
 
-    fn read_u16_cycle(&mut self, hw: &mut Hardware) -> u16 {
-        u16::from(self.read_ipc_cycle(hw)) | (u16::from(self.read_ipc_cycle(hw)) << 8)
-    }
-
-    fn read_ipc_cycle(&mut self, hw: &mut Hardware) -> u8 {
+    fn fetch_imm8(&mut self, hw: &mut Hardware) -> u8 {
         let val = hw.read_cycle(self.regs.pc);
         self.regs.pc = self.regs.pc.wrapping_add(1);
         val
     }
 
-    fn read_pop_cycle(&mut self, hw: &mut Hardware) -> u8 {
+    fn fetch_imm16(&mut self, hw: &mut Hardware) -> u16 {
+        u16::from_le_bytes([self.fetch_imm8(hw), self.fetch_imm8(hw)])
+    }
+
+    fn pop8(&mut self, hw: &mut Hardware) -> u8 {
         let val = hw.read_cycle(self.regs.sp);
         self.regs.sp = self.regs.sp.wrapping_add(1);
         val
     }
 
-    fn write_push_cycle(&mut self, hw: &mut Hardware, val: u8) {
-        self.regs.sp = self.regs.sp.wrapping_sub(1);
-        hw.write_cycle(self.regs.sp, val);
+    fn pop16(&mut self, hw: &mut Hardware) -> u16 {
+        u16::from_le_bytes([self.pop8(hw), self.pop8(hw)])
     }
 
-    fn read_pop_16_cycle(&mut self, hw: &mut Hardware) -> u16 {
-        u16::from(self.read_pop_cycle(hw)) | (u16::from(self.read_pop_cycle(hw)) << 8)
-    }
+    fn push16(&mut self, hw: &mut Hardware, val: u16) {
+        hw.idle_cycle();
+        // no Predecrement in IDU, so
+        self.regs.sp -= 1;
 
-    fn write_push_16_cycle(&mut self, hw: &mut Hardware, val: u16) {
-        self.write_push_cycle(hw, (val >> 8) as u8);
-        self.write_push_cycle(hw, val as u8);
+        let [hi, lo] = val.to_be_bytes();
+        hw.write_cycle(self.regs.sp, hi);
+        self.regs.sp -= 1;
+
+        hw.write_cycle(self.regs.sp, lo);
     }
 
     // there isn't much way to reduce the line count here,
     // we literally need to pick 1 out of 256 possibilites. (512 even)
     #[allow(clippy::too_many_lines)]
-    fn run_instruction(&mut self, hw: &mut Hardware) {
+    fn decode_execute(&mut self, hw: &mut Hardware) -> Status {
         use self::instr::MathReg;
-        let op = self.fetch(hw);
 
-        match op {
-            0x00 => {}
+        match self.regs.ir {
+            0x00 => instr::nop(self, hw),
             0x01 => instr::ld_r16_imm16(self, hw, R16::BC),
             0x02 => instr::ld_r16_a(self, hw, R16::BC),
             0x03 => instr::inc_16(self, hw, R16::BC),
@@ -105,7 +106,7 @@ impl Cpu {
             0x15 => instr::dec_8(self, hw, RegisterArg::Reg(Reg::D)),
             0x16 => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::D)),
             0x17 => instr::rla(self, hw),
-            0x18 => instr::jr(self, hw, true),
+            0x18 => instr::jr_imm8(self, hw),
             0x19 => instr::add_hl_reg16(self, hw, R16::DE),
             0x1A => instr::ld_a_r16(self, hw, R16::DE),
             0x1B => instr::dec_16(self, hw, R16::DE),
@@ -114,7 +115,7 @@ impl Cpu {
             0x1E => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::E)),
             0x1F => instr::rra(self, hw),
 
-            0x20 => instr::jr(self, hw, !self.regs.f.contains(CpuFlags::Z)),
+            0x20 | 0x28 | 0x30 | 0x38 => instr::jr_cc_imm8(self, hw),
             0x21 => instr::ld_r16_imm16(self, hw, R16::HL),
             0x22 => instr::ld_r16_a(self, hw, R16::HL),
             0x23 => instr::inc_16(self, hw, R16::HL),
@@ -122,7 +123,6 @@ impl Cpu {
             0x25 => instr::dec_8(self, hw, RegisterArg::Reg(Reg::H)),
             0x26 => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::H)),
             0x27 => instr::daa(self, hw),
-            0x28 => instr::jr(self, hw, self.regs.f.contains(CpuFlags::Z)),
             0x29 => instr::add_hl_reg16(self, hw, R16::HL),
             0x2A => instr::ld_a_r16(self, hw, R16::HL),
             0x2B => instr::dec_16(self, hw, R16::HL),
@@ -130,7 +130,6 @@ impl Cpu {
             0x2D => instr::dec_8(self, hw, RegisterArg::Reg(Reg::L)),
             0x2E => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::L)),
             0x2F => instr::cpl(self, hw),
-            0x30 => instr::jr(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0x31 => instr::ld_r16_imm16(self, hw, R16::SP),
             0x32 => instr::ld_r16_a(self, hw, R16::SP),
             0x33 => instr::inc_16(self, hw, R16::SP),
@@ -138,7 +137,6 @@ impl Cpu {
             0x35 => instr::dec_8(self, hw, RegisterArg::Indirect),
             0x36 => instr::ld_r8_imm8(self, hw, RegisterArg::Indirect),
             0x37 => instr::scf(self, hw),
-            0x38 => instr::jr(self, hw, self.regs.f.contains(CpuFlags::C)),
             0x39 => instr::add_hl_reg16(self, hw, R16::SP),
             0x3A => instr::ld_a_r16(self, hw, R16::SP),
             0x3B => instr::dec_16(self, hw, R16::SP),
@@ -147,11 +145,8 @@ impl Cpu {
             0x3E => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::A)),
             0x3F => instr::ccf(self, hw),
 
-            0x40..=0x7F => {
-                let dest = RegisterArg::from_num(op >> 3);
-                let src = RegisterArg::from_num(op);
-                instr::ld(self, hw, dest, src);
-            }
+            0x76 => instr::halt(self, hw),
+            0x40..=0x7F => instr::ld(self, hw),
 
             op @ 0x40..=0xBF => {
                 let reg = MathReg::R(RegisterArg::from_num(op));
@@ -168,36 +163,27 @@ impl Cpu {
                 }
             }
 
-            0xC0 => instr::retc(self, hw, !self.regs.f.contains(CpuFlags::Z)),
+            0xC0 | 0xC8 | 0xD0 | 0xD8 => instr::ret_cc(self, hw),
             0xC1 => instr::pop(self, hw, R16::BC),
-            0xC2 => instr::jp(self, hw, !self.regs.f.contains(CpuFlags::Z)),
-            0xC3 => instr::jp(self, hw, true),
-            0xC4 => instr::call(self, hw, !self.regs.f.contains(CpuFlags::Z)),
+            0xC2 | 0xCA | 0xD2 | 0xDA => instr::jp_cc_imm16(self, hw),
+            0xC3 => instr::jp_imm16(self, hw),
+            0xC4 | 0xCC | 0xD4 | 0xDC => instr::call_cc(self, hw),
             0xC5 => instr::push(self, hw, R16::BC),
             0xC6 => instr::add(self, hw, MathReg::Imm),
             0xC7 => instr::rst(self, hw, 0x00),
-            0xC8 => instr::retc(self, hw, self.regs.f.contains(CpuFlags::Z)),
             0xC9 => instr::ret::<false>(self, hw),
-            0xCA => instr::jp(self, hw, self.regs.f.contains(CpuFlags::Z)),
-            0xCB => self.run_extended(hw),
-            0xCC => instr::call(self, hw, self.regs.f.contains(CpuFlags::Z)),
-            0xCD => instr::call(self, hw, true),
+            0xCB => self.execute_cb(hw),
+            0xCD => instr::call(self, hw),
             0xCE => instr::adc(self, hw, MathReg::Imm),
             0xCF => instr::rst(self, hw, 0x08),
-            0xD0 => instr::retc(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0xD1 => instr::pop(self, hw, R16::DE),
-            0xD2 => instr::jp(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xF4 | 0xEB..=0xED | 0xFC | 0xFD => {
                 instr::invalid(self, hw);
             }
-            0xD4 => instr::call(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0xD5 => instr::push(self, hw, R16::DE),
             0xD6 => instr::sub(self, hw, MathReg::Imm),
             0xD7 => instr::rst(self, hw, 0x10),
-            0xD8 => instr::retc(self, hw, self.regs.f.contains(CpuFlags::C)),
             0xD9 => instr::ret::<true>(self, hw),
-            0xDA => instr::jp(self, hw, self.regs.f.contains(CpuFlags::C)),
-            0xDC => instr::call(self, hw, self.regs.f.contains(CpuFlags::C)),
             0xDE => instr::sbc(self, hw, MathReg::Imm),
             0xDF => instr::rst(self, hw, 0x18),
 
@@ -228,9 +214,10 @@ impl Cpu {
         }
     }
 
-    fn run_extended(&mut self, hw: &mut Hardware) {
-        let op = self.read_ipc_cycle(hw);
-        let reg = RegisterArg::from_num(op);
+    fn execute_cb(&mut self, hw: &mut Hardware) -> Status {
+        self.regs.ir = self.fetch_imm8(hw);
+        let op = self.regs.ir;
+        let reg = RegisterArg::from_num(self.regs.ir);
 
         match op >> 6 {
             0b00 => match op >> 3 {
@@ -252,44 +239,41 @@ impl Cpu {
         }
     }
 
-    fn handle_interrupts(&mut self, hw: &mut Hardware) {
-        if !self.ime || (hw.reg_ie & hw.reg_if).is_empty() {
-            self.ime |= self.ei;
+    fn handle_interrupts(&mut self, hw: &mut Hardware) -> Status {
+        self.ime = false;
+        // Cycle : M1
+        // IDU : Dec PC
+        self.regs.pc = self.regs.pc.wrapping_sub(1);
+        hw.idle_cycle();
+        // Cycle : M2
+        // IDU : Dec SP
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        hw.idle_cycle();
+        // Cycle : M3
+        // IDU : Dec SP
+        // Addr Bus : SP
+        // Data Bus : write PC[15:8]
+        hw.write_cycle(self.regs.sp, (self.regs.pc >> 8) as u8);
+        self.regs.sp = self.regs.sp.wrapping_sub(1);
+
+        // Cycle : M4
+        // Addr Bus : SP
+        // Data Bus : write PC[7:0]
+        let flags = hw.write_cycle_intr(self.regs.sp, (self.regs.pc) as u8);
+
+        let bits = flags.bits().trailing_zeros() as u16;
+
+        if bits < 5 {
+            self.regs.pc = 0x40 + bits * 8;
+            hw.reg_if &= !(InterruptFlags::from_bits_retain(1 << bits));
         } else {
-            self.ime = false;
-            hw.stall(MCycle(2));
-            let old_pc = self.regs.pc;
-            self.write_push_cycle(hw, (old_pc >> 8) as u8);
-            let b = (hw.reg_ie & hw.reg_if).bits();
+            // this is somewhat rare,
             self.regs.pc = 0;
-            for i in 0..5 {
-                if (b >> i) & 1 == 1 {
-                    self.regs.pc = (i * 8 + 0x40) as u16;
-                    hw.reg_if &= InterruptFlags::from_bits_truncate(!(1 << i) as u8);
-                    break;
-                }
-            }
-
-            self.write_push_cycle(hw, old_pc as u8);
         }
 
-        self.ei = false;
-    }
+        self.regs.ir = self.fetch_imm8(hw);
 
-    fn handle_okay(&mut self, hw: &mut Hardware) {
-        hw.interrupt_check(|hw| self.handle_interrupts(hw));
-        self.run_instruction(hw);
-    }
-
-    fn handle_halt(&mut self, hw: &mut Hardware) {
-        hw.stall_one();
-        if (hw.reg_if & hw.reg_ie).is_empty() {
-            self.status = Status::Running;
-        }
-    }
-
-    fn handle_stop(&mut self) {
-        // TODO: wait for controller input, there is no controller right now.
+        Status::Running
     }
 
     #[must_use]
@@ -298,23 +282,32 @@ impl Cpu {
             regs: Registers::default(),
             status: Status::Running,
             ime: false,
-            ei: false,
-            halt_bugged: false,
             break_point_addresses: Vec::new(),
         }
     }
 
     pub fn run(&mut self, hw: &mut Hardware) -> Option<Mode> {
-        match self.status {
-            Status::Running | Status::HaltBug => self.handle_okay(hw),
-            Status::Stop => self.handle_stop(),
-            Status::Halt => self.handle_halt(hw),
-            Status::Hang => hw.stall_one(),
+        self.status = match self.status {
+            Status::Running => self.decode_execute(hw),
+            Status::Halt => {
+                hw.idle_cycle();
+                if (hw.reg_ie & hw.reg_if).is_empty() {
+                    Status::Halt
+                } else {
+                    Status::HaltNop
+                }
+            }
+            Status::HaltNop => instr::nop(self, hw),
+            Status::Stop => {
+                hw.idle_cycle();
+                self.status
+            }
+            Status::InterruptDispatch => self.handle_interrupts(hw),
         };
 
         self.break_point_addresses
             .contains(&self.regs.pc)
-            .then(|| Mode::Step)
+            .then_some(Mode::Step)
     }
 }
 

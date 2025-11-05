@@ -16,7 +16,6 @@ pub struct Hardware {
     pub reg_if: InterruptFlags,
     pub reg_ie: InterruptFlags,
     pub cycle_counter: TCycle,
-    mid_check: bool,
 }
 
 impl Hardware {
@@ -28,7 +27,6 @@ impl Hardware {
             timer: Timer::default(),
             reg_if: InterruptFlags::empty(),
             reg_ie: InterruptFlags::empty(),
-            mid_check: false,
             dma: Dma::default(),
             pad: Pad::new(),
         }
@@ -43,27 +41,31 @@ impl Hardware {
     }
 
     pub fn read_cycle(&mut self, addr: u16) -> u8 {
-        self.update(MCycle(1).into());
-        self.read_byte(addr)
+        self.read_cycle_intr(addr).0
+    }
+
+    pub fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags) {
+        self.update(TCycle(2));
+        let early_interrupts = self.reg_if & self.reg_ie;
+        self.update(TCycle(1));
+        // zzz bus
+        self.update(TCycle(1));
+
+        let val = self.read_byte(addr);
+        (val, early_interrupts)
     }
 
     pub fn stall(&mut self, m_cycles: MCycle) {
         self.update(m_cycles.into());
     }
 
-    pub fn stall_one(&mut self) {
+    pub fn idle_cycle(&mut self) {
         self.stall(MCycle(1));
     }
 
-    fn update(&mut self, mut cycles: TCycle) {
-        if self.mid_check {
-            cycles += TCycle(2);
-            self.mid_check = false;
-        }
-
+    fn update(&mut self, cycles: TCycle) {
         for _ in 0..cycles.0 {
             self.reg_if |= self.timer.update() | self.ppu.update();
-
             if let Some((oam_offset, addr)) = self.dma.update() {
                 self.ppu.oam[oam_offset] = self.read_byte(addr);
             }
@@ -84,8 +86,8 @@ impl Hardware {
             0xC000..=0xDFFF => self.memory.wram[(addr - 0xC000) as usize],
             0xE000..=0xFDFF => self.memory.wram[(addr - 0xE000) as usize],
             0xFE00..=0xFE9F => self.ppu.read_oam(addr - 0xFE00).unwrap_or(0xFF),
-            0xFF00..=0xFF7F => self.read_io(addr as u8),
             0xFEA0..=0xFEFF => 0,
+            0xFF00..=0xFF7F => self.read_io(addr as u8),
             0xFF80..=0xFFFE => self.memory.hram[addr as usize - 0xFF80],
             0xFFFF => self.reg_ie.bits(),
             _ => unimplemented!(
@@ -94,19 +96,6 @@ impl Hardware {
                 4
             ),
         }
-    }
-
-    pub fn fetch(&mut self, addr: u16) -> u8 {
-        self.update(TCycle(3));
-        let val = self.read_byte(addr);
-        self.update(TCycle(1));
-        val
-    }
-
-    pub fn interrupt_check(&mut self, handler: impl FnOnce(&mut Self)) {
-        self.update(TCycle(2));
-        self.mid_check = true;
-        handler(self);
     }
 
     fn read_io(&self, addr: u8) -> u8 {
@@ -134,7 +123,15 @@ impl Hardware {
     }
 
     pub fn write_cycle(&mut self, addr: u16, val: u8) {
-        self.update(MCycle(1).into()); // TODO (TEST): Hardware timing might be different.
+        let _ = self.write_cycle_intr(addr, val);
+    }
+
+    pub fn write_cycle_intr(&mut self, addr: u16, val: u8) -> InterruptFlags {
+        self.update(TCycle(2));
+        let early_interrupts = self.reg_if & self.reg_ie;
+        self.update(TCycle(1));
+        // zzz bus
+        self.update(TCycle(1));
         match addr {
             0x0000..=0x7FFF => self.memory.mbc_write(addr, val),
             0x8000..=0x9FFF => self.ppu.set_vram(addr - 0x8000, val),
@@ -153,6 +150,8 @@ impl Hardware {
                 2
             ),
         }
+
+        early_interrupts
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {

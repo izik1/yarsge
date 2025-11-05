@@ -86,14 +86,12 @@ impl Ppu {
             0x44 => {}
             0x45 => self.lyc = val,
             0x4A | 0x4B => log::warn!(
-                "todo: unimplemented PPU reg write: (addr: 0xff{:02x} val: {:02x})",
-                addr,
-                val,
+                "todo: unimplemented PPU reg write: (addr: 0xff{addr:02x} val: {val:02x})",
             ),
             0x47 => self.bg_pallet = val,
             0x48 => self.obj_pallet_a = val & 0xFC,
             0x49 => self.obj_pallet_b = val & 0xFC,
-            _ => log::error!("BUG: invalid PPU write (0xff{:02x} -> {:02x})", addr, val),
+            _ => log::error!("BUG: invalid PPU write (0xff{addr:02x} -> {val:02x})"),
         }
     }
 
@@ -107,17 +105,14 @@ impl Ppu {
             0x44 => self.visible_ly,
             0x45 => self.lyc,
             0x4a | 0x4b => {
-                eprintln!(
-                    "todo: unimplemented PPU reg (read): (addr: 0xFF{:02X})",
-                    addr
-                );
+                eprintln!("todo: unimplemented PPU reg (read): (addr: 0xFF{addr:02X})",);
                 0xff
             }
             0x47 => self.bg_pallet,
             0x48 => self.obj_pallet_a,
             0x49 => self.obj_pallet_b,
             _ => {
-                log::error!("BUG: invalid PPU write (0xff{:02x} -> 0xff)", addr);
+                log::error!("BUG: invalid PPU write (0xff{addr:02x} -> 0xff)");
                 0xff
             }
         }
@@ -156,7 +151,7 @@ impl Ppu {
         let y = ((self.ly as usize + self.scy as usize) & 7) * 2;
         let mut x = self.scx & 7;
 
-        let mut tile = self.vram[line_offset as usize + map_offset as usize] as usize;
+        let mut tile = self.vram[line_offset + map_offset] as usize;
 
         if !bits::has_bit(self.lcdc, 4) && tile < 128 {
             tile += 256;
