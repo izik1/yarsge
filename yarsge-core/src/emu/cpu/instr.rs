@@ -1,7 +1,7 @@
 use crate::emu::registers::RegisterArg;
 use crate::emu::{
     MCycle,
-    cpu::{Cpu, State},
+    cpu::{Cpu, Status},
     flags::CpuFlags,
     hardware::Hardware,
     registers::{R16, Reg},
@@ -43,7 +43,7 @@ fn get_cin_msb(flags: CpuFlags) -> u8 {
 }
 
 pub fn invalid(cpu: &mut Cpu) {
-    cpu.status = State::Hang;
+    cpu.status = Status::Hang;
 }
 
 // Mnemonic: JR
@@ -107,7 +107,7 @@ pub fn ld(cpu: &mut Cpu, hw: &mut Hardware, dest: RegisterArg, src: RegisterArg)
 // Timing: instant.
 pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) {
     if cpu.ime || (hw.r_if & hw.r_ier & 0x1F) == 0 {
-        cpu.status = State::Halt;
+        cpu.status = Status::Halt;
     } else {
         log::warn!("fixme: likely buggy halt_bugged status (State::HaltBug instead?)");
         cpu.halt_bugged = true;
@@ -122,7 +122,7 @@ pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) {
 // Timing: NA.
 pub fn stop(cpu: &mut Cpu) {
     log::warn!("todo: stop bug");
-    cpu.status = State::Stop;
+    cpu.status = Status::Stop;
 }
 
 // Mnemonic: LD r16,d16

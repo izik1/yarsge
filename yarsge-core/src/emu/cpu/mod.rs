@@ -9,8 +9,8 @@ use crate::emu::registers::RegisterArg;
 use crate::emu::{Hardware, MCycle, Mode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
-pub enum State {
-    Okay,
+pub enum Status {
+    Running,
     Halt,
     Stop,
     Hang,
@@ -19,7 +19,7 @@ pub enum State {
 
 pub struct Cpu {
     pub regs: registers::Registers,
-    pub status: State,
+    pub status: Status,
     ime: bool,
     ei: bool,
     halt_bugged: bool,
@@ -34,8 +34,8 @@ impl Cpu {
     fn fetch(&mut self, hw: &mut Hardware) -> u8 {
         let val = hw.fetch(self.regs.pc);
 
-        if self.status == State::HaltBug {
-            self.status = State::Okay;
+        if self.status == Status::HaltBug {
+            self.status = Status::Running;
         } else {
             self.regs.pc = self.regs.pc.wrapping_add(1);
         }
@@ -284,7 +284,7 @@ impl Cpu {
     fn handle_halt(&mut self, hw: &mut Hardware) {
         hw.stall_one();
         if hw.r_if & hw.r_ier & 0x1F > 0 {
-            self.status = State::Okay;
+            self.status = Status::Running;
         }
     }
 
@@ -296,7 +296,7 @@ impl Cpu {
     pub fn new() -> Self {
         Cpu {
             regs: Registers::default(),
-            status: State::Okay,
+            status: Status::Running,
             ime: false,
             ei: false,
             halt_bugged: false,
@@ -306,10 +306,10 @@ impl Cpu {
 
     pub fn run(&mut self, hw: &mut Hardware) -> Option<Mode> {
         match self.status {
-            State::Okay | State::HaltBug => self.handle_okay(hw),
-            State::Stop => self.handle_stop(),
-            State::Halt => self.handle_halt(hw),
-            State::Hang => hw.stall_one(),
+            Status::Running | Status::HaltBug => self.handle_okay(hw),
+            Status::Stop => self.handle_stop(),
+            Status::Halt => self.handle_halt(hw),
+            Status::Hang => hw.stall_one(),
         };
 
         self.break_point_addresses
