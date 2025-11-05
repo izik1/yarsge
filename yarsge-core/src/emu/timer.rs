@@ -1,3 +1,5 @@
+use crate::emu::InterruptFlags;
+
 use super::bits;
 
 pub struct Timer {
@@ -45,17 +47,20 @@ impl Timer {
         (self.sys_timer & (1 << bit)) > 0
     }
 
-    pub fn update(&mut self) -> u8 {
-        let r_if = if self.tima_overflow > 0 {
+    pub fn update(&mut self) -> InterruptFlags {
+        let reg_if = 'block: {
+            if self.tima_overflow == 0 {
+                break 'block InterruptFlags::empty();
+            }
+
             self.tima_overflow -= 1;
+
             if self.prev_tima_overflow != 0 && self.tima_overflow == 0 {
                 self.tima = self.tma;
-                bits::get(2)
+                InterruptFlags::TIMER
             } else {
-                0
+                InterruptFlags::empty()
             }
-        } else {
-            0
         };
 
         self.prev_tima_overflow = self.tima_overflow;
@@ -69,7 +74,7 @@ impl Timer {
         }
 
         self.prev_timer_in = b;
-        r_if
+        reg_if
     }
 }
 

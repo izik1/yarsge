@@ -5,7 +5,7 @@ use super::{
     ppu::{DisplayPixel, Ppu},
     timer::Timer,
 };
-use crate::emu::{MCycle, TCycle};
+use crate::emu::{InterruptFlags, MCycle, TCycle};
 
 pub struct Hardware {
     ppu: Ppu,
@@ -13,8 +13,8 @@ pub struct Hardware {
     dma: Dma,
     memory: Memory,
     pad: Pad,
-    pub r_if: u8,
-    pub r_ier: u8,
+    pub reg_if: InterruptFlags,
+    pub reg_ie: InterruptFlags,
     pub cycle_counter: TCycle,
     mid_check: bool,
 }
@@ -26,8 +26,8 @@ impl Hardware {
             ppu: Ppu::default(),
             memory,
             timer: Timer::default(),
-            r_if: 0,
-            r_ier: 0,
+            reg_if: InterruptFlags::empty(),
+            reg_ie: InterruptFlags::empty(),
             mid_check: false,
             dma: Dma::default(),
             pad: Pad::new(),
@@ -62,13 +62,14 @@ impl Hardware {
         }
 
         for _ in 0..cycles.0 {
-            self.r_if |= (self.timer.update() | self.ppu.update()) & 0x1F;
+            self.reg_if |= self.timer.update() | self.ppu.update();
+
             if let Some((oam_offset, addr)) = self.dma.update() {
                 self.ppu.oam[oam_offset] = self.read_byte(addr);
             }
 
             if self.pad.update() {
-                self.r_if |= 0x10;
+                self.reg_if |= InterruptFlags::JOYPAD;
             }
         }
 
@@ -86,7 +87,7 @@ impl Hardware {
             0xFF00..=0xFF7F => self.read_io(addr as u8),
             0xFEA0..=0xFEFF => 0,
             0xFF80..=0xFFFE => self.memory.hram[addr as usize - 0xFF80],
-            0xFFFF => self.r_ier,
+            0xFFFF => self.reg_ie.bits(),
             _ => unimplemented!(
                 "Unimplemented address range (read): (addr: {:01$X})",
                 addr,
@@ -114,7 +115,7 @@ impl Hardware {
             0x00 => self.pad.get_selected(),
             0x04..=0x07 => self.timer.read_reg(addr),
             0x08..=0x0E => 0xFF, // Empty range.
-            0x0F => self.r_if | 0xE0,
+            0x0F => self.reg_if.bits() | 0xE0,
             0x10..=0x3F => 0xFF, // TODO: APU, silently ignore
             0x46 => (self.dma.addr >> 8) as u8,
             0x40..=0x45 | 0x47..=0x4B => self.ppu.get_reg(addr),
@@ -143,7 +144,7 @@ impl Hardware {
             0xFEA0..=0xFEFF => {}
             0xFF00..=0xFF7F => self.write_io(addr as u8, val),
             0xFF80..=0xFFFE => self.memory.hram[addr as usize - 0xFF80] = val,
-            0xFFFF => self.r_ier = val,
+            0xFFFF => self.reg_ie = InterruptFlags::from_bits_retain(val),
             _ => unimplemented!(
                 "Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})",
                 addr,
@@ -161,7 +162,7 @@ impl Hardware {
             0x01 | 0x02 => {} // TODO: serial, silently ignore
             0x04..=0x07 => self.timer.write_reg(addr, val),
             0x08..=0x0E => {} // Empty range.
-            0x0F => self.r_if = val & 0x1F,
+            0x0F => self.reg_if = InterruptFlags::from_bits_truncate(val),
             0x10..=0x3F => {} // TODO: APU, silently ignore
             0x46 => {
                 self.dma.ld_addr = u16::from(val) << 8;

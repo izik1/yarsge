@@ -1,4 +1,4 @@
-use crate::emu::bits;
+use crate::emu::{InterruptFlags, bits};
 
 #[derive(Clone, Copy)]
 pub enum DisplayPixel {
@@ -218,16 +218,19 @@ impl Ppu {
         }
     }
 
-    fn update_vblank_start(&mut self) -> (u8, bool) {
+    fn update_vblank_start(&mut self) -> (InterruptFlags, bool) {
         if self.cycle_mod == 0 {
             self.window_ly = 0;
-            (0, self.ly_cp() || bits::has_bit(self.stat_upper, 3))
+            (
+                InterruptFlags::empty(),
+                self.ly_cp() || bits::has_bit(self.stat_upper, 3),
+            )
         } else {
             let vblank = if self.cycle_mod == 4 {
                 self.stat_mode = 1;
-                bits::get(0)
+                InterruptFlags::VBLANK
             } else {
-                0
+                InterruptFlags::empty()
             };
 
             (
@@ -251,40 +254,50 @@ impl Ppu {
         }
     }
 
-    pub fn update(&mut self) -> u8 {
+    pub fn update(&mut self) -> InterruptFlags {
         use std::cmp::Ordering;
 
         if self.lcdc & bits::get(7) == 0 {
             self.disable();
-            0
-        } else {
-            self.disabled = false;
-            let (vblank, irq) = match self.ly.cmp(&144) {
-                Ordering::Less => (0, self.update_line()),
-                Ordering::Equal => self.update_vblank_start(),
-                Ordering::Greater => (0, self.ly_cp() || (self.stat_upper & 0x30) > 0),
-            };
-
-            self.cycle_mod += 1;
-            if self.cycle_mod == 114 * 4 {
-                self.cycle_mod = 0;
-                if self.ly == 153 {
-                    self.ly = 0;
-                } else {
-                    self.ly += 1;
-                    self.visible_ly += 1;
-                }
-            }
-
-            if self.ly == 153 && self.cycle_mod == 4 {
-                self.disabled = false;
-                self.visible_ly = 0;
-            }
-
-            let pirq = self.pirq;
-            self.pirq = irq;
-            vblank | if irq && !pirq { bits::get(1) } else { 0 }
+            return InterruptFlags::empty();
         }
+
+        self.disabled = false;
+        let (vblank, irq) = match self.ly.cmp(&144) {
+            Ordering::Less => (InterruptFlags::empty(), self.update_line()),
+            Ordering::Equal => self.update_vblank_start(),
+            Ordering::Greater => (
+                InterruptFlags::empty(),
+                self.ly_cp() || (self.stat_upper & 0x30) > 0,
+            ),
+        };
+
+        self.cycle_mod += 1;
+        if self.cycle_mod == 114 * 4 {
+            self.cycle_mod = 0;
+            if self.ly == 153 {
+                self.ly = 0;
+            } else {
+                self.ly += 1;
+                self.visible_ly += 1;
+            }
+        }
+
+        if self.ly == 153 && self.cycle_mod == 4 {
+            self.disabled = false;
+            self.visible_ly = 0;
+        }
+
+        let pirq = self.pirq;
+        self.pirq = irq;
+
+        let stat = if irq && !pirq {
+            InterruptFlags::STAT
+        } else {
+            InterruptFlags::empty()
+        };
+
+        vblank | stat
     }
 }
 

@@ -106,7 +106,7 @@ pub fn ld(cpu: &mut Cpu, hw: &mut Hardware, dest: RegisterArg, src: RegisterArg)
 // Remarks: ----
 // Timing: instant.
 pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) {
-    if cpu.ime || (hw.r_if & hw.r_ier & 0x1F) == 0 {
+    if cpu.ime || (hw.reg_if & hw.reg_ie).is_empty() {
         cpu.status = Status::Halt;
     } else {
         log::warn!("fixme: likely buggy halt_bugged status (State::HaltBug instead?)");

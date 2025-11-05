@@ -28,6 +28,17 @@ pub mod bits {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Copy, Clone)]
+    pub struct InterruptFlags: u8 {
+        const VBLANK = 0b0000_0001;
+        const STAT = 0b0000_0010;
+        const TIMER = 0b0000_0100;
+        const SERIAL = 0b0000_1000;
+        const JOYPAD = 0b0001_0000;
+    }
+}
+
 pub mod flags {
     bitflags::bitflags! {
         #[derive(Copy, Clone)]

@@ -6,7 +6,7 @@ use super::{
 };
 
 use crate::emu::registers::RegisterArg;
-use crate::emu::{Hardware, MCycle, Mode};
+use crate::emu::{Hardware, InterruptFlags, MCycle, Mode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Status {
@@ -253,19 +253,19 @@ impl Cpu {
     }
 
     fn handle_interrupts(&mut self, hw: &mut Hardware) {
-        if !self.ime || (hw.r_ier & hw.r_if & 0x1F) == 0 {
+        if !self.ime || (hw.reg_ie & hw.reg_if).is_empty() {
             self.ime |= self.ei;
         } else {
             self.ime = false;
             hw.stall(MCycle(2));
             let old_pc = self.regs.pc;
             self.write_push_cycle(hw, (old_pc >> 8) as u8);
-            let b = hw.r_ier & hw.r_if & 0x1F;
+            let b = (hw.reg_ie & hw.reg_if).bits();
             self.regs.pc = 0;
             for i in 0..5 {
                 if (b >> i) & 1 == 1 {
                     self.regs.pc = (i * 8 + 0x40) as u16;
-                    hw.r_if &= !(1 << i) as u8;
+                    hw.reg_if &= InterruptFlags::from_bits_truncate(!(1 << i) as u8);
                     break;
                 }
             }
@@ -283,7 +283,7 @@ impl Cpu {
 
     fn handle_halt(&mut self, hw: &mut Hardware) {
         hw.stall_one();
-        if hw.r_if & hw.r_ier & 0x1F > 0 {
+        if (hw.reg_if & hw.reg_ie).is_empty() {
             self.status = Status::Running;
         }
     }
