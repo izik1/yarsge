@@ -1,10 +1,10 @@
 use crate::emu::registers::RegisterArg;
 use crate::emu::{
+    MCycle,
     cpu::{Cpu, State},
     flags::Flag,
     hardware::Hardware,
-    registers::{Reg, R16},
-    MCycle,
+    registers::{R16, Reg},
 };
 
 #[derive(Clone, Copy)]
@@ -131,7 +131,7 @@ pub fn stop(cpu: &mut Cpu) {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read
-pub fn ld_r16_d16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) {
+pub fn ld_r16_imm16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) {
     let value = cpu.read_u16_cycle(hw);
     cpu.regs.set_reg_16(register, value);
 }
@@ -206,7 +206,7 @@ pub fn dec_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "Read" or "Read, Write"
-pub fn ld_r8_d8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) {
+pub fn ld_r8_imm8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) {
     let value = cpu.read_ipc_cycle(hw);
     set_register_arg(cpu, hw, register, value);
 }
