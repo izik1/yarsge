@@ -42,7 +42,7 @@ fn get_cin_msb(flags: CpuFlags) -> u8 {
     get_cin_lsb(flags) * 0x80
 }
 
-pub fn invalid(cpu: &mut Cpu) {
+pub fn invalid(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.status = Status::Hang;
 }
 
@@ -120,7 +120,7 @@ pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: NA.
-pub fn stop(cpu: &mut Cpu) {
+pub fn stop(cpu: &mut Cpu, _hw: &mut Hardware) {
     log::warn!("todo: stop bug");
     cpu.status = Status::Stop;
 }
@@ -217,7 +217,7 @@ pub fn ld_r8_imm8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rlca(cpu: &mut Cpu) {
+pub fn rlca(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::C, cpu.regs.a >= 0x80);
 
@@ -295,7 +295,7 @@ pub fn dec_16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rrca(cpu: &mut Cpu) {
+pub fn rrca(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::C, (cpu.regs.a & 0x01) == 0x01);
     cpu.regs.a = (cpu.regs.a >> 1) | (cpu.regs.a << 7);
@@ -307,7 +307,7 @@ pub fn rrca(cpu: &mut Cpu) {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rla(cpu: &mut Cpu) {
+pub fn rla(cpu: &mut Cpu, _hw: &mut Hardware) {
     let a = cpu.regs.a;
     cpu.regs.a = (a << 1) | get_cin_lsb(cpu.regs.f);
     cpu.regs.f = CpuFlags::empty();
@@ -320,7 +320,7 @@ pub fn rla(cpu: &mut Cpu) {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rra(cpu: &mut Cpu) {
+pub fn rra(cpu: &mut Cpu, _hw: &mut Hardware) {
     let a = cpu.regs.a;
     cpu.regs.a = (a >> 1) | get_cin_msb(cpu.regs.f);
     cpu.regs.f = CpuFlags::empty();
@@ -333,7 +333,7 @@ pub fn rra(cpu: &mut Cpu) {
 // Affected Flags: Z (set|res), H (res), C (-|set)
 // Remarks: Confusing
 // Timing: Instant.
-pub fn daa(cpu: &mut Cpu) {
+pub fn daa(cpu: &mut Cpu, _hw: &mut Hardware) {
     let mut res = i32::from(cpu.regs.a); // todo: check if this can be i16.
     if cpu.regs.f.contains(CpuFlags::N) {
         if cpu.regs.f.contains(CpuFlags::H) {
@@ -370,7 +370,7 @@ pub fn daa(cpu: &mut Cpu) {
 // Affected Flags: N (set), H (set)
 // Remarks: ----
 // Timing: Instant.
-pub fn cpl(cpu: &mut Cpu) {
+pub fn cpl(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.regs.a = !cpu.regs.a;
     cpu.regs.f |= CpuFlags::N | CpuFlags::H;
 }
@@ -381,7 +381,7 @@ pub fn cpl(cpu: &mut Cpu) {
 // Affected Flags: N (res), H (res), C (set)
 // Remarks: ----
 // Timing: Instant.
-pub fn scf(cpu: &mut Cpu) {
+pub fn scf(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.regs.f &= CpuFlags::Z;
     cpu.regs.f |= CpuFlags::C;
 }
@@ -392,7 +392,7 @@ pub fn scf(cpu: &mut Cpu) {
 // Affected Flags: N (res), H (res), C (^C)
 // Remarks: ----
 // Timing: Instant.
-pub fn ccf(cpu: &mut Cpu) {
+pub fn ccf(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.regs.f &= CpuFlags::Z | CpuFlags::C;
     cpu.regs.f ^= CpuFlags::C;
 }
@@ -639,10 +639,10 @@ pub fn rst(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read, Internal Delay
-pub fn ret(cpu: &mut Cpu, hw: &mut Hardware, reti: bool) {
+pub fn ret<const EI: bool>(cpu: &mut Cpu, hw: &mut Hardware) {
     let addr = cpu.read_pop_16_cycle(hw);
     cpu.regs.pc = addr;
-    cpu.ime |= reti;
+    cpu.ime |= EI;
     hw.stall_one();
 }
 
@@ -700,7 +700,7 @@ pub fn ldh_a_c(cpu: &mut Cpu, hw: &mut Hardware) {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Instant
-pub fn di(cpu: &mut Cpu) {
+pub fn di(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.ime = false;
 }
 
@@ -710,7 +710,7 @@ pub fn di(cpu: &mut Cpu) {
 // Affected Flags: ----
 // Remarks: Interrupt enabling is delayed by 4-TCycles.
 // Timing: Instant (delayed affect)
-pub fn ei(cpu: &mut Cpu) {
+pub fn ei(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.ei = true;
 }
 
@@ -720,7 +720,7 @@ pub fn ei(cpu: &mut Cpu) {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Instant
-pub fn jp_hl(cpu: &mut Cpu) {
+pub fn jp_hl(cpu: &mut Cpu, _hw: &mut Hardware) {
     cpu.regs.pc = cpu.regs.hl;
 }
 
