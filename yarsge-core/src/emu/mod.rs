@@ -31,7 +31,7 @@ pub mod bits {
 pub mod flags {
     bitflags::bitflags! {
         #[derive(Copy, Clone)]
-        pub struct Flag: u8 {
+        pub struct CpuFlags: u8 {
             const Z = 0b1000_0000;
             const N = 0b0100_0000;
             const H = 0b0010_0000;

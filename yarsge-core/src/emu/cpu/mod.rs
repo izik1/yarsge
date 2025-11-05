@@ -1,7 +1,7 @@
 mod instr;
 use super::registers::Registers;
 use super::{
-    flags::Flag,
+    flags::CpuFlags,
     registers::{self, R16, Reg},
 };
 
@@ -114,7 +114,7 @@ impl Cpu {
             0x1E => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::E)),
             0x1F => instr::rra(self),
 
-            0x20 => instr::jr(self, hw, !self.regs.f.contains(Flag::Z)),
+            0x20 => instr::jr(self, hw, !self.regs.f.contains(CpuFlags::Z)),
             0x21 => instr::ld_r16_imm16(self, hw, R16::HL),
             0x22 => instr::ld_r16_a(self, hw, R16::HL),
             0x23 => instr::inc_16(self, hw, R16::HL),
@@ -122,7 +122,7 @@ impl Cpu {
             0x25 => instr::dec_8(self, hw, RegisterArg::Reg(Reg::H)),
             0x26 => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::H)),
             0x27 => instr::daa(self),
-            0x28 => instr::jr(self, hw, self.regs.f.contains(Flag::Z)),
+            0x28 => instr::jr(self, hw, self.regs.f.contains(CpuFlags::Z)),
             0x29 => instr::add_hl_reg16(self, hw, R16::HL),
             0x2A => instr::ld_a_r16(self, hw, R16::HL),
             0x2B => instr::dec_16(self, hw, R16::HL),
@@ -130,7 +130,7 @@ impl Cpu {
             0x2D => instr::dec_8(self, hw, RegisterArg::Reg(Reg::L)),
             0x2E => instr::ld_r8_imm8(self, hw, RegisterArg::Reg(Reg::L)),
             0x2F => instr::cpl(self),
-            0x30 => instr::jr(self, hw, !self.regs.f.contains(Flag::C)),
+            0x30 => instr::jr(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0x31 => instr::ld_r16_imm16(self, hw, R16::SP),
             0x32 => instr::ld_r16_a(self, hw, R16::SP),
             0x33 => instr::inc_16(self, hw, R16::SP),
@@ -138,7 +138,7 @@ impl Cpu {
             0x35 => instr::dec_8(self, hw, RegisterArg::Indirect),
             0x36 => instr::ld_r8_imm8(self, hw, RegisterArg::Indirect),
             0x37 => instr::scf(self),
-            0x38 => instr::jr(self, hw, self.regs.f.contains(Flag::C)),
+            0x38 => instr::jr(self, hw, self.regs.f.contains(CpuFlags::C)),
             0x39 => instr::add_hl_reg16(self, hw, R16::SP),
             0x3A => instr::ld_a_r16(self, hw, R16::SP),
             0x3B => instr::dec_16(self, hw, R16::SP),
@@ -168,36 +168,36 @@ impl Cpu {
                 }
             }
 
-            0xC0 => instr::retc(self, hw, !self.regs.f.contains(Flag::Z)),
+            0xC0 => instr::retc(self, hw, !self.regs.f.contains(CpuFlags::Z)),
             0xC1 => instr::pop(self, hw, R16::BC),
-            0xC2 => instr::jp(self, hw, !self.regs.f.contains(Flag::Z)),
+            0xC2 => instr::jp(self, hw, !self.regs.f.contains(CpuFlags::Z)),
             0xC3 => instr::jp(self, hw, true),
-            0xC4 => instr::call(self, hw, !self.regs.f.contains(Flag::Z)),
+            0xC4 => instr::call(self, hw, !self.regs.f.contains(CpuFlags::Z)),
             0xC5 => instr::push(self, hw, R16::BC),
             0xC6 => instr::add(self, hw, MathReg::Imm),
             0xC7 => instr::rst(self, hw, 0x00),
-            0xC8 => instr::retc(self, hw, self.regs.f.contains(Flag::Z)),
+            0xC8 => instr::retc(self, hw, self.regs.f.contains(CpuFlags::Z)),
             0xC9 => instr::ret(self, hw, false),
-            0xCA => instr::jp(self, hw, self.regs.f.contains(Flag::Z)),
+            0xCA => instr::jp(self, hw, self.regs.f.contains(CpuFlags::Z)),
             0xCB => self.run_extended(hw),
-            0xCC => instr::call(self, hw, self.regs.f.contains(Flag::Z)),
+            0xCC => instr::call(self, hw, self.regs.f.contains(CpuFlags::Z)),
             0xCD => instr::call(self, hw, true),
             0xCE => instr::adc(self, hw, MathReg::Imm),
             0xCF => instr::rst(self, hw, 0x08),
-            0xD0 => instr::retc(self, hw, !self.regs.f.contains(Flag::C)),
+            0xD0 => instr::retc(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0xD1 => instr::pop(self, hw, R16::DE),
-            0xD2 => instr::jp(self, hw, !self.regs.f.contains(Flag::C)),
+            0xD2 => instr::jp(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0xD3 | 0xDB | 0xDD | 0xE3 | 0xE4 | 0xF4 | 0xEB..=0xED | 0xFC | 0xFD => {
                 instr::invalid(self);
             }
-            0xD4 => instr::call(self, hw, !self.regs.f.contains(Flag::C)),
+            0xD4 => instr::call(self, hw, !self.regs.f.contains(CpuFlags::C)),
             0xD5 => instr::push(self, hw, R16::DE),
             0xD6 => instr::sub(self, hw, MathReg::Imm),
             0xD7 => instr::rst(self, hw, 0x10),
-            0xD8 => instr::retc(self, hw, self.regs.f.contains(Flag::C)),
+            0xD8 => instr::retc(self, hw, self.regs.f.contains(CpuFlags::C)),
             0xD9 => instr::ret(self, hw, true),
-            0xDA => instr::jp(self, hw, self.regs.f.contains(Flag::C)),
-            0xDC => instr::call(self, hw, self.regs.f.contains(Flag::C)),
+            0xDA => instr::jp(self, hw, self.regs.f.contains(CpuFlags::C)),
+            0xDC => instr::call(self, hw, self.regs.f.contains(CpuFlags::C)),
             0xDE => instr::sbc(self, hw, MathReg::Imm),
             0xDF => instr::rst(self, hw, 0x18),
 

@@ -1,4 +1,4 @@
-use super::flags::Flag;
+use super::flags::CpuFlags;
 
 #[derive(Clone, Copy)]
 pub enum Reg {
@@ -45,7 +45,7 @@ pub enum R16 {
 pub struct Registers {
     pub pc: u16,
     pub a: u8,
-    pub f: Flag,
+    pub f: CpuFlags,
     pub bc: u16,
     pub de: u16,
     pub hl: u16,
@@ -94,7 +94,7 @@ impl Registers {
     }
 
     pub fn set_af(&mut self, val: u16) {
-        self.f = Flag::from_bits_truncate(val as u8);
+        self.f = CpuFlags::from_bits_truncate(val as u8);
         self.a = (val >> 8) as u8;
     }
 
@@ -113,7 +113,7 @@ impl Default for Registers {
         Registers {
             pc: 0,
             a: 0,
-            f: Flag::empty(),
+            f: CpuFlags::empty(),
             bc: 0,
             de: 0,
             hl: 0,
