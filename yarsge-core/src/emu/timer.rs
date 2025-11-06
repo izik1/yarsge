@@ -1,13 +1,26 @@
+use std::mem;
+
 use crate::emu::InterruptFlags;
 
 use super::bits;
 
+#[derive(Copy, Clone)]
+struct FallingEdge(bool);
+
+impl FallingEdge {
+    fn tick(&mut self, new: bool) -> bool {
+        let old = mem::replace(&mut self.0, new);
+
+        old && !new
+    }
+}
+
 pub struct Timer {
-    prev_tima_overflow: i64,
-    prev_timer_in: bool,
+    prev_tima_overflow: i8,
+    prev_timer: FallingEdge,
     tac: u8,
     tima: u8,
-    tima_overflow: i64,
+    tima_overflow: i8,
     tma: u8,
     sys_timer: u16,
 }
@@ -44,7 +57,7 @@ impl Timer {
             ((u16::from(self.tac) & 0b11) << 1) + 1
         };
 
-        (self.sys_timer & (1 << bit)) > 0
+        (self.sys_timer >> bit) & 1 > 0
     }
 
     pub fn update(&mut self) -> InterruptFlags {
@@ -66,14 +79,13 @@ impl Timer {
         self.prev_tima_overflow = self.tima_overflow;
         self.sys_timer = self.sys_timer.wrapping_add(1);
         let b = bits::has_bit(self.tac, 2) && self.has_timer_bit();
-        if self.prev_timer_in && !b {
+        if self.prev_timer.tick(b) {
             self.tima = self.tima.wrapping_add(1);
             if self.tima == 0 {
                 self.tima_overflow = 5;
             }
         }
 
-        self.prev_timer_in = b;
         reg_if
     }
 }
@@ -82,7 +94,7 @@ impl Default for Timer {
     fn default() -> Self {
         Timer {
             prev_tima_overflow: 0,
-            prev_timer_in: false,
+            prev_timer: FallingEdge(false),
             tac: 0,
             tima: 0,
             tima_overflow: 0,
