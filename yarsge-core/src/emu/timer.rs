@@ -1,19 +1,7 @@
-use std::mem;
-
+use crate::FallingEdge;
 use crate::emu::InterruptFlags;
 
 use super::bits;
-
-#[derive(Copy, Clone)]
-struct FallingEdge(bool);
-
-impl FallingEdge {
-    fn tick(&mut self, new: bool) -> bool {
-        let old = mem::replace(&mut self.0, new);
-
-        old && !new
-    }
-}
 
 pub struct Timer {
     prev_tima_overflow: i8,
@@ -94,7 +82,7 @@ impl Default for Timer {
     fn default() -> Self {
         Timer {
             prev_tima_overflow: 0,
-            prev_timer: FallingEdge(false),
+            prev_timer: FallingEdge::new(false),
             tac: 0,
             tima: 0,
             tima_overflow: 0,
