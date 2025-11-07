@@ -128,16 +128,17 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
         gb.run(elapsed, key_state);
 
-        let disp = gb.get_display();
-
         if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
             continue;
         }
 
         last_display_frame = current_frame;
-        for i in 0..WIDTH * HEIGHT {
+
+        let disp = gb.get_display();
+
+        for (px, elems) in disp.into_iter().zip(array.as_chunks_mut::<3>().0) {
             use yarsge_core::emu::ppu::DisplayPixel;
-            let px = match disp[i] {
+            let px = match px {
                 DisplayPixel::White => RGB8 {
                     r: 0x9b,
                     g: 0xbc,
@@ -160,9 +161,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
                 },
             };
 
-            array[i * 3] = px.r;
-            array[i * 3 + 1] = px.g;
-            array[i * 3 + 2] = px.b;
+            *elems = px.into();
         }
 
         tex.update(None, &array, WIDTH * 3).unwrap();

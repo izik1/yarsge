@@ -116,7 +116,7 @@ impl GameBoy {
     }
 
     #[must_use]
-    pub fn get_display(&self) -> &[DisplayPixel] {
+    pub fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
         self.hw.get_display()
     }
 

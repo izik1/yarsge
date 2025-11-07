@@ -1,22 +1,25 @@
+use std::array;
+
 use crate::RisingEdge;
 use crate::emu::{InterruptFlags, bits};
 
 #[derive(Clone, Copy)]
+#[repr(u8)]
 pub enum DisplayPixel {
-    White,
-    LightGrey,
-    DarkGrey,
-    Black,
+    White = 0,
+    LightGrey = 1,
+    DarkGrey = 2,
+    Black = 3,
 }
 
 impl DisplayPixel {
-    fn from_num(num: u8) -> DisplayPixel {
-        match num {
+    fn from_bits_truncate(bits: u8) -> DisplayPixel {
+        match bits & 0b11 {
             0 => DisplayPixel::White,
             1 => DisplayPixel::LightGrey,
             2 => DisplayPixel::DarkGrey,
             3 => DisplayPixel::Black,
-            _ => panic!(),
+            _ => unreachable!(),
         }
     }
 }
@@ -35,10 +38,55 @@ bitflags::bitflags! {
     }
 }
 
+// 160 / 4 = 40 is clean
+struct DisplayMemory([u8; (160 / 4) * 144]);
+
+impl DisplayMemory {
+    const fn new() -> Self {
+        Self([0; (160 / 4) * 144])
+    }
+
+    fn set4(&mut self, elem: usize, values: [DisplayPixel; 4]) {
+        let value = {
+            let mut value = 0_u8;
+            for (idx, elem) in values.into_iter().enumerate() {
+                value |= (elem as u8) << (idx * 2);
+            }
+
+            value
+        };
+
+        self.0[elem] = value;
+    }
+
+    fn iter(&self) -> impl IntoIterator<Item = DisplayPixel> {
+        struct Iter<'a>(&'a [u8], u8);
+
+        impl Iterator for Iter<'_> {
+            type Item = DisplayPixel;
+
+            fn next(&mut self) -> Option<Self::Item> {
+                let (&first, rest) = self.0.split_first()?;
+
+                let old = self.1;
+                self.1 = (self.1 + 1) & 0b11;
+
+                if self.1 == 0 {
+                    self.0 = rest;
+                }
+
+                Some(DisplayPixel::from_bits_truncate(first >> (2 * old)))
+            }
+        }
+
+        Iter(&self.0, 0)
+    }
+}
+
 pub struct Ppu {
     vram: [u8; 0x2000],
     pub oam: [u8; 0xa0],
-    display_memory: [DisplayPixel; 160 * 144],
+    display_memory: DisplayMemory,
     obj_pallet_a: u8,
     obj_pallet_b: u8,
     scx: u8,
@@ -58,8 +106,8 @@ pub struct Ppu {
 
 impl Ppu {
     #[must_use]
-    pub fn get_display(&self) -> &[DisplayPixel] {
-        &self.display_memory
+    pub fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
+        self.display_memory.iter()
     }
 
     #[must_use]
@@ -138,13 +186,12 @@ impl Ppu {
     fn disable(&mut self) {
         if !self.disabled {
             self.disabled = true;
-            self.display_memory = [DisplayPixel::White; 160 * 144];
+            self.display_memory = DisplayMemory::new();
             self.ly = 0;
             self.visible_ly = 0;
             self.pirq = RisingEdge::new(false);
             self.cycle_mod = 0;
             self.stat_mode = 0;
-            
         }
     }
 
@@ -177,19 +224,27 @@ impl Ppu {
             tile += 256;
         }
 
-        for i in 0..160 {
-            let index = self.get_pixel_index(tile, y, x);
-            self.display_memory[((self.ly as usize) * 160) + i] =
-                DisplayPixel::from_num((self.bg_pallet >> index) & 0b11);
-            x += 1;
-            if x == 8 {
-                x = 0;
-                line_offset = (line_offset + 1) & 31;
-                tile = self.vram[line_offset + map_offset] as usize;
-                if !self.lcdc.contains(Lcdc::BG_WINDOW_TILES) && tile < 128 {
-                    tile += 256;
+        for i in 0..40 {
+            let pxs = array::from_fn(|_| {
+                let index = self.get_pixel_index(tile, y, x);
+
+                let px = DisplayPixel::from_bits_truncate(self.bg_pallet >> index);
+
+                x += 1;
+                if x == 8 {
+                    x = 0;
+                    line_offset = (line_offset + 1) & 31;
+                    tile = self.vram[line_offset + map_offset] as usize;
+                    if !self.lcdc.contains(Lcdc::BG_WINDOW_TILES) && tile < 128 {
+                        tile += 256;
+                    }
                 }
-            }
+
+                px
+            });
+
+            self.display_memory
+                .set4(((self.ly as usize) * (160 / 4)) + i, pxs);
         }
     }
 
@@ -320,7 +375,7 @@ impl Ppu {
 impl Default for Ppu {
     fn default() -> Ppu {
         Ppu {
-            display_memory: [DisplayPixel::White; 160 * 144],
+            display_memory: DisplayMemory::new(),
             obj_pallet_a: 0,
             obj_pallet_b: 0,
             vram: [0; 0x2000],
