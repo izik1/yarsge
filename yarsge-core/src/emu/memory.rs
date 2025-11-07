@@ -157,6 +157,17 @@ impl Memory {
                 0x6000..0x8000 => desc.mode = super::bits::has_bit(val, 0),
                 _ => unreachable!(),
             },
+            Mbc::Mbc5(ref mut desc) => match addr {
+                0x0000..0x2000 => desc.ram_gate = val == 0b0000_1010,
+                0x2000..0x3000 => desc.rom_bank = (desc.rom_bank & 0xff00) | u16::from(val),
+                0x3000..0x4000 => {
+                    desc.rom_bank = (desc.rom_bank & 0x00ff) | (u16::from(val & 1) << 8)
+                }
+                0x4000..0x6000 => desc.ram_bank = val & 0xf,
+                _ => {
+                    log::warn!("invalid mbc write: {addr:#04x} ({val:#02x}");
+                }
+            },
         }
     }
 
@@ -204,9 +215,47 @@ impl Mbc1 {
 }
 
 #[derive(Debug)]
+struct Mbc5 {
+    banks_rom: u8,
+    banks_ram: u8,
+    ram_gate: bool,
+    rom_bank: u16,
+    ram_bank: u8,
+}
+
+impl Mbc5 {
+    #[must_use]
+    fn rom_bank_count(&self) -> usize {
+        2 << (self.banks_rom as usize)
+    }
+
+    #[must_use]
+    fn rom_bank_mask(&self) -> usize {
+        self.rom_bank_count() - 1
+    }
+
+    #[must_use]
+    fn ram_bank_count(&self) -> usize {
+        match self.banks_ram {
+            0x02 => 1,
+            0x03 => 4,
+            0x04 => 16,
+            0x05 => 8,
+            0x00 | 0x01 | _ => 0,
+        }
+    }
+
+    #[must_use]
+    fn ram_bank_mask(&self) -> usize {
+        self.ram_bank_count() - 1
+    }
+}
+
+#[derive(Debug)]
 enum Mbc {
     Mbc0,
     Mbc1(Mbc1),
+    Mbc5(Mbc5),
 }
 
 impl Mbc {
@@ -215,6 +264,7 @@ impl Mbc {
         match self {
             Mbc::Mbc0 => Vec::new().into_boxed_slice(),
             Mbc::Mbc1(mbc1) => vec![0x00; 0x2000 * mbc1.ram_bank_count()].into_boxed_slice(),
+            Mbc::Mbc5(mbc5) => vec![0x00; 0x2000 * mbc5.ram_bank_count()].into_boxed_slice(),
         }
     }
 
@@ -228,6 +278,13 @@ impl Mbc {
                 mode: false,
                 bank1: 1,
                 bank2: 0,
+            })),
+            0x19..0x1c => Some(Mbc::Mbc5(Mbc5 {
+                banks_rom,
+                banks_ram,
+                ram_gate: false,
+                rom_bank: 1,
+                ram_bank: 0,
             })),
             _ => None,
         }
@@ -250,6 +307,9 @@ impl Mbc {
             Mbc::Mbc1(ref desc) => ((addr - 0x4000) as usize).wrapping_add(
                 ((desc.rom_bank_mask()) & ((desc.bank2 << 5) | desc.bank1) as usize) * 0x4000,
             ),
+            Mbc::Mbc5(_) if addr < 0x4000 => addr as usize,
+            Mbc::Mbc5(ref desc) => ((addr - 0x4000) as usize)
+                .wrapping_add(((desc.rom_bank_mask()) & (desc.rom_bank as usize)) * 0x4000),
         }
     }
 
@@ -258,10 +318,16 @@ impl Mbc {
         match *self {
             Mbc::Mbc0 => usize::MAX,
             Mbc::Mbc1(ref desc) if !desc.ram_gate => usize::MAX,
+            Mbc::Mbc5(ref desc) if !desc.ram_gate => usize::MAX,
             Mbc::Mbc1(ref desc) if !desc.mode => usize::from(addr & 0x1fff),
             Mbc::Mbc1(ref desc) => {
                 usize::from(addr & 0x1fff)
                     | ((desc.ram_bank_mask() & usize::from(desc.bank2)) << 13)
+            }
+
+            Mbc::Mbc5(ref desc) => {
+                usize::from(addr & 0x1fff)
+                    | ((desc.ram_bank_mask() & usize::from(desc.ram_bank)) << 13)
             }
         }
     }
