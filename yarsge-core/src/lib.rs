@@ -27,7 +27,7 @@ impl<const EDGE: bool> EdgeDetector<EDGE> {
     }
 }
 
-// type RisingEdge = EdgeDetector<true>;
+type RisingEdge = EdgeDetector<true>;
 
 type FallingEdge = EdgeDetector<false>;
 

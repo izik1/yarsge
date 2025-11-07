@@ -90,6 +90,7 @@ impl Memory {
 
             (true, BUS_WRITE_RAM) => {
                 match bus.addr & 0x7fff {
+                    // if this ever actually gets reached, I guess just mirror cart ram.
                     0x0000..0x2000 => unreachable!("VRAM space"),
                     // cart ram
                     addr @ 0x2000..0x4000 => {

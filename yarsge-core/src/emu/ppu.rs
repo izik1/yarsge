@@ -1,3 +1,4 @@
+use crate::RisingEdge;
 use crate::emu::{InterruptFlags, bits};
 
 #[derive(Clone, Copy)]
@@ -51,7 +52,7 @@ pub struct Ppu {
     cycle_mod: i32,
     visible_ly: u8,
     disabled: bool,
-    pirq: bool,
+    pirq: RisingEdge,
     lyc: u8,
 }
 
@@ -140,8 +141,10 @@ impl Ppu {
             self.display_memory = [DisplayPixel::White; 160 * 144];
             self.ly = 0;
             self.visible_ly = 0;
-            self.pirq = false;
+            self.pirq = RisingEdge::new(false);
             self.cycle_mod = 0;
+            self.stat_mode = 0;
+            
         }
     }
 
@@ -208,7 +211,7 @@ impl Ppu {
         match self.cycle_mod {
             0 | 212 => {
                 self.stat_mode = 0;
-                self.ly_cp() || (self.stat_upper & 4) == 4
+                self.ly_cp() || bits::has_bit(self.stat_upper, 3)
             }
 
             4 => {
@@ -302,10 +305,9 @@ impl Ppu {
             self.visible_ly = 0;
         }
 
-        let pirq = self.pirq;
-        self.pirq = irq;
+        let edge = self.pirq.tick(irq);
 
-        let stat = if irq && !pirq {
+        let stat = if edge {
             InterruptFlags::STAT
         } else {
             InterruptFlags::empty()
@@ -335,7 +337,7 @@ impl Default for Ppu {
             cycle_mod: 0,
             visible_ly: 0,
             disabled: false,
-            pirq: false,
+            pirq: RisingEdge::new(false),
         }
     }
 }
