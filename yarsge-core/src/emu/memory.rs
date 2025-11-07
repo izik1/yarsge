@@ -78,13 +78,11 @@ impl Memory {
 
                     // DMG specific behavior: WRAM (and therefore echo ram) is on the external bus
                     addr @ 0x4000..0x6000 => self.wram[(addr - 0x4000) as usize],
-                    addr @ 0x6000..0x7e00 => self.wram[(addr - 0x6000) as usize],
-
-                    // OAM-DMA can read from here
-                    0x7e00..0x8000 => unimplemented!(
-                        "Unimplemented external address range (read): (addr: {:04x})",
-                        bus.addr
-                    ),
+                    // echo ram / wram mirror would _normally_ end at ..0x7e00, but...
+                    // OAM-DMA can read from the end of it...
+                    // you really shouldn't DMA from there though!
+                    // you can get nasty bus conflicts on actual hardware (depending on the specific cart).
+                    addr @ 0x6000..0x8000 => self.wram[(addr - 0x6000) as usize],
 
                     0x8000.. => unreachable!(),
                 };
@@ -106,13 +104,10 @@ impl Memory {
 
                     // DMG specific behavior: WRAM (and therefore echo ram) is on the external bus
                     addr @ 0x4000..0x6000 => self.wram[(addr - 0x4000) as usize] = bus.data,
-                    addr @ 0x6000..0x7e00 => self.wram[(addr - 0x6000) as usize] = bus.data,
-
-                    // OAM-DMA can read from here (but there probably isn't anything that can write)
-                    0x7e00..0x8000 => unimplemented!(
-                        "Unimplemented external address range (write): (addr: {:04x})",
-                        bus.addr
-                    ),
+                    // echo ram / wram mirror would _normally_ end at ..0x7e00, but...
+                    // OAM-DMA can read from there (but there probably isn't anything that can write)
+                    // still, might as well have the bus correct for symmetry.
+                    addr @ 0x6000..0x8000 => self.wram[(addr - 0x6000) as usize] = bus.data,
 
                     0x8000.. => unreachable!(),
                 }
