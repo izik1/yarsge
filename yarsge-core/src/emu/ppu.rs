@@ -20,6 +20,20 @@ impl DisplayPixel {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Copy, Clone)]
+    struct Lcdc : u8 {
+        const BG_WINDOW_ENABLE = 1 << 0;
+        const OBJ_ENABLE = 1 << 1;
+        const OBJ_SIZE = 1 << 2;
+        const BG_TILE_MAP = 1 << 3;
+        const BG_WINDOW_TILES = 1 << 4;
+        const WINDOW_ENABLE = 1 << 5;
+        const WINDOW_TILE_MAP = 1 << 6;
+        const LCD_ENABLE = 1 << 7;
+    }
+}
+
 pub struct Ppu {
     vram: [u8; 0x2000],
     pub oam: [u8; 0xa0],
@@ -28,7 +42,7 @@ pub struct Ppu {
     obj_pallet_b: u8,
     scx: u8,
     scy: u8,
-    lcdc: u8,
+    lcdc: Lcdc,
     ly: u8,
     bg_pallet: u8,
     window_ly: u8,
@@ -81,7 +95,7 @@ impl Ppu {
 
     pub fn set_reg(&mut self, addr: u8, val: u8) {
         match addr {
-            0x40 => self.lcdc = val,
+            0x40 => self.lcdc = Lcdc::from_bits_retain(val),
             0x41 => self.stat_upper = val & 0x78,
             0x42 => self.scy = val,
             0x43 => self.scx = val,
@@ -100,7 +114,7 @@ impl Ppu {
     #[must_use]
     pub fn get_reg(&self, addr: u8) -> u8 {
         match addr {
-            0x40 => self.lcdc,
+            0x40 => self.lcdc.bits(),
             0x41 => self.stat_upper | 0x80 | self.stat_mode,
             0x42 => self.scy,
             0x43 => self.scx,
@@ -139,8 +153,8 @@ impl Ppu {
     }
 
     fn render_line_bg(&mut self) {
-        fn get_map_base(lcdc: u8) -> usize {
-            if bits::has_bit(lcdc, 3) {
+        fn get_map_base(lcdc: Lcdc) -> usize {
+            if lcdc.contains(Lcdc::BG_TILE_MAP) {
                 0x1c00
             } else {
                 0x1800
@@ -156,7 +170,7 @@ impl Ppu {
 
         let mut tile = self.vram[line_offset + map_offset] as usize;
 
-        if !bits::has_bit(self.lcdc, 4) && tile < 128 {
+        if !self.lcdc.contains(Lcdc::BG_WINDOW_TILES) && tile < 128 {
             tile += 256;
         }
 
@@ -169,7 +183,7 @@ impl Ppu {
                 x = 0;
                 line_offset = (line_offset + 1) & 31;
                 tile = self.vram[line_offset + map_offset] as usize;
-                if !bits::has_bit(self.lcdc, 4) && tile < 128 {
+                if !self.lcdc.contains(Lcdc::BG_WINDOW_TILES) && tile < 128 {
                     tile += 256;
                 }
             }
@@ -177,15 +191,15 @@ impl Ppu {
     }
 
     fn render_line(&mut self) {
-        if bits::has_bit(self.lcdc, 0) {
+        if self.lcdc.contains(Lcdc::BG_WINDOW_ENABLE) {
             self.render_line_bg();
         }
 
-        if bits::has_bit(self.lcdc, 5) {
+        if self.lcdc.contains(Lcdc::WINDOW_ENABLE) {
             // TODO: window
         }
 
-        if bits::has_bit(self.lcdc, 1) {
+        if self.lcdc.contains(Lcdc::OBJ_ENABLE) {
             // TODO: sprites
         }
     }
@@ -257,7 +271,7 @@ impl Ppu {
     pub fn tick(&mut self) -> InterruptFlags {
         use std::cmp::Ordering;
 
-        if self.lcdc & bits::get(7) == 0 {
+        if !self.lcdc.contains(Lcdc::LCD_ENABLE) {
             self.disable();
             return InterruptFlags::empty();
         }
@@ -311,7 +325,7 @@ impl Default for Ppu {
             oam: [0; 0xa0],
             scx: 0,
             scy: 0,
-            lcdc: 0,
+            lcdc: Lcdc::empty(),
             ly: 0,
             lyc: 0,
             window_ly: 0,

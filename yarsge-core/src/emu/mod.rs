@@ -1,6 +1,7 @@
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
 
+use crate::Keys;
 use crate::emu::cpu::Cpu;
 use crate::emu::hardware::Hardware;
 use crate::emu::ppu::DisplayPixel;
@@ -119,7 +120,7 @@ impl GameBoy {
         self.hw.get_display()
     }
 
-    pub fn run(&mut self, elapsed: Duration, pad: u8) {
+    pub fn run(&mut self, elapsed: Duration, pad: Keys) {
         self.hw.set_keys(pad);
 
         self.bank_10ps += u64::try_from(elapsed.as_nanos())

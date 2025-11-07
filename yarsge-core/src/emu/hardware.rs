@@ -5,6 +5,7 @@ use super::{
     ppu::{DisplayPixel, Ppu},
     timer::Timer,
 };
+use crate::Keys;
 use crate::emu::bus::{BusState, ExternalBus};
 use crate::emu::{InterruptFlags, TCycle};
 
@@ -33,7 +34,7 @@ impl Hardware {
         }
     }
 
-    pub fn set_keys(&mut self, val: u8) {
+    pub fn set_keys(&mut self, val: Keys) {
         self.pad.set_keys(val);
     }
 

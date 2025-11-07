@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
-use yarsge_core::emu;
+use yarsge_core::{Keys, emu};
 
 use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
 
@@ -29,8 +29,8 @@ struct Opt {
     game_rom: String,
 }
 
-fn index_of_key(keys: &[Keycode], code: Keycode) -> Option<usize> {
-    keys.iter().position(|key| *key == code)
+fn lookup_key(map: &[(Keycode, Keys)], code: Keycode) -> Option<Keys> {
+    map.iter().find_map(|map| (map.0 == code).then_some(map.1))
 }
 
 fn run(opt: &Opt) -> anyhow::Result<()> {
@@ -70,20 +70,20 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         .into_boxed_slice();
 
     let keymap = [
-        Keycode::A,
-        Keycode::S,
-        Keycode::Space,
-        Keycode::Return,
-        Keycode::Right,
-        Keycode::Left,
-        Keycode::Up,
-        Keycode::Down,
+        (Keycode::A, Keys::A),
+        (Keycode::S, Keys::B),
+        (Keycode::Space, Keys::SELECT),
+        (Keycode::Return, Keys::START),
+        (Keycode::Right, Keys::RIGHT),
+        (Keycode::Left, Keys::LEFT),
+        (Keycode::Up, Keys::UP),
+        (Keycode::Down, Keys::DOWN),
     ];
 
     let mut gb = emu::GameBoy::new(boot_rom, game_rom)
         .ok_or_else(|| anyhow::anyhow!("Error loading cpu"))?;
 
-    let mut key_state = 0xff;
+    let mut key_state = Keys::empty();
 
     let start = Instant::now();
     let mut last_subframe = start;
@@ -104,8 +104,8 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
                     keycode: Some(code),
                     ..
                 } => {
-                    if let Some(pos) = index_of_key(&keymap, code) {
-                        key_state &= !(1 << pos) as u8;
+                    if let Some(key) = lookup_key(&keymap, code) {
+                        key_state.insert(key);
                     }
                 }
 
@@ -113,8 +113,8 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
                     keycode: Some(code),
                     ..
                 } => {
-                    if let Some(pos) = index_of_key(&keymap, code) {
-                        key_state |= (1 << pos) as u8;
+                    if let Some(key) = lookup_key(&keymap, code) {
+                        key_state.remove(key);
                     }
                 }
 

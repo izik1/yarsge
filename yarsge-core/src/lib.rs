@@ -30,3 +30,28 @@ impl<const EDGE: bool> EdgeDetector<EDGE> {
 // type RisingEdge = EdgeDetector<true>;
 
 type FallingEdge = EdgeDetector<false>;
+
+bitflags::bitflags! {
+        // if !bits::has_bit(self.status, 5) {
+        //     p1 & 0xf
+        // } else if !bits::has_bit(self.status, 4) {
+        //     p1 >> 4
+        // } else {
+        //     0xf
+        // }
+
+
+    #[derive(Clone, Copy)]
+    pub struct Keys : u8 {
+        // buttons
+        const A = 1 << 0;
+        const B = 1 << 1;
+        const SELECT = 1 << 2;
+        const START = 1 << 3;
+
+        const RIGHT = 1 << 4;
+        const LEFT = 1 << 5;
+        const UP = 1 << 6;
+        const DOWN = 1 << 7;
+    }
+}
