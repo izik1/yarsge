@@ -21,7 +21,7 @@ impl Default for Dma {
 }
 
 impl Dma {
-    pub fn update(&mut self) -> Option<(usize, u16)> {
+    pub fn tick(&mut self) -> Option<(usize, u16)> {
         let mut return_val = None;
 
         if self.modulus == 0 {

@@ -249,7 +249,7 @@ impl Ppu {
         }
     }
 
-    pub fn update(&mut self) -> InterruptFlags {
+    pub fn tick(&mut self) -> InterruptFlags {
         use std::cmp::Ordering;
 
         if self.lcdc & bits::get(7) == 0 {

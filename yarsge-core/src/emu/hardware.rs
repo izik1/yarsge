@@ -45,32 +45,36 @@ impl Hardware {
     }
 
     pub fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags) {
-        self.update(TCycle(2));
+        self.tick_n(TCycle(2));
         let early_interrupts = self.reg_if & self.reg_ie;
-        self.update(TCycle(1));
+        self.tick();
         // zzz bus
-        self.update(TCycle(1));
+        self.tick();
 
         let val = self.read_byte(addr);
         (val, early_interrupts)
     }
 
     pub fn stall(&mut self, m_cycles: MCycle) {
-        self.update(m_cycles.into());
+        self.tick_n(m_cycles.into());
     }
 
     pub fn idle_cycle(&mut self) {
         self.stall(MCycle(1));
     }
 
-    fn update(&mut self, cycles: TCycle) {
+    fn tick(&mut self) {
+        self.tick_n(TCycle(1));
+    }
+
+    fn tick_n(&mut self, cycles: TCycle) {
         for _ in 0..cycles.0 {
-            self.reg_if |= self.timer.update() | self.ppu.update();
-            if let Some((oam_offset, addr)) = self.dma.update() {
+            self.reg_if |= self.timer.tick() | self.ppu.tick();
+            if let Some((oam_offset, addr)) = self.dma.tick() {
                 self.ppu.oam[oam_offset] = self.read_byte(addr);
             }
 
-            if self.pad.update() {
+            if self.pad.tick() {
                 self.reg_if |= InterruptFlags::JOYPAD;
             }
         }
@@ -127,11 +131,11 @@ impl Hardware {
     }
 
     pub fn write_cycle_intr(&mut self, addr: u16, val: u8) -> InterruptFlags {
-        self.update(TCycle(2));
+        self.tick_n(TCycle(2));
         let early_interrupts = self.reg_if & self.reg_ie;
-        self.update(TCycle(1));
+        self.tick();
         // zzz bus
-        self.update(TCycle(1));
+        self.tick();
         match addr {
             0x0000..=0x7FFF => self.memory.mbc_write(addr, val),
             0x8000..=0x9FFF => self.ppu.set_vram(addr - 0x8000, val),

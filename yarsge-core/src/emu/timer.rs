@@ -60,7 +60,7 @@ impl Timer {
         (self.sys_timer >> bit) & 1 > 0
     }
 
-    pub fn update(&mut self) -> InterruptFlags {
+    pub fn tick(&mut self) -> InterruptFlags {
         let reg_if = 'block: {
             if self.tima_overflow == 0 {
                 break 'block InterruptFlags::empty();

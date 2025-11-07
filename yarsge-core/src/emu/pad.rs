@@ -23,7 +23,7 @@ impl Pad {
         0xC0 | self.get_pad(self.keys)
     }
 
-    pub fn update(&self) -> bool {
+    pub fn tick(&self) -> bool {
         self.get_pad(self.prev_keys) == 0xF && self.get_pad(self.keys) != 0xF
     }
 
