@@ -6,3 +6,10 @@ resolver = "3"
 authors = ["Skyler Ross <orangesnowfox@gmail.com>"]
 edition = "2024"
 version = "0.1.0"
+
+
+[workspace.dependencies.yarsge-core]
+path = "yarsge-core"
+
+[profile.dev.package.yarsge-core]
+opt-level = 1

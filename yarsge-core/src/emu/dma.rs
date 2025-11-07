@@ -1,49 +1,110 @@
+use crate::emu::bus::{BusState, ExternalBus};
+use crate::emu::memory::Memory;
+use crate::emu::ppu::Ppu;
+
+pub enum DmaAction {
+    /// Read from The Bus.
+    ReadBus,
+    /// Read from VRAM.
+    ReadVram(u16),
+    /// Write to OAM.
+    WriteOam(u8, u8),
+}
+
 pub struct Dma {
-    pub modulus: u8,
-    pub time: usize,
-    pub enabled: bool,
-    pub addr: u16,
-    pub ld_timer: i8,
-    pub ld_addr: u16,
+    tick: u8,
+    new_src: Option<u8>,
+    src_addr: u8,
+    offset: u8,
+    value: u8,
+    last_running: bool,
 }
 
 impl Default for Dma {
     fn default() -> Self {
         Dma {
-            modulus: 0,
-            time: 0,
-            enabled: false,
-            addr: 0,
-            ld_timer: -1,
-            ld_addr: 0,
+            tick: 0,
+            src_addr: 0,
+            new_src: None,
+            // anything >= 0xa0
+            // this signals "not active"
+            offset: 0xff,
+            value: 0xff,
+            last_running: false,
         }
     }
 }
 
 impl Dma {
-    pub fn tick(&mut self) -> Option<(usize, u16)> {
-        let mut return_val = None;
+    #[must_use]
+    pub fn running(&self) -> bool {
+        self.offset < 0xa0
+    }
 
-        if self.modulus == 0 {
-            self.enabled = self.time > 0;
-            if self.enabled {
-                return_val = Some((160 - self.time, self.addr));
-                self.time -= 1;
-            }
+    #[must_use]
+    pub fn oam_blocked(&self) -> bool {
+        self.running() || self.last_running
+    }
 
-            self.modulus = 3;
-        } else {
-            self.modulus -= 1;
+    pub fn write_src(&mut self, value: u8) {
+        self.new_src = Some(value);
+    }
+
+    #[must_use]
+    pub fn read_src(&self) -> u8 {
+        self.src_addr
+    }
+
+    pub fn tick(&mut self, bus: &mut ExternalBus, ppu: &mut Ppu, memory: &mut Memory) {
+        self.last_running = self.running();
+
+        debug_assert!(self.tick < 4);
+        let st = self.tick;
+        self.tick = (self.tick + 1) % 4;
+
+        if st == 3
+            && let Some(new_src) = self.new_src
+        {
+            // start new DMA
+            self.new_src = None;
+            self.src_addr = new_src;
+            self.offset = 0;
+            return;
         }
 
-        if self.ld_timer > 0 {
-            self.ld_timer -= 1;
-            if self.ld_timer == 0 {
-                self.time = 160;
-                self.addr = self.ld_addr;
-            }
+        if !self.running() {
+            return;
         }
 
-        return_val
+        let src_addr = u16::from_be_bytes([self.src_addr, self.offset]);
+
+        match st {
+            0 => match self.src_addr {
+                0x00..0x80 | 0xa0.. => {
+                    bus.addr = src_addr;
+
+                    if self.src_addr >= 0xa0 {
+                        bus.st.remove(BusState::CHIP_SELECT);
+                    }
+
+                    self.value = memory.strobe_read(bus);
+                }
+
+                0x80..0xa0 => {
+                    self.value = ppu.get_vram(src_addr - 0x8000).unwrap_or(0xff);
+                }
+            },
+
+            1 => {}
+            2 => {
+                ppu.oam[self.offset as usize] = self.value;
+            }
+
+            3 => {
+                self.offset += 1;
+            }
+
+            4.. => unreachable!(),
+        }
     }
 }

@@ -1,9 +1,11 @@
+use crate::emu::bus::{BusState, ExternalBus};
+
 pub struct Memory {
     pub wram: [u8; 0x2000],
     pub hram: [u8; 0x007f],
     game_rom: Box<[u8]>,
-    boot_rom: Box<[u8]>,
-    boot_rom_enabled: bool,
+    boot_rom: Option<Box<[u8]>>,
+    cart_ram: Box<[u8]>,
     mbc: Mbc,
 }
 
@@ -14,122 +16,258 @@ impl Memory {
             None
         } else {
             let mbc = Mbc::new_detect(game_rom[0x147], game_rom[0x148], game_rom[0x149])?;
+            let cart_ram = mbc.make_ram();
             Some(Self {
                 wram: [0; 0x2000],
                 hram: [0; 0x007f],
                 game_rom,
-                boot_rom,
-                boot_rom_enabled: true,
+                boot_rom: Some(boot_rom),
+                cart_ram,
                 mbc,
             })
         }
     }
 
-    #[must_use]
-    pub fn read_rom_low(&self, addr: u16) -> u8 {
-        if self.boot_rom_enabled && addr < 0x100 {
-            self.boot_rom[addr as usize]
-        } else {
-            let addr = self.mbc.get_physical_addr_low(addr);
-            if addr < self.game_rom.len() {
-                self.game_rom[addr]
-            } else {
-                0xff
+    fn strobe(&mut self, bus: &mut ExternalBus) {
+        // pins are weird, `addr_15` is pulled low when it's supposed to be low, but `read=high` is
+        // a zero.
+        const BUS_READ_ROM: BusState = BusState::empty()
+            .difference(BusState::BUSY)
+            .difference(BusState::PIN_NOT_READ)
+            .union(BusState::CHIP_SELECT)
+            .union(BusState::PIN_NOT_WRITE);
+
+        const BUS_WRITE_ROM: BusState = BusState::empty()
+            .difference(BusState::BUSY)
+            .union(BusState::PIN_NOT_READ)
+            .union(BusState::CHIP_SELECT)
+            .difference(BusState::PIN_NOT_WRITE);
+
+        const BUS_READ_RAM: BusState = BusState::empty()
+            .difference(BusState::BUSY)
+            .difference(BusState::PIN_NOT_READ)
+            .difference(BusState::CHIP_SELECT)
+            .union(BusState::PIN_NOT_WRITE);
+
+        const BUS_WRITE_RAM: BusState = BusState::empty()
+            .difference(BusState::BUSY)
+            .union(BusState::PIN_NOT_READ)
+            .difference(BusState::CHIP_SELECT)
+            .difference(BusState::PIN_NOT_WRITE);
+
+        let st = bus.st;
+        bus.st.insert(BusState::BUSY);
+
+        match (bus.a15(), st) {
+            (false, BUS_READ_ROM) => {
+                bus.data = self.read_rom(bus.addr);
             }
+            (false, BUS_WRITE_ROM) => {
+                self.mbc_write(bus.addr, bus.data);
+            }
+
+            (true, BUS_READ_RAM) => {
+                bus.data = match bus.addr & 0x7fff {
+                    0x0000..0x2000 => unreachable!("VRAM space"),
+                    // cart ram
+                    addr @ 0x2000..0x4000 => {
+                        let addr = self.mbc.map_ram_addr(addr - 0x2000);
+
+                        self.cart_ram.get(addr).copied().unwrap_or(0xff)
+                    }
+
+                    // DMG specific behavior: WRAM (and therefore echo ram) is on the external bus
+                    addr @ 0x4000..0x6000 => self.wram[(addr - 0x4000) as usize],
+                    addr @ 0x6000..0x7e00 => self.wram[(addr - 0x6000) as usize],
+
+                    // OAM-DMA can read from here
+                    0x7e00..0x8000 => unimplemented!(
+                        "Unimplemented external address range (read): (addr: {:04x})",
+                        bus.addr
+                    ),
+
+                    0x8000.. => unreachable!(),
+                };
+            }
+
+            (true, BUS_WRITE_RAM) => {
+                match bus.addr & 0x7fff {
+                    0x0000..0x2000 => unreachable!("VRAM space"),
+                    // cart ram
+                    addr @ 0x2000..0x4000 => {
+                        let addr = self.mbc.map_ram_addr(addr - 0x2000);
+
+                        if let Some(mem) = self.cart_ram.get_mut(addr) {
+                            *mem = bus.data;
+                        } else {
+                            log::debug!("cart ram write failed: {addr:#08x} <- {:#02x}", bus.data);
+                        }
+                    }
+
+                    // DMG specific behavior: WRAM (and therefore echo ram) is on the external bus
+                    addr @ 0x4000..0x6000 => self.wram[(addr - 0x4000) as usize] = bus.data,
+                    addr @ 0x6000..0x7e00 => self.wram[(addr - 0x6000) as usize] = bus.data,
+
+                    // OAM-DMA can read from here (but there probably isn't anything that can write)
+                    0x7e00..0x8000 => unimplemented!(
+                        "Unimplemented external address range (write): (addr: {:04x})",
+                        bus.addr
+                    ),
+
+                    0x8000.. => unreachable!(),
+                }
+            }
+
+            _ => {}
         }
     }
 
     #[must_use]
-    pub fn read_rom_high(&self, addr: u16) -> u8 {
-        let addr = self.mbc.get_physical_addr_high(addr);
-        if addr < self.game_rom.len() {
-            self.game_rom[addr]
-        } else {
-            0xff
+    pub fn strobe_read(&mut self, bus: &mut ExternalBus) -> u8 {
+        self.strobe(bus);
+        return bus.data;
+    }
+
+    pub fn strobe_write(&mut self, bus: &mut ExternalBus, val: u8) {
+        if bus.busy() {
+            return;
         }
+
+        bus.st.remove(BusState::PIN_NOT_WRITE);
+        bus.data = val;
+        self.strobe(bus);
+    }
+
+    #[must_use]
+    fn read_rom(&self, addr: u16) -> u8 {
+        // inaccuracy: this shouldn't be visible on the bus.
+        if let Some(boot_rom) = self.boot_rom.as_deref()
+            && addr < 0x100
+        {
+            return boot_rom.get(addr as usize).copied().unwrap_or(0xff);
+        }
+
+        let addr = self.mbc.map_rom_addr(addr);
+
+        self.game_rom.get(addr).copied().unwrap_or(0xff)
     }
 
     pub fn mbc_write(&mut self, addr: u16, val: u8) {
         match self.mbc {
             Mbc::Mbc0 => {}
             Mbc::Mbc1(ref mut desc) => match addr {
-                0x0000..0x2000 => unimplemented!(),
-                0x2000..0x4000 => desc.rom_bank = if val & 0x1f == 0 { 1 } else { val & 0x1f },
-                0x4000..0x6000 => desc.ram_bank = val & 0b11,
-                0x6000..0x8000 => desc.ram_bank_mode = super::bits::has_bit(val, 0),
+                0x0000..0x2000 => desc.ram_gate = val & 0xf == 0b1010,
+                0x2000..0x4000 => desc.bank1 = if val & 0x1f == 0 { 1 } else { val & 0x1f },
+                0x4000..0x6000 => desc.bank2 = val & 0b11,
+                0x6000..0x8000 => desc.mode = super::bits::has_bit(val, 0),
                 _ => unreachable!(),
             },
         }
     }
 
     pub fn disable_boot_rom(&mut self) {
-        self.boot_rom_enabled = false;
+        self.boot_rom = None;
     }
 }
 
 #[derive(Debug)]
-struct MbcDescriptor {
+struct Mbc1 {
     banks_rom: u8,
     banks_ram: u8,
-    ram_bank_mode: bool,
-    ram_bank: u8,
-    rom_bank: u8,
+    ram_gate: bool,
+    mode: bool,
+    bank2: u8,
+    bank1: u8,
 }
 
-impl MbcDescriptor {
-    fn get_real_bank_count(&self) -> usize {
+impl Mbc1 {
+    #[must_use]
+    fn rom_bank_count(&self) -> usize {
         2 << (self.banks_rom as usize)
+    }
+
+    #[must_use]
+    fn rom_bank_mask(&self) -> usize {
+        self.rom_bank_count() - 1
+    }
+
+    #[must_use]
+    fn ram_bank_count(&self) -> usize {
+        match self.banks_ram {
+            0x02 => 1,
+            0x03 => 4,
+            0x04 => 16,
+            0x05 => 8,
+            0x00 | 0x01 | _ => 0,
+        }
+    }
+
+    #[must_use]
+    fn ram_bank_mask(&self) -> usize {
+        self.ram_bank_count() - 1
     }
 }
 
 #[derive(Debug)]
 enum Mbc {
     Mbc0,
-    Mbc1(MbcDescriptor),
+    Mbc1(Mbc1),
 }
 
 impl Mbc {
     #[must_use]
+    fn make_ram(&self) -> Box<[u8]> {
+        match self {
+            Mbc::Mbc0 => Vec::new().into_boxed_slice(),
+            Mbc::Mbc1(mbc1) => vec![0x00; 0x2000 * mbc1.ram_bank_count()].into_boxed_slice(),
+        }
+    }
+
     fn new_detect(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
         match cart_type {
             0x00 => Some(Mbc::Mbc0),
-            0x01 => Some(Mbc::Mbc1(MbcDescriptor {
+            0x01..0x04 => Some(Mbc::Mbc1(Mbc1 {
                 banks_rom,
                 banks_ram,
-                ram_bank_mode: false,
-                rom_bank: 1,
-                ram_bank: 0,
+                ram_gate: false,
+                mode: false,
+                bank1: 1,
+                bank2: 0,
             })),
             _ => None,
         }
     }
 
     #[must_use]
-    fn get_physical_addr_low(&self, addr: u16) -> usize {
+    fn map_rom_addr(&self, addr: u16) -> usize {
         match *self {
             Mbc::Mbc0 => addr as usize,
-            Mbc::Mbc1(ref desc) => {
-                if desc.ram_bank_mode {
-                    addr as usize
-                } else {
-                    (addr as usize).wrapping_add(
-                        ((desc.get_real_bank_count() - 1) & ((desc.ram_bank << 5) as usize))
-                            * 0x4000,
-                    )
+            Mbc::Mbc1(ref desc) if addr < 0x4000 => {
+                if !desc.mode {
+                    return addr as usize;
                 }
+
+                (addr as usize)
+                    .wrapping_add(((desc.rom_bank_mask()) & ((desc.bank2 << 5) as usize)) * 0x4000)
             }
+
+            // if addr >= 0x4000
+            Mbc::Mbc1(ref desc) => ((addr - 0x4000) as usize).wrapping_add(
+                ((desc.rom_bank_mask()) & ((desc.bank2 << 5) | desc.bank1) as usize) * 0x4000,
+            ),
         }
     }
 
     #[must_use]
-    fn get_physical_addr_high(&self, addr: u16) -> usize {
+    fn map_ram_addr(&self, addr: u16) -> usize {
         match *self {
-            Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,
-            Mbc::Mbc1(ref desc) => (addr as usize).wrapping_add(
-                ((desc.get_real_bank_count() - 1)
-                    & (desc.rom_bank | (desc.ram_bank << 5)) as usize)
-                    * 0x4000,
-            ),
+            Mbc::Mbc0 => usize::MAX,
+            Mbc::Mbc1(ref desc) if !desc.ram_gate => usize::MAX,
+            Mbc::Mbc1(ref desc) if !desc.mode => usize::from(addr & 0x1fff),
+            Mbc::Mbc1(ref desc) => {
+                usize::from(addr & 0x1fff)
+                    | ((desc.ram_bank_mask() & usize::from(desc.bank2)) << 13)
+            }
         }
     }
 }

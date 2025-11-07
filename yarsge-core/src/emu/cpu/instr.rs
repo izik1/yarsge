@@ -1,6 +1,5 @@
 use crate::emu::registers::RegisterArg;
 use crate::emu::{
-    MCycle,
     cpu::{Cpu, Status},
     flags::CpuFlags,
     hardware::Hardware,
@@ -1029,7 +1028,8 @@ pub fn ld_sp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Timing: Read, Internal Delay, Internal Delay
 pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     let r8 = cpu.fetch_imm8(hw) as i8;
-    hw.stall(MCycle(2));
+    hw.idle_cycle();
+    hw.idle_cycle();
 
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(

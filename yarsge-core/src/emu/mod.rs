@@ -11,6 +11,7 @@ pub mod ppu;
 pub mod registers;
 pub mod timer;
 
+mod bus;
 mod hardware;
 mod memory;
 mod pad;
@@ -78,35 +79,6 @@ impl AddAssign for TCycle {
 impl SubAssign for TCycle {
     fn sub_assign(&mut self, rhs: Self) {
         self.0 -= rhs.0;
-    }
-}
-
-impl From<MCycle> for TCycle {
-    fn from(m: MCycle) -> Self {
-        Self(m.0 * 4)
-    }
-}
-
-pub struct MCycle(pub isize);
-
-impl Add for MCycle {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self(self.0 + rhs.0)
-    }
-}
-impl Sub for MCycle {
-    type Output = Self;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        Self(self.0 - rhs.0)
-    }
-}
-
-impl From<TCycle> for (MCycle, TCycle) {
-    fn from(t: TCycle) -> Self {
-        (MCycle(t.0 / 4), TCycle(t.0 % 4))
     }
 }
 
