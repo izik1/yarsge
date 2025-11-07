@@ -38,6 +38,7 @@ impl Timer {
         }
     }
 
+    #[must_use]
     fn has_timer_bit(&self) -> bool {
         let bit = if self.tac & 0b11 == 0b00 {
             9
@@ -48,6 +49,7 @@ impl Timer {
         (self.sys_timer >> bit) & 1 > 0
     }
 
+    #[must_use]
     pub fn tick(&mut self) -> InterruptFlags {
         let reg_if = 'block: {
             if self.tima_overflow == 0 {

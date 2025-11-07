@@ -8,6 +8,7 @@ pub struct Memory {
 }
 
 impl Memory {
+    #[must_use]
     pub fn new(game_rom: Box<[u8]>, boot_rom: Box<[u8]>) -> Option<Self> {
         if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
@@ -24,6 +25,7 @@ impl Memory {
         }
     }
 
+    #[must_use]
     pub fn read_rom_low(&self, addr: u16) -> u8 {
         if self.boot_rom_enabled && addr < 0x100 {
             self.boot_rom[addr as usize]
@@ -37,6 +39,7 @@ impl Memory {
         }
     }
 
+    #[must_use]
     pub fn read_rom_high(&self, addr: u16) -> u8 {
         let addr = self.mbc.get_physical_addr_high(addr);
         if addr < self.game_rom.len() {
@@ -86,6 +89,7 @@ enum Mbc {
 }
 
 impl Mbc {
+    #[must_use]
     fn new_detect(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
         match cart_type {
             0x00 => Some(Mbc::Mbc0),
@@ -100,6 +104,7 @@ impl Mbc {
         }
     }
 
+    #[must_use]
     fn get_physical_addr_low(&self, addr: u16) -> usize {
         match *self {
             Mbc::Mbc0 => addr as usize,
@@ -116,6 +121,7 @@ impl Mbc {
         }
     }
 
+    #[must_use]
     fn get_physical_addr_high(&self, addr: u16) -> usize {
         match *self {
             Mbc::Mbc0 => addr.wrapping_add(0x4000) as usize,

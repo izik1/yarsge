@@ -19,10 +19,12 @@ impl Pad {
         self.status = val & 0x30;
     }
 
+    #[must_use]
     pub fn get_selected(&self) -> u8 {
         0xc0 | self.get_pad(self.keys)
     }
 
+    #[must_use]
     pub fn tick(&self) -> bool {
         self.get_pad(self.prev_keys) == 0xf && self.get_pad(self.keys) != 0xf
     }

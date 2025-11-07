@@ -36,14 +36,17 @@ impl Hardware {
         self.pad.set_keys(val);
     }
 
+    #[must_use]
     pub fn get_display(&self) -> &[DisplayPixel] {
         self.ppu.get_display()
     }
 
+    #[must_use]
     pub fn read_cycle(&mut self, addr: u16) -> u8 {
         self.read_cycle_intr(addr).0
     }
 
+    #[must_use]
     pub fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags) {
         self.tick_n(TCycle(2));
         let early_interrupts = self.reg_if & self.reg_ie;
@@ -82,6 +85,7 @@ impl Hardware {
         self.cycle_counter -= cycles;
     }
 
+    #[must_use]
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
             0x0000..0x4000 => self.memory.read_rom_low(addr),
@@ -98,6 +102,7 @@ impl Hardware {
         }
     }
 
+    #[must_use]
     fn read_io(&self, addr: u8) -> u8 {
         #[allow(clippy::match_same_arms)]
         match addr {
@@ -126,6 +131,7 @@ impl Hardware {
         let _ = self.write_cycle_intr(addr, val);
     }
 
+    #[must_use]
     pub fn write_cycle_intr(&mut self, addr: u16, val: u8) -> InterruptFlags {
         self.tick_n(TCycle(2));
         let early_interrupts = self.reg_if & self.reg_ie;

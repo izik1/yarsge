@@ -47,10 +47,12 @@ impl Ppu {
         &self.display_memory
     }
 
+    #[must_use]
     fn oam_blocked(&self) -> bool {
         self.stat_mode > 1
     }
 
+    #[must_use]
     fn vram_blocked(&self) -> bool {
         self.stat_mode == 3
     }
@@ -129,6 +131,7 @@ impl Ppu {
         }
     }
 
+    #[must_use]
     fn get_pixel_index(&self, tile: usize, y: usize, x: u8) -> u8 {
         let lower = self.vram[tile * 16 + y];
         let upper = self.vram[tile * 16 + y + 1];
@@ -213,6 +216,7 @@ impl Ppu {
         }
     }
 
+    #[must_use]
     fn update_vblank_start(&mut self) -> (InterruptFlags, bool) {
         if self.cycle_mod == 0 {
             self.window_ly = 0;
@@ -249,6 +253,7 @@ impl Ppu {
         }
     }
 
+    #[must_use]
     pub fn tick(&mut self) -> InterruptFlags {
         use std::cmp::Ordering;
 

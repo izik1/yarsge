@@ -15,6 +15,7 @@ pub mod emu;
 struct EdgeDetector<const EDGE: bool>(bool);
 
 impl<const EDGE: bool> EdgeDetector<EDGE> {
+    #[must_use]
     const fn new(value: bool) -> Self {
         Self(value)
     }
