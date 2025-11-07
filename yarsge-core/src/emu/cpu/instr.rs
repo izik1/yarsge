@@ -592,7 +592,7 @@ pub fn adc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
     let half_carry = (a & 0xF) + (value & 0xF) + c_in > 0xF;
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
-    let carry_flag = u16::from(a) + u16::from(half_carry) + u16::from(c_in) > 0xFF;
+    let carry_flag = u16::from(a) + u16::from(value) + u16::from(c_in) > 0xFF;
     cpu.regs.f.set(CpuFlags::C, carry_flag);
 
     cpu.generic_fetch(hw)
