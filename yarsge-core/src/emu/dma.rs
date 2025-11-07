@@ -43,7 +43,8 @@ impl Dma {
 
     #[must_use]
     pub fn oam_blocked(&self) -> bool {
-        self.running() || self.last_running
+        // since this is logically asked for "at the end of T-3", but `running` would reflect "at the start of T-0", we need to track the last value for running.
+        self.last_running
     }
 
     pub fn write_src(&mut self, value: u8) {
