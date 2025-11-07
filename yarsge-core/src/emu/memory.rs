@@ -1,6 +1,6 @@
 pub struct Memory {
     pub wram: [u8; 0x2000],
-    pub hram: [u8; 0x007F],
+    pub hram: [u8; 0x007f],
     game_rom: Box<[u8]>,
     boot_rom: Box<[u8]>,
     boot_rom_enabled: bool,
@@ -15,7 +15,7 @@ impl Memory {
             let mbc = Mbc::new_detect(game_rom[0x147], game_rom[0x148], game_rom[0x149])?;
             Some(Self {
                 wram: [0; 0x2000],
-                hram: [0; 0x007F],
+                hram: [0; 0x007f],
                 game_rom,
                 boot_rom,
                 boot_rom_enabled: true,
@@ -32,7 +32,7 @@ impl Memory {
             if addr < self.game_rom.len() {
                 self.game_rom[addr]
             } else {
-                0xFF
+                0xff
             }
         }
     }
@@ -42,7 +42,7 @@ impl Memory {
         if addr < self.game_rom.len() {
             self.game_rom[addr]
         } else {
-            0xFF
+            0xff
         }
     }
 
@@ -50,10 +50,10 @@ impl Memory {
         match self.mbc {
             Mbc::Mbc0 => {}
             Mbc::Mbc1(ref mut desc) => match addr {
-                0x0000..=0x1FFF => unimplemented!(),
-                0x2000..=0x3FFF => desc.rom_bank = if val & 0x1F == 0 { 1 } else { val & 0x1F },
-                0x4000..=0x5FFF => desc.ram_bank = val & 0b11,
-                0x6000..=0x7FFF => desc.ram_bank_mode = super::bits::has_bit(val, 0),
+                0x0000..0x2000 => unimplemented!(),
+                0x2000..0x4000 => desc.rom_bank = if val & 0x1f == 0 { 1 } else { val & 0x1f },
+                0x4000..0x6000 => desc.ram_bank = val & 0b11,
+                0x6000..0x8000 => desc.ram_bank_mode = super::bits::has_bit(val, 0),
                 _ => unreachable!(),
             },
         }

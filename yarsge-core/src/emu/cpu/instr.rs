@@ -266,7 +266,7 @@ pub fn ld_r16_a(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
         R16::BC => (cpu.regs.bc, 0x0000),
         R16::DE => (cpu.regs.de, 0x0000),
         R16::HL => (cpu.regs.hl, 0x0001),
-        R16::SP => (cpu.regs.hl, 0xFFFF),
+        R16::SP => (cpu.regs.hl, 0xffff),
     };
 
     cpu.regs.hl = cpu.regs.hl.wrapping_add(hl_mod);
@@ -301,9 +301,9 @@ pub fn inc_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status 
     set_register_arg(cpu, hw, register, value.wrapping_add(1));
 
     cpu.regs.f.remove(CpuFlags::N);
-    cpu.regs.f.set(CpuFlags::Z, value == 0xFF);
+    cpu.regs.f.set(CpuFlags::Z, value == 0xff);
 
-    let half_carry = (((value & 0xF) + 1) & 0x10) == 0x10;
+    let half_carry = (((value & 0xf) + 1) & 0x10) == 0x10;
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
     cpu.generic_fetch(hw)
@@ -322,7 +322,7 @@ pub fn dec_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status 
 
     cpu.regs.f.set(CpuFlags::Z, value == 1);
     cpu.regs.f.insert(CpuFlags::N);
-    cpu.regs.f.set(CpuFlags::H, (value & 0xF) == 0);
+    cpu.regs.f.set(CpuFlags::H, (value & 0xf) == 0);
 
     cpu.generic_fetch(hw)
 }
@@ -381,7 +381,7 @@ pub fn add_hl_reg16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 
     cpu.regs.f.remove(CpuFlags::N);
 
-    let half_carry = (((cpu.regs.hl & 0xFFF) + (value & 0xFFF)) & 0x1000) == 0x1000;
+    let half_carry = (((cpu.regs.hl & 0xfff) + (value & 0xfff)) & 0x1000) == 0x1000;
 
     cpu.regs.f.set(CpuFlags::H, half_carry);
     cpu.regs.f.set(CpuFlags::C, result < cpu.regs.hl);
@@ -403,7 +403,7 @@ pub fn ld_a_r16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
         R16::BC => (cpu.regs.bc, 0x0000),
         R16::DE => (cpu.regs.de, 0x0000),
         R16::HL => (cpu.regs.hl, 0x0001),
-        R16::SP => (cpu.regs.hl, 0xFFFF),
+        R16::SP => (cpu.regs.hl, 0xffff),
     };
 
     cpu.regs.hl = cpu.regs.hl.wrapping_add(hl_mod);
@@ -482,18 +482,18 @@ pub fn daa(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     let mut res = i32::from(cpu.regs.a); // todo: check if this can be i16.
     if cpu.regs.f.contains(CpuFlags::N) {
         if cpu.regs.f.contains(CpuFlags::H) {
-            res = (res - 6) & 0xFF;
+            res = (res - 6) & 0xff;
         }
 
         if cpu.regs.f.contains(CpuFlags::C) {
             res -= 0x60;
         }
     } else {
-        if cpu.regs.f.contains(CpuFlags::H) || (res & 0xF) > 9 {
+        if cpu.regs.f.contains(CpuFlags::H) || (res & 0xf) > 9 {
             res += 0x06;
         }
 
-        if cpu.regs.f.contains(CpuFlags::C) || res > 0x9F {
+        if cpu.regs.f.contains(CpuFlags::C) || res >= 0xa0 {
             res += 0x60;
         }
     }
@@ -565,7 +565,7 @@ pub fn add(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
     cpu.regs.f.set(CpuFlags::Z, cpu.regs.a == 0);
     cpu.regs.f.remove(CpuFlags::N);
 
-    let half_carry = (((a & 0xF) + (value & 0xF)) & 0x10) == 0x10;
+    let half_carry = (((a & 0xf) + (value & 0xf)) & 0x10) == 0x10;
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
     cpu.regs.f.set(CpuFlags::C, cpu.regs.a < a);
@@ -589,10 +589,10 @@ pub fn adc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
     cpu.regs.f.set(CpuFlags::Z, cpu.regs.a == 0);
     cpu.regs.f.remove(CpuFlags::N);
 
-    let half_carry = (a & 0xF) + (value & 0xF) + c_in > 0xF;
+    let half_carry = (a & 0xf) + (value & 0xf) + c_in > 0xf;
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
-    let carry_flag = u16::from(a) + u16::from(value) + u16::from(c_in) > 0xFF;
+    let carry_flag = u16::from(a) + u16::from(value) + u16::from(c_in) > 0xff;
     cpu.regs.f.set(CpuFlags::C, carry_flag);
 
     cpu.generic_fetch(hw)
@@ -613,7 +613,7 @@ pub fn sub(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.insert(CpuFlags::N);
-    cpu.regs.f.set(CpuFlags::H, (a & 0xF) < (value & 0xF));
+    cpu.regs.f.set(CpuFlags::H, (a & 0xf) < (value & 0xf));
     cpu.regs.f.set(CpuFlags::C, value > a);
 
     cpu.generic_fetch(hw)
@@ -636,13 +636,13 @@ pub fn sbc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 
     cpu.regs.set_reg(Reg::A, result as u8);
 
-    cpu.regs.f.set(CpuFlags::Z, (result & 0xFF) == 0);
+    cpu.regs.f.set(CpuFlags::Z, (result & 0xff) == 0);
     cpu.regs.f.insert(CpuFlags::N);
 
-    let half_carry = (a & 0xF) < ((value & 0xF) + carry_in);
+    let half_carry = (a & 0xf) < ((value & 0xf) + carry_in);
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
-    cpu.regs.f.set(CpuFlags::C, result > 0xFF);
+    cpu.regs.f.set(CpuFlags::C, result > 0xff);
 
     cpu.generic_fetch(hw)
 }
@@ -723,7 +723,7 @@ pub fn cp(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 
     cpu.regs.f.set(CpuFlags::Z, a == value);
     cpu.regs.f.insert(CpuFlags::N);
-    cpu.regs.f.set(CpuFlags::H, (a & 0xF) < (value & 0xF));
+    cpu.regs.f.set(CpuFlags::H, (a & 0xf) < (value & 0xf));
     cpu.regs.f.set(CpuFlags::C, a < value);
 
     cpu.generic_fetch(hw)
@@ -866,12 +866,12 @@ pub fn ret<const EI: bool>(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
 // Mnemonic: LDH (a8),A
 // Full Name: Load High (a8),A
-// Description: loads A into (0xFF00 | a8).
+// Description: loads A into (0xff00 | a8).
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Write
 pub fn ldh_a8_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xFF00 | u16::from(cpu.fetch_imm8(hw));
+    let addr = 0xff00 | u16::from(cpu.fetch_imm8(hw));
     let a = cpu.regs.reg(Reg::A);
     hw.write_cycle(addr, a);
 
@@ -880,12 +880,12 @@ pub fn ldh_a8_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
 // Mnemonic: LDH (c),A
 // Full Name: Load High (c),A
-// Description: loads A into (0xFF00 | c).
+// Description: loads A into (0xff00 | c).
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Write
 pub fn ldh_c_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xFF00 | u16::from(cpu.regs.reg(Reg::C));
+    let addr = 0xff00 | u16::from(cpu.regs.reg(Reg::C));
     let a = cpu.regs.reg(Reg::A);
     hw.write_cycle(addr, a);
 
@@ -894,12 +894,12 @@ pub fn ldh_c_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
 // Mnemonic: LDH (a8),A
 // Full Name: Load High (a8),A
-// Description: loads A into (0xFF00 | a8).
+// Description: loads A into (0xff00 | a8).
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read
 pub fn ldh_a_a8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xFF00 | u16::from(cpu.fetch_imm8(hw));
+    let addr = 0xff00 | u16::from(cpu.fetch_imm8(hw));
     let value = hw.read_cycle(addr);
     cpu.regs.set_reg(Reg::A, value);
 
@@ -908,12 +908,12 @@ pub fn ldh_a_a8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
 // Mnemonic: LDH (c),A
 // Full Name: Load High (c),A
-// Description: loads A into (0xFF00 | c).
+// Description: loads A into (0xff00 | c).
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read
 pub fn ldh_a_c(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xFF00 | u16::from(cpu.regs.reg(Reg::C));
+    let addr = 0xff00 | u16::from(cpu.regs.reg(Reg::C));
     let value = hw.read_cycle(addr);
     cpu.regs.set_reg(Reg::A, value);
 
@@ -969,10 +969,10 @@ pub fn ld_hl_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     cpu.regs.f = CpuFlags::empty();
     cpu.regs
         .f
-        .set(CpuFlags::H, ((cpu.regs.sp & 0x0F) + (r8 & 0x0F)) > 0x0F);
+        .set(CpuFlags::H, ((cpu.regs.sp & 0x0f) + (r8 & 0x0f)) > 0x0f);
     cpu.regs
         .f
-        .set(CpuFlags::C, (((cpu.regs.sp) & 0xFF) + (r8 & 0xFF)) > 0xFF);
+        .set(CpuFlags::C, (((cpu.regs.sp) & 0xff) + (r8 & 0xff)) > 0xff);
 
     cpu.regs.hl = cpu.regs.sp.wrapping_add(r8);
 
@@ -1034,11 +1034,11 @@ pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(
         CpuFlags::H,
-        ((cpu.regs.sp & 0x0F) + (r8 as u16 & 0x0F)) > 0x0F,
+        ((cpu.regs.sp & 0x0f) + (r8 as u16 & 0x0f)) > 0x0f,
     );
     cpu.regs.f.set(
         CpuFlags::C,
-        ((cpu.regs.sp & 0xFF) + (r8 as u16 & 0xFF)) > 0xFF,
+        ((cpu.regs.sp & 0xff) + (r8 as u16 & 0xff)) > 0xff,
     );
 
     cpu.regs.sp = cpu.regs.sp.wrapping_add(r8 as u16);

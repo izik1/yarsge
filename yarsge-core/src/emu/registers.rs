@@ -79,12 +79,12 @@ impl Registers {
 
     pub fn set_reg(&mut self, reg: Reg, val: u8) {
         match reg {
-            Reg::B => self.bc = (self.bc & 0xFF) | (u16::from(val) << 8),
-            Reg::C => self.bc = (self.bc & 0xFF00) | u16::from(val),
-            Reg::D => self.de = (self.de & 0xFF) | (u16::from(val) << 8),
-            Reg::E => self.de = (self.de & 0xFF00) | u16::from(val),
-            Reg::H => self.hl = (self.hl & 0xFF) | (u16::from(val) << 8),
-            Reg::L => self.hl = (self.hl & 0xFF00) | u16::from(val),
+            Reg::B => self.bc = (self.bc & 0xff) | (u16::from(val) << 8),
+            Reg::C => self.bc = (self.bc & 0xff00) | u16::from(val),
+            Reg::D => self.de = (self.de & 0xff) | (u16::from(val) << 8),
+            Reg::E => self.de = (self.de & 0xff00) | u16::from(val),
+            Reg::H => self.hl = (self.hl & 0xff) | (u16::from(val) << 8),
+            Reg::L => self.hl = (self.hl & 0xff00) | u16::from(val),
             Reg::A => self.a = val,
         }
     }

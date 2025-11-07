@@ -84,21 +84,17 @@ impl Hardware {
 
     fn read_byte(&self, addr: u16) -> u8 {
         match addr {
-            0x0000..=0x3FFF => self.memory.read_rom_low(addr),
-            0x4000..=0x7FFF => self.memory.read_rom_high(addr - 0x4000),
-            0x8000..=0x9FFF => self.ppu.get_vram(addr - 0x8000).unwrap_or(0xFF),
-            0xC000..=0xDFFF => self.memory.wram[(addr - 0xC000) as usize],
-            0xE000..=0xFDFF => self.memory.wram[(addr - 0xE000) as usize],
-            0xFE00..=0xFE9F => self.ppu.read_oam(addr - 0xFE00).unwrap_or(0xFF),
-            0xFEA0..=0xFEFF => 0,
-            0xFF00..=0xFF7F => self.read_io(addr as u8),
-            0xFF80..=0xFFFE => self.memory.hram[addr as usize - 0xFF80],
-            0xFFFF => self.reg_ie.bits(),
-            _ => unimplemented!(
-                "Unimplemented address range (read): (addr: {:01$X})",
-                addr,
-                4
-            ),
+            0x0000..0x4000 => self.memory.read_rom_low(addr),
+            0x4000..0x8000 => self.memory.read_rom_high(addr - 0x4000),
+            0x8000..0xa000 => self.ppu.get_vram(addr - 0x8000).unwrap_or(0xff),
+            0xc000..0xe000 => self.memory.wram[(addr - 0xc000) as usize],
+            0xe000..0xfe00 => self.memory.wram[(addr - 0xe000) as usize],
+            0xfe00..0xfea0 => self.ppu.read_oam(addr - 0xfe00).unwrap_or(0xff),
+            0xfea0..0xff00 => 0,
+            0xff00..0xff80 => self.read_io(addr as u8),
+            0xff80..0xffff => self.memory.hram[addr as usize - 0xff80],
+            0xffff => self.reg_ie.bits(),
+            _ => unimplemented!("Unimplemented address range (read): (addr: {addr:#04x})"),
         }
     }
 
@@ -106,17 +102,17 @@ impl Hardware {
         #[allow(clippy::match_same_arms)]
         match addr {
             0x00 => self.pad.get_selected(),
-            0x04..=0x07 => self.timer.read_reg(addr),
-            0x08..=0x0E => 0xFF, // Empty range.
-            0x0F => self.reg_if.bits() | 0xE0,
-            0x10..=0x3F => 0xFF, // TODO: APU, silently ignore
+            0x04..0x08 => self.timer.read_reg(addr),
+            0x08..0x0f => 0xff, // Empty range.
+            0x0f => self.reg_if.bits() | 0xe0,
+            0x10..0x40 => 0xff, // TODO: APU, silently ignore
             0x46 => (self.dma.addr >> 8) as u8,
-            0x40..=0x45 | 0x47..=0x4B => self.ppu.get_reg(addr),
-            0x4C..=0x7F => 0xFF, // Empty range.
-            0x80..=0xFF => unreachable!("Invalid address range for IO regs! (read)"),
+            0x40..0x46 | 0x47..0x4c => self.ppu.get_reg(addr),
+            0x4c..0x80 => 0xff, // Empty range.
+            0x80.. => unreachable!("Invalid address range for IO regs! (read)"),
             _ => {
-                eprintln!("Unimplemented IO reg (read): (addr: 0xFF{:01$X})", addr, 2);
-                0xFF
+                eprintln!("Unimplemented IO reg (read): (addr: 0xff{addr:02x})");
+                0xff
             }
         }
     }
@@ -137,21 +133,17 @@ impl Hardware {
         // zzz bus
         self.tick();
         match addr {
-            0x0000..=0x7FFF => self.memory.mbc_write(addr, val),
-            0x8000..=0x9FFF => self.ppu.set_vram(addr - 0x8000, val),
-            0xC000..=0xDFFF => self.memory.wram[(addr - 0xC000) as usize] = val,
-            0xE000..=0xFDFF => self.memory.wram[(addr - 0xE000) as usize] = val,
-            0xFE00..=0xFE9F => self.ppu.write_oam(addr - 0xFE00, val),
-            0xFEA0..=0xFEFF => {}
-            0xFF00..=0xFF7F => self.write_io(addr as u8, val),
-            0xFF80..=0xFFFE => self.memory.hram[addr as usize - 0xFF80] = val,
-            0xFFFF => self.reg_ie = InterruptFlags::from_bits_retain(val),
+            0x0000..0x8000 => self.memory.mbc_write(addr, val),
+            0x8000..0xa000 => self.ppu.set_vram(addr - 0x8000, val),
+            0xc000..0xe000 => self.memory.wram[(addr - 0xc000) as usize] = val,
+            0xe000..0xfe00 => self.memory.wram[(addr - 0xe000) as usize] = val,
+            0xfe00..0xfea0 => self.ppu.write_oam(addr - 0xfe00, val),
+            0xfea0..0xff00 => {}
+            0xff00..0xff80 => self.write_io(addr as u8, val),
+            0xff80..0xffff => self.memory.hram[addr as usize - 0xff80] = val,
+            0xffff => self.reg_ie = InterruptFlags::from_bits_retain(val),
             _ => unimplemented!(
-                "Unimplemented address range (write): (addr: {:01$X} val: {2:03$X})",
-                addr,
-                4,
-                val,
-                2
+                "Unimplemented address range (write): (addr: {addr:#04x} val: {val:#02x})"
             ),
         }
 
@@ -163,22 +155,19 @@ impl Hardware {
         match addr {
             0x00 => self.pad.set_status(val),
             0x01 | 0x02 => {} // TODO: serial, silently ignore
-            0x04..=0x07 => self.timer.write_reg(addr, val),
-            0x08..=0x0E => {} // Empty range.
-            0x0F => self.reg_if = InterruptFlags::from_bits_truncate(val),
-            0x10..=0x3F => {} // TODO: APU, silently ignore
+            0x04..0x08 => self.timer.write_reg(addr, val),
+            0x08..0x0f => {} // Empty range.
+            0x0f => self.reg_if = InterruptFlags::from_bits_truncate(val),
+            0x10..0x40 => {} // TODO: APU, silently ignore
             0x46 => {
                 self.dma.ld_addr = u16::from(val) << 8;
                 self.dma.ld_timer = 4;
             }
-            0x40..=0x45 | 0x47..=0x4B => self.ppu.set_reg(addr, val),
+            0x40..0x46 | 0x47..0x4c => self.ppu.set_reg(addr, val),
             0x50 => self.memory.disable_boot_rom(),
-            0x4C..=0x4F | 0x51..=0x7F => {}
-            0x80..=0xFF => unreachable!("Invalid address range for IO regs! (write)"),
-            _ => eprintln!(
-                "Unimplemented IO reg (write): (addr: 0xFF{:01$X} val: {2:03$X})",
-                addr, 2, val, 2
-            ),
+            0x4c..0x50 | 0x51..0x80 => {}
+            0x80.. => unreachable!("Invalid address range for IO regs! (write)"),
+            _ => eprintln!("Unimplemented IO reg (write): (addr: 0xff{addr:02x} val: {val:#02x})"),
         }
     }
 }

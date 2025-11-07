@@ -22,7 +22,7 @@ impl DisplayPixel {
 
 pub struct Ppu {
     vram: [u8; 0x2000],
-    pub oam: [u8; 0xA0],
+    pub oam: [u8; 0xa0],
     display_memory: [DisplayPixel; 160 * 144],
     obj_pallet_a: u8,
     obj_pallet_b: u8,
@@ -85,13 +85,13 @@ impl Ppu {
             0x43 => self.scx = val,
             0x44 => {}
             0x45 => self.lyc = val,
-            0x4A | 0x4B => log::warn!(
-                "todo: unimplemented PPU reg write: (addr: 0xff{addr:02x} val: {val:02x})",
+            0x4a | 0x4b => log::warn!(
+                "todo: unimplemented PPU reg write: (addr: 0xff{addr:02x} val: {val:#02x})",
             ),
             0x47 => self.bg_pallet = val,
-            0x48 => self.obj_pallet_a = val & 0xFC,
-            0x49 => self.obj_pallet_b = val & 0xFC,
-            _ => log::error!("BUG: invalid PPU write (0xff{addr:02x} -> {val:02x})"),
+            0x48 => self.obj_pallet_a = val & 0xfc,
+            0x49 => self.obj_pallet_b = val & 0xfc,
+            _ => log::error!("BUG: invalid PPU write (0xff{addr:02x} -> {val:#02x})"),
         }
     }
 
@@ -105,7 +105,7 @@ impl Ppu {
             0x44 => self.visible_ly,
             0x45 => self.lyc,
             0x4a | 0x4b => {
-                eprintln!("todo: unimplemented PPU reg (read): (addr: 0xFF{addr:02X})",);
+                eprintln!("todo: unimplemented PPU reg (read): (addr: 0xff{addr:02x})",);
                 0xff
             }
             0x47 => self.bg_pallet,
@@ -138,14 +138,14 @@ impl Ppu {
     fn render_line_bg(&mut self) {
         fn get_map_base(lcdc: u8) -> usize {
             if bits::has_bit(lcdc, 3) {
-                0x1C00
+                0x1c00
             } else {
                 0x1800
             }
         }
 
         let map_offset =
-            get_map_base(self.lcdc) + (((self.scy as usize + self.ly as usize) & 0xFF) >> 3) * 32;
+            get_map_base(self.lcdc) + (((self.scy as usize + self.ly as usize) & 0xff) >> 3) * 32;
 
         let mut line_offset = self.scx as usize >> 3;
         let y = ((self.ly as usize + self.scy as usize) & 7) * 2;
@@ -303,7 +303,7 @@ impl Default for Ppu {
             obj_pallet_a: 0,
             obj_pallet_b: 0,
             vram: [0; 0x2000],
-            oam: [0; 0xA0],
+            oam: [0; 0xa0],
             scx: 0,
             scy: 0,
             lcdc: 0,

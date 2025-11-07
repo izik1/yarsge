@@ -32,7 +32,7 @@ impl Timer {
             0x04 => (self.sys_timer >> 8) as u8,
             0x05 => self.tima,
             0x06 => self.tma,
-            0x07 => self.tac | 0xF8,
+            0x07 => self.tac | 0xf8,
             _ => unreachable!(),
         }
     }

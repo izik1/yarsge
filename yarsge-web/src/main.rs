@@ -51,10 +51,10 @@ impl Emulator {
         Emulator {
             core: None,
             ctx,
-            framebuffer: [0xFFFF_FFFF; 160 * 144],
+            framebuffer: [0xffff_ffff; 160 * 144],
             boot_rom: None,
             rom: None,
-            keys: 0xFF,
+            keys: 0xff,
         }
     }
 
@@ -74,14 +74,14 @@ impl Emulator {
             for (buffer_pixel, display_pixel) in self.framebuffer.iter_mut().zip(disp.iter()) {
                 // framebuffer is abgr... or big endian.
                 *buffer_pixel = match display_pixel {
-                    DisplayPixel::White => 0xFF0F_BC9B,
-                    DisplayPixel::LightGrey => 0xFF0FAC8B,
-                    DisplayPixel::DarkGrey => 0xFF30_6230,
-                    DisplayPixel::Black => 0xFF0F_380F,
+                    DisplayPixel::White => 0xff0f_bc9b,
+                    DisplayPixel::LightGrey => 0xff0fac8b,
+                    DisplayPixel::DarkGrey => 0xff30_6230,
+                    DisplayPixel::Black => 0xff0f_380f,
                 }
             }
         } else {
-            self.framebuffer.iter_mut().for_each(|x| *x = 0xFF0F_BC9B);
+            self.framebuffer.iter_mut().for_each(|x| *x = 0xff0f_bc9b);
         }
 
         js! {

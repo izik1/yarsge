@@ -83,7 +83,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let mut gb = emu::GameBoy::new(boot_rom, game_rom)
         .ok_or_else(|| anyhow::anyhow!("Error loading cpu"))?;
 
-    let mut key_state = 0xFF;
+    let mut key_state = 0xff;
 
     let start = Instant::now();
     let mut last_subframe = start;
@@ -139,14 +139,14 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
             use yarsge_core::emu::ppu::DisplayPixel;
             let px = match disp[i] {
                 DisplayPixel::White => RGB8 {
-                    r: 0x9B,
-                    g: 0xBC,
-                    b: 0x0F,
+                    r: 0x9b,
+                    g: 0xbc,
+                    b: 0x0f,
                 },
                 DisplayPixel::LightGrey => RGB8 {
-                    r: 0x8B,
-                    g: 0xAC,
-                    b: 0x0F,
+                    r: 0x8b,
+                    g: 0xac,
+                    b: 0x0f,
                 },
                 DisplayPixel::DarkGrey => RGB8 {
                     r: 0x30,
@@ -154,9 +154,9 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
                     b: 0x30,
                 },
                 DisplayPixel::Black => RGB8 {
-                    r: 0x0F,
+                    r: 0x0f,
                     g: 0x38,
-                    b: 0x0F,
+                    b: 0x0f,
                 },
             };
 
