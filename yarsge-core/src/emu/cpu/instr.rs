@@ -819,7 +819,6 @@ pub fn call_cc(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     let addr = cpu.fetch_imm16(hw);
     if eval_cc(cpu.regs.ir, cpu.regs.f) {
         call_jmp(cpu, hw, addr);
-        hw.idle_cycle();
     }
 
     cpu.generic_fetch(hw)
@@ -1203,6 +1202,7 @@ pub fn bit(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, mask: u8) ->
     cpu.regs.f &= CpuFlags::C;
     cpu.regs.f |= CpuFlags::H;
     let b = (get_register_arg(cpu, hw, register) & mask) == 0;
+
     cpu.regs.f.set(CpuFlags::Z, b);
 
     cpu.generic_fetch(hw)
