@@ -1,3 +1,6 @@
+use core::fmt;
+use std::array;
+use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
@@ -10,6 +13,82 @@ use clap::Parser;
 use rgb::RGB8;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
+
+struct HexColor(RGB8);
+
+impl fmt::Display for HexColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let RGB8 { r, g, b } = self.0;
+        write!(f, "#{r:02x}{g:02x}{b:02x}")
+    }
+}
+
+impl FromStr for HexColor {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let suffix = s.strip_prefix('#').ok_or("invalid palette color")?;
+
+        if suffix.len() != 6 {
+            return Err("invalid palette color");
+        }
+
+        let value = u32::from_str_radix(suffix, 16).map_err(|_| "invalid palette color")?;
+
+        let [_, r, g, b] = value.to_be_bytes();
+
+        Ok(Self(RGB8 { r, g, b }))
+    }
+}
+
+#[derive(Clone, Debug)]
+struct Palette([RGB8; 4]);
+
+impl Palette {
+    const DEFAULT: Self = Self([
+        RGB8 {
+            r: 0x9b,
+            g: 0xbc,
+            b: 0x0f,
+        },
+        RGB8 {
+            r: 0x8b,
+            g: 0xac,
+            b: 0x0f,
+        },
+        RGB8 {
+            r: 0x30,
+            g: 0x62,
+            b: 0x30,
+        },
+        RGB8 {
+            r: 0x0f,
+            g: 0x38,
+            b: 0x0f,
+        },
+    ]);
+}
+
+impl FromStr for Palette {
+    type Err = &'static str;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let palette = s
+            .split(',')
+            .map(HexColor::from_str)
+            .map(|it| it.map(|it| it.0))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        palette.try_into().map(Self).map_err(|_| "invalid palette")
+    }
+}
+
+impl fmt::Display for Palette {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let [white, light, dark, black] = self.0.map(HexColor);
+        write!(f, "{white},{light},{dark},{black}")
+    }
+}
 
 #[derive(Parser, Debug)]
 #[clap(about = "Emulates GameBoy games.", author)]
@@ -27,6 +106,9 @@ struct Opt {
 
     #[clap(help = "Path to the game rom")]
     game_rom: String,
+
+    #[clap(short = 'p', long = "palette", default_value_t = Palette::DEFAULT)]
+    palette: Palette,
 }
 
 fn lookup_key(map: &[(Keycode, Keys)], code: Keycode) -> Option<Keys> {
@@ -157,29 +239,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         let disp = gb.get_display();
 
         for (px, elems) in disp.into_iter().zip(array.as_chunks_mut::<3>().0) {
-            use yarsge_core::emu::ppu::DisplayPixel;
-            let px = match px {
-                DisplayPixel::White => RGB8 {
-                    r: 0x9b,
-                    g: 0xbc,
-                    b: 0x0f,
-                },
-                DisplayPixel::LightGrey => RGB8 {
-                    r: 0x8b,
-                    g: 0xac,
-                    b: 0x0f,
-                },
-                DisplayPixel::DarkGrey => RGB8 {
-                    r: 0x30,
-                    g: 0x62,
-                    b: 0x30,
-                },
-                DisplayPixel::Black => RGB8 {
-                    r: 0x0f,
-                    g: 0x38,
-                    b: 0x0f,
-                },
-            };
+            let px = opt.palette.0[px as usize];
 
             *elems = px.into();
         }
