@@ -1,5 +1,4 @@
 use core::fmt;
-use std::array;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 

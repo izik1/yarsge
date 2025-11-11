@@ -1,8 +1,9 @@
-use std::array;
-use std::sync::atomic::{self, AtomicU64};
+use std::cmp;
+
+use arrayvec::ArrayVec;
 
 use crate::RisingEdge;
-use crate::emu::{InterruptFlags, bits};
+use crate::emu::InterruptFlags;
 
 pub type Vram = [u8; 0x2000];
 pub type Oam = [u8; 0xa0];
@@ -48,19 +49,6 @@ struct DisplayMemory([u8; (160 / 4) * 144]);
 impl DisplayMemory {
     const fn new() -> Self {
         Self([0; (160 / 4) * 144])
-    }
-
-    fn set4(&mut self, elem: usize, values: [DisplayPixel; 4]) {
-        let value = {
-            let mut value = 0_u8;
-            for (idx, elem) in values.into_iter().enumerate() {
-                value |= (elem as u8) << (idx * 2);
-            }
-
-            value
-        };
-
-        self.0[elem] = value;
     }
 
     fn set(&mut self, offset: usize, value: DisplayPixel) {
@@ -138,6 +126,57 @@ impl BgFifo {
     }
 }
 
+struct SpritePixel {
+    bg_over_sprite: bool,
+    palette: bool,
+    color: u8,
+}
+
+struct SpriteFifo {
+    raw: u16,
+    bg_over_sprite: u8,
+    palette: u8,
+    len: u8,
+}
+
+impl SpriteFifo {
+    const fn new() -> Self {
+        Self {
+            raw: 0,
+            bg_over_sprite: 0,
+            palette: 0,
+
+            len: 0,
+        }
+    }
+
+    // always succeeds a push ("overlapping" pixels just get skipped)
+    fn push8(&mut self, pxs: u16, bg_over_sprite: bool, palette: bool) {
+        self.raw |= pxs & (u16::MAX >> (self.len * 2));
+
+        self.bg_over_sprite |= (bg_over_sprite as u8) * (u8::MAX >> self.len);
+        self.palette |= (palette as u8) * (u8::MAX >> self.len);
+
+        self.len = 8;
+    }
+
+    fn pop(&mut self) -> SpritePixel {
+        self.len = self.len.saturating_sub(1);
+        let value = self.raw >> 14;
+        let bg_over_sprite = self.bg_over_sprite >> 7 == 1;
+        let palette = self.palette >> 7 == 1;
+        self.raw <<= 2;
+        self.bg_over_sprite <<= 1;
+        self.palette <<= 1;
+
+        SpritePixel {
+            bg_over_sprite,
+            palette,
+            color: (value as u8) & 0b11,
+        }
+    }
+}
+
 fn interleave(hi: u8, lo: u8) -> u16 {
     let mut res = 0;
     let mut hi = hi.reverse_bits() as u16;
@@ -152,6 +191,69 @@ fn interleave(hi: u8, lo: u8) -> u16 {
 
     res
 }
+
+fn get_map_base(lcdc: Lcdc) -> usize {
+    if lcdc.contains(Lcdc::BG_TILE_MAP) {
+        0x1c00
+    } else {
+        0x1800
+    }
+}
+
+fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
+    // conveinently, tall tiles are big-endian, so we can just mask out the bottom bit and still get the right math later.
+    if OBJ && lcdc.contains(Lcdc::OBJ_SIZE) {
+        return (tile_index & 0xfe) as usize * 16;
+    }
+
+    if OBJ || lcdc.contains(Lcdc::BG_WINDOW_TILES) {
+        return tile_index as usize * 16;
+    }
+
+    // transform from 0x00..=0xff to [0x0000..=0x07f0] and [-0x0800..0x0000]
+    let tile_index = usize::from(
+        i16::from(tile_index.cast_signed())
+            .wrapping_mul(16)
+            .cast_unsigned(),
+    );
+
+    0x1000_usize.wrapping_add(tile_index)
+}
+
+fn is_sprite_onscreen(ly: u8, sy: u8, lcdc: Lcdc) -> bool {
+    let height: u8 = if lcdc.contains(Lcdc::OBJ_SIZE) { 16 } else { 8 };
+
+    let y = ly.wrapping_add(16).wrapping_sub(sy);
+
+    y.cast_signed() >= 0 && y < height
+}
+
+fn get_sprite_y(ly: u8, sy: u8, lcdc: Lcdc, y_flip: bool) -> usize {
+    let height: u8 = if lcdc.contains(Lcdc::OBJ_SIZE) { 16 } else { 8 };
+
+    // we can already assume that if we're here the sprite is supposed to be drawn at all (ie,  the )
+
+    // ly=0, sy=0, OBJ_SIZE=1 -> function should never be called (off the top of the screen)
+    // ly=0, sy<=8, OBJ_SIZE=0 -> function should never be called (off the top of the screen)
+    // ly=0, sy=17, OBJ_SIZE=? -> function should never be called (off the bottom of the screen)
+
+    // ly=0, sy=1, OBJ_SIZE=1 -> `15 * 2` (vram[(base + 30)..][..2])
+    // full math:
+    // y = (h - 1) - ((sy + h) - (ly + 16 + 1))
+    // y = (h - 1) - (sy + h) + (ly + 16 + 1)
+    // y = (-1) - (sy) + (ly + 16 + 1)
+    // y = -sy + ly + 16
+    let y = ly + 16 - sy;
+    debug_assert!(y.cast_signed() >= 0, "sprite off the top of the screen");
+    debug_assert!(y < height, "sprite off the bottom of the screen");
+
+    if y_flip {
+        usize::from(height - y - 1)
+    } else {
+        usize::from(y)
+    }
+}
+
 enum PixelFetcherState {
     GetTileD1,
     GetTileD2 { tile_index: u8 },
@@ -164,6 +266,7 @@ enum PixelFetcherState {
 
 struct PixelFetcher {
     st: PixelFetcherState,
+    sprite: Option<Sprite>,
     first: bool,
     x: u8,
 }
@@ -174,46 +277,66 @@ impl PixelFetcher {
             st: PixelFetcherState::GetTileD1,
             first: true,
             x: 0,
+            sprite: None,
         }
     }
 
-    fn tick(&mut self, vram: &Vram, fifo: &mut BgFifo, scx: u8, lcdc: Lcdc, y: u8) {
-        fn get_map_base(lcdc: Lcdc) -> usize {
-            if lcdc.contains(Lcdc::BG_TILE_MAP) {
-                0x1c00
-            } else {
-                0x1800
+    fn can_interrupt(&self, bg_fifo: &BgFifo) -> bool {
+        matches!(self.st, PixelFetcherState::Push { .. }) && bg_fifo.len > 0
+    }
+
+    fn can_obj_fetch_cancel(&self) -> bool {
+        self.sprite.is_some() && !matches!(self.st, PixelFetcherState::TileDataHighD2 { .. })
+    }
+
+    fn tick(
+        &mut self,
+        vram: &Vram,
+        bg_fifo: &mut BgFifo,
+        sprite_fifo: &mut SpriteFifo,
+        scx: u8,
+        scy: u8,
+        lcdc: Lcdc,
+        ly: u8,
+    ) {
+        fn tile_addr(
+            sprite: Option<&Sprite>,
+            tile_index: u8,
+            lcdc: Lcdc,
+            ly: u8,
+            scy: u8,
+        ) -> usize {
+            match sprite {
+                Some(sprite) => {
+                    let base = get_tile::<true>(tile_index, lcdc);
+                    base + get_sprite_y(
+                        ly,
+                        sprite.sy,
+                        lcdc,
+                        sprite.flags.contains(SpriteFlags::Y_FLIP),
+                    ) * 2
+                }
+
+                None => {
+                    let base = get_tile::<false>(tile_index, lcdc);
+                    base + usize::from((ly + scy) % 8) * 2
+                }
             }
-        }
-
-        fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
-            if OBJ || lcdc.contains(Lcdc::BG_WINDOW_TILES) {
-                return tile_index as usize * 16;
-            }
-
-            // transform from 0x00..=0xff to [0x0000..=0x07f0] and [-0x0800..0x0000]
-            let tile_index = usize::from(
-                i16::from(tile_index.cast_signed())
-                    .wrapping_mul(16)
-                    .cast_unsigned(),
-            );
-
-            0x1000_usize.wrapping_add(tile_index)
         }
 
         match self.st {
             PixelFetcherState::GetTileD1 => {
-                let x = if self.first {
-                    self.first = false;
-                    self.x
-                } else {
-                    let x = self.x;
-                    self.x += 1;
-                    x
-                };
+                if let Some(sprite) = &self.sprite {
+                    self.st = PixelFetcherState::GetTileD2 {
+                        tile_index: sprite.tile,
+                    };
+                    return;
+                }
+
+                let x = self.x;
 
                 let x = (x + (scx >> 3)) & 0x1f;
-                let y = y >> 3;
+                let y = (ly + scy) >> 3;
                 let tile_index = (y as usize) * 32 + x as usize;
                 let offset = get_map_base(lcdc) + tile_index;
 
@@ -225,8 +348,8 @@ impl PixelFetcher {
                 self.st = PixelFetcherState::TileDataLowD1 { tile_index };
             }
             PixelFetcherState::TileDataLowD1 { tile_index } => {
-                let tile_base = get_tile::<false>(tile_index, lcdc);
-                let tile_addr = tile_base + usize::from(y % 8) * 2;
+                let tile_addr = tile_addr(self.sprite.as_ref(), tile_index, lcdc, ly, scy);
+
                 self.st = PixelFetcherState::TileDataLowD2 {
                     tile_index,
                     tile_low: vram[tile_addr],
@@ -245,8 +368,8 @@ impl PixelFetcher {
                 tile_index,
                 tile_low,
             } => {
-                let tile_base = get_tile::<false>(tile_index, lcdc);
-                let tile_addr = tile_base + usize::from(y % 8) * 2 + 1;
+                let tile_addr = tile_addr(self.sprite.as_ref(), tile_index, lcdc, ly, scy) + 1;
+
                 self.st = PixelFetcherState::TileDataHighD2 {
                     tile_low,
                     tile_high: vram[tile_addr],
@@ -260,7 +383,30 @@ impl PixelFetcher {
                 tile_low,
                 tile_high,
             } => {
-                self.st = if fifo.push8(interleave(tile_high, tile_low)) {
+                if let Some(sprite) = self.sprite.take() {
+                    let (tile_high, tile_low) = if sprite.flags.contains(SpriteFlags::X_FLIP) {
+                        (tile_high.reverse_bits(), tile_low.reverse_bits())
+                    } else {
+                        (tile_high, tile_low)
+                    };
+
+                    sprite_fifo.push8(
+                        interleave(tile_high, tile_low),
+                        sprite.flags.contains(SpriteFlags::BG_OVER_SPRITE),
+                        sprite.flags.contains(SpriteFlags::PALETTE),
+                    );
+
+                    self.st = PixelFetcherState::GetTileD1;
+                    return;
+                }
+
+                self.st = if bg_fifo.push8(interleave(tile_high, tile_low)) {
+                    if self.first {
+                        self.first = false;
+                    } else {
+                        self.x += 1;
+                    }
+
                     PixelFetcherState::GetTileD1
                 } else {
                     PixelFetcherState::Push {
@@ -273,12 +419,32 @@ impl PixelFetcher {
     }
 }
 
+bitflags::bitflags! {
+    #[derive(Clone, Copy)]
+    struct SpriteFlags : u8 {
+        const BG_OVER_SPRITE = 1 << 7;
+        const Y_FLIP = 1 << 6;
+        const X_FLIP = 1 << 5;
+        const PALETTE = 1 << 4;
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Sprite {
+    sx: u8,
+    sy: u8,
+    tile: u8,
+    flags: SpriteFlags,
+}
+
 enum PpuState {
     Disabled,
     OamScan,
     Draw {
-        bg_fetcher: PixelFetcher,
+        px_fetcher: PixelFetcher,
         bg_fifo: BgFifo,
+        sprite_fifo: SpriteFifo,
+        sprites: ArrayVec<Sprite, 10>,
         screen_x: u8,
     },
     HBlank,
@@ -437,9 +603,41 @@ impl Ppu {
                 }
                 5..79 => {}
                 79 => {
+                    let mut count: usize = 0;
+                    let mut sprites: ArrayVec<Sprite, 10> = ArrayVec::new_const();
+
+                    for idx in 0_usize..40 {
+                        if count >= 10 {
+                            break;
+                        }
+
+                        let sprite = Sprite {
+                            sy: self.oam[idx * 4 + 0],
+                            sx: self.oam[idx * 4 + 1],
+                            tile: self.oam[idx * 4 + 2],
+                            flags: SpriteFlags::from_bits_truncate(self.oam[idx * 4 + 3]),
+                        };
+
+                        if is_sprite_onscreen(self.ly, sprite.sy, self.lcdc) {
+                            count += 1;
+
+                            if sprites.iter().any(|it| it.sx == sprite.sx) {
+                                continue;
+                            }
+
+                            if sprites.try_push(sprite).is_err() {
+                                break;
+                            }
+                        }
+                    }
+
+                    sprites.sort_by_key(|sprite| cmp::Reverse(sprite.sx));
+
                     self.state = PpuState::Draw {
-                        bg_fetcher: PixelFetcher::new(),
+                        px_fetcher: PixelFetcher::new(),
                         bg_fifo: BgFifo::new(),
+                        sprite_fifo: SpriteFifo::new(),
+                        sprites,
                         // going to arbitrarily assume that "fine scx" is decided here until I have a better idea.
                         screen_x: 0_u8.wrapping_sub(8).wrapping_sub(self.scx % 8),
                     };
@@ -447,24 +645,108 @@ impl Ppu {
                 _ => unreachable!(),
             },
             PpuState::Draw {
-                bg_fetcher,
+                px_fetcher,
                 bg_fifo,
+                sprite_fifo,
+                sprites,
                 screen_x,
             } => match cycle {
                 0..80 => unreachable!("entered draw at line-cycle {cycle}"),
                 80..84 => {}
                 84 => {
                     self.stat_mode = 3;
-                    bg_fetcher.tick(&self.vram, bg_fifo, self.scx, self.lcdc, self.ly + self.scy);
+                    px_fetcher.tick(
+                        &self.vram,
+                        bg_fifo,
+                        sprite_fifo,
+                        self.scx,
+                        self.scy,
+                        self.lcdc,
+                        self.ly,
+                    );
                 }
                 _ => {
                     // eprintln!("draw (screen_x={screen_x}, fifo={})", bg_fifo.len);
 
-                    if let Some(px) = bg_fifo.pop() {
+                    // sprites:
+                    // if screen_x == (sprite.x - 8):
+                    // - pause pixel pop
+                    // - wait until fetcher is interruptable (fetcher just entered `GetTileD1`- hasn't _run that_ yet(?)- or fifo isn't empty and fetcher wants to push pixels)
+                    // - run the fetcher for the sprite fifo
+                    //   - read the tile index and attributes/flags from OAM
+                    //   - grab tile data low
+                    //   - grab tile data high
+                    //   - push as many pixels to sprite fifo as would fit
+                    //     - discard the leftmost pixels that don't fit (these are occupied by another sprite that won priority
+                    // - pop pixel (merge fifos, screen_x += 1)
+
+                    let allow_pop = 'b: {
+                        if let Some(sprite) = sprites.last().copied()
+                            && (*screen_x).wrapping_add(8) == sprite.sx
+                        {
+                            if !self.lcdc.contains(Lcdc::OBJ_ENABLE)
+                                && px_fetcher.can_obj_fetch_cancel()
+                            {
+                                sprites.pop();
+                                px_fetcher.sprite = None;
+                                px_fetcher.st = PixelFetcherState::GetTileD1;
+
+                                break 'b true;
+                            }
+
+                            if !self.lcdc.contains(Lcdc::OBJ_ENABLE) && px_fetcher.sprite.is_none()
+                            {
+                                sprites.pop();
+                                break 'b true;
+                            }
+
+                            if sprite_fifo.len == 8 {
+                                sprites.pop();
+                                break 'b true;
+                            }
+
+                            if px_fetcher.can_interrupt(bg_fifo) {
+                                px_fetcher.sprite = Some(sprite);
+                                px_fetcher.st = PixelFetcherState::GetTileD1;
+                            }
+
+                            break 'b false;
+                        }
+
+                        true
+                    };
+
+                    px_fetcher.tick(
+                        &self.vram,
+                        bg_fifo,
+                        sprite_fifo,
+                        self.scx,
+                        self.scy,
+                        self.lcdc,
+                        self.ly,
+                    );
+
+                    if allow_pop && let Some(px) = bg_fifo.pop() {
+                        let sprite_px = sprite_fifo.pop();
+
                         let old_x = *screen_x;
-                        *screen_x += 1;
+                        *screen_x = screen_x.wrapping_add(1);
                         if old_x < 160 {
-                            let px = (self.bg_pallet >> (px * 2)) & 0b11;
+                            // bg has priority if:
+                            // 1. the sprite pixel is transparent or
+                            // 2. the bg isn't transparent but the sprite's `low_priority` (bg_over_sprite) bit is set.
+                            let px =
+                                if sprite_px.color == 0 || (sprite_px.bg_over_sprite && px != 0) {
+                                    (self.bg_pallet >> (px * 2)) & 0b11
+                                } else {
+                                    let palette = if sprite_px.palette {
+                                        self.obj_pallet_b
+                                    } else {
+                                        self.obj_pallet_a
+                                    };
+                                    (palette >> (sprite_px.color * 2)) & 0b11
+                                    // sprite has priority
+                                };
 
                             self.display_memory.set(
                                 usize::from(self.ly) * 160 + usize::from(old_x),
@@ -472,8 +754,6 @@ impl Ppu {
                             );
                         }
                     }
-
-                    bg_fetcher.tick(&self.vram, bg_fifo, self.scx, self.lcdc, self.ly + self.scy);
 
                     if *screen_x == 160 {
                         self.state = PpuState::HBlank;
@@ -526,15 +806,7 @@ impl Ppu {
             _ => false,
         };
 
-        static TICKS: AtomicU64 = AtomicU64::new(0);
-        let ticks = TICKS.fetch_add(1, atomic::Ordering::Relaxed);
-
-        let edge = self.pirq.tick(irq);
-        if edge && ticks < (2 << 22) * 12 {
-            eprintln!("e=1;t={}", ticks);
-        }
-
-        if edge {
+        if self.pirq.tick(irq) {
             *reg_if |= InterruptFlags::STAT;
         }
     }
