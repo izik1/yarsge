@@ -88,6 +88,10 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let start = Instant::now();
     let mut last_subframe = start;
     let mut last_display_frame = start;
+    let mut last_time_report = start;
+
+    let mut total_subframes = 0_u64;
+    let mut total_display_frames = 0_u64;
 
     // gb.register_breakpoint(0x0c);
 
@@ -122,6 +126,9 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
             }
         }
 
+        let subframe = total_subframes;
+        total_subframes += 1;
+
         let current_frame = std::time::Instant::now();
         let elapsed = current_frame.duration_since(last_subframe);
         last_subframe = current_frame;
@@ -130,6 +137,19 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
         if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
             continue;
+        }
+
+        let display_frame = total_display_frames;
+        total_display_frames += 1;
+
+        if current_frame.duration_since(last_time_report) >= Duration::from_secs(1) {
+            last_time_report = current_frame;
+            log::debug!(
+                target: "framerate",
+                "UPS: {:.2}, FPS: {:.2}",
+                (subframe as f64) / start.elapsed().as_secs_f64(),
+                (display_frame as f64) / start.elapsed().as_secs_f64(),
+            );
         }
 
         last_display_frame = current_frame;
