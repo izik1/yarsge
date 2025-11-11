@@ -1,10 +1,10 @@
-use crate::Keys;
 use crate::emu::bits;
+use crate::{FallingEdge, Keys};
 
 pub struct Pad {
     status: u8,
     keys: Keys,
-    prev_keys: Keys,
+    keys_interrupt: FallingEdge,
 }
 
 impl Pad {
@@ -12,7 +12,7 @@ impl Pad {
         Self {
             status: 0x00,
             keys: Keys::empty(),
-            prev_keys: Keys::empty(),
+            keys_interrupt: FallingEdge::new(false),
         }
     }
 
@@ -22,16 +22,15 @@ impl Pad {
 
     #[must_use]
     pub fn get_selected(&self) -> u8 {
-        0xc0 | self.get_pad(self.keys)
+        0xc0 | self.status | self.get_pad(self.keys)
     }
 
     #[must_use]
-    pub fn tick(&self) -> bool {
-        self.get_pad(self.prev_keys) == 0xf && self.get_pad(self.keys) != 0xf
+    pub fn tick(&mut self) -> bool {
+        self.keys_interrupt.tick(self.get_pad(self.keys) != 0xf)
     }
 
     pub fn set_keys(&mut self, val: Keys) {
-        self.prev_keys = self.keys;
         self.keys = val;
     }
 
