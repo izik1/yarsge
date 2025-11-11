@@ -1,9 +1,13 @@
 use std::array;
+use std::sync::atomic::{self, AtomicU64};
 
 use crate::RisingEdge;
 use crate::emu::{InterruptFlags, bits};
 
-#[derive(Clone, Copy)]
+pub type Vram = [u8; 0x2000];
+pub type Oam = [u8; 0xa0];
+
+#[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum DisplayPixel {
     White = 0,
@@ -59,6 +63,14 @@ impl DisplayMemory {
         self.0[elem] = value;
     }
 
+    fn set(&mut self, offset: usize, value: DisplayPixel) {
+        let byte = &mut self.0[offset / 4];
+        let idx = offset % 4;
+        let mask = !(0b11_u8 << ((idx) * 2));
+
+        *byte = (*byte & mask) | (value as u8) << ((idx) * 2);
+    }
+
     fn iter(&self) -> impl IntoIterator<Item = DisplayPixel> {
         struct Iter<'a>(&'a [u8], u8);
 
@@ -77,15 +89,215 @@ impl DisplayMemory {
 
                 Some(DisplayPixel::from_bits_truncate(first >> (2 * old)))
             }
+
+            fn nth(&mut self, n: usize) -> Option<Self::Item> {
+                // pretend we've backtracked to bit 0 to make the math easy.
+                let n = n + self.1 as usize;
+
+                // skip n/4 bytes (fast)
+                let (_, b) = self.0.split_at_checked(n / 4)?;
+                self.0 = b;
+                // then skip n % 4 bit pairs (also fast)
+                self.1 = (n % 4) as u8;
+
+                // then grab the value
+                self.next()
+            }
         }
 
         Iter(&self.0, 0)
     }
 }
 
+struct BgFifo {
+    raw: u16,
+    len: u8,
+}
+
+impl BgFifo {
+    const fn new() -> Self {
+        Self { raw: 0, len: 0 }
+    }
+
+    fn push8(&mut self, pxs: u16) -> bool {
+        if self.len == 0 {
+            self.raw = pxs;
+            self.len = 8;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn pop(&mut self) -> Option<u8> {
+        self.len = self.len.checked_sub(1)?;
+        let value = self.raw >> 14;
+        self.raw <<= 2;
+
+        Some((value as u8) & 0b11)
+    }
+}
+
+fn interleave(hi: u8, lo: u8) -> u16 {
+    let mut res = 0;
+    let mut hi = hi.reverse_bits() as u16;
+    let mut lo = lo.reverse_bits() as u16;
+
+    for _ in 0..8 {
+        res <<= 2;
+        res |= ((hi & 1) << 1) | (lo & 1);
+        hi >>= 1;
+        lo >>= 1;
+    }
+
+    res
+}
+enum PixelFetcherState {
+    GetTileD1,
+    GetTileD2 { tile_index: u8 },
+    TileDataLowD1 { tile_index: u8 },
+    TileDataLowD2 { tile_index: u8, tile_low: u8 },
+    TileDataHighD1 { tile_index: u8, tile_low: u8 },
+    TileDataHighD2 { tile_low: u8, tile_high: u8 },
+    Push { tile_low: u8, tile_high: u8 },
+}
+
+struct PixelFetcher {
+    st: PixelFetcherState,
+    first: bool,
+    x: u8,
+}
+
+impl PixelFetcher {
+    const fn new() -> Self {
+        Self {
+            st: PixelFetcherState::GetTileD1,
+            first: true,
+            x: 0,
+        }
+    }
+
+    fn tick(&mut self, vram: &Vram, fifo: &mut BgFifo, scx: u8, lcdc: Lcdc, y: u8) {
+        fn get_map_base(lcdc: Lcdc) -> usize {
+            if lcdc.contains(Lcdc::BG_TILE_MAP) {
+                0x1c00
+            } else {
+                0x1800
+            }
+        }
+
+        fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
+            if OBJ || lcdc.contains(Lcdc::BG_WINDOW_TILES) {
+                return tile_index as usize * 16;
+            }
+
+            // transform from 0x00..=0xff to [0x0000..=0x07f0] and [-0x0800..0x0000]
+            let tile_index = usize::from(
+                i16::from(tile_index.cast_signed())
+                    .wrapping_mul(16)
+                    .cast_unsigned(),
+            );
+
+            0x1000_usize.wrapping_add(tile_index)
+        }
+
+        match self.st {
+            PixelFetcherState::GetTileD1 => {
+                let x = if self.first {
+                    self.first = false;
+                    self.x
+                } else {
+                    let x = self.x;
+                    self.x += 1;
+                    x
+                };
+
+                let x = (x + (scx >> 3)) & 0x1f;
+                let y = y >> 3;
+                let tile_index = (y as usize) * 32 + x as usize;
+                let offset = get_map_base(lcdc) + tile_index;
+
+                let tile_index = vram[offset];
+
+                self.st = PixelFetcherState::GetTileD2 { tile_index };
+            }
+            PixelFetcherState::GetTileD2 { tile_index } => {
+                self.st = PixelFetcherState::TileDataLowD1 { tile_index };
+            }
+            PixelFetcherState::TileDataLowD1 { tile_index } => {
+                let tile_base = get_tile::<false>(tile_index, lcdc);
+                let tile_addr = tile_base + usize::from(y % 8) * 2;
+                self.st = PixelFetcherState::TileDataLowD2 {
+                    tile_index,
+                    tile_low: vram[tile_addr],
+                }
+            }
+            PixelFetcherState::TileDataLowD2 {
+                tile_index,
+                tile_low,
+            } => {
+                self.st = PixelFetcherState::TileDataHighD1 {
+                    tile_index,
+                    tile_low,
+                }
+            }
+            PixelFetcherState::TileDataHighD1 {
+                tile_index,
+                tile_low,
+            } => {
+                let tile_base = get_tile::<false>(tile_index, lcdc);
+                let tile_addr = tile_base + usize::from(y % 8) * 2 + 1;
+                self.st = PixelFetcherState::TileDataHighD2 {
+                    tile_low,
+                    tile_high: vram[tile_addr],
+                };
+            }
+            PixelFetcherState::TileDataHighD2 {
+                tile_low,
+                tile_high,
+            }
+            | PixelFetcherState::Push {
+                tile_low,
+                tile_high,
+            } => {
+                self.st = if fifo.push8(interleave(tile_high, tile_low)) {
+                    PixelFetcherState::GetTileD1
+                } else {
+                    PixelFetcherState::Push {
+                        tile_low,
+                        tile_high,
+                    }
+                };
+            }
+        }
+    }
+}
+
+enum PpuState {
+    Disabled,
+    OamScan,
+    Draw {
+        bg_fetcher: PixelFetcher,
+        bg_fifo: BgFifo,
+        screen_x: u8,
+    },
+    HBlank,
+    Vblank,
+}
+
+bitflags::bitflags! {
+    struct StatUpper : u8 {
+        const LYC_INT_SELECT = 1 << 6;
+        const MODE_2_INT_SELECT = 1 << 5;
+        const MODE_1_INT_SELECT = 1 << 4;
+        const MODE_0_INT_SELECT = 1 << 3;
+        const LYC_LY_COINCIDENCE = 1 << 2;
+    }
+}
+
 pub struct Ppu {
-    vram: [u8; 0x2000],
-    pub oam: [u8; 0xa0],
+    vram: Vram,
+    pub(crate) oam: Oam,
     display_memory: DisplayMemory,
     obj_pallet_a: u8,
     obj_pallet_b: u8,
@@ -93,13 +305,15 @@ pub struct Ppu {
     scy: u8,
     lcdc: Lcdc,
     ly: u8,
+    // cmp_ly: u8,
     bg_pallet: u8,
     window_ly: u8,
-    stat_upper: u8,
+    stat_upper: StatUpper,
+    // visible value for `stat`'s lower two bits.
     stat_mode: u8,
-    cycle_mod: i32,
+    cycle_mod: i16,
     visible_ly: u8,
-    disabled: bool,
+    state: PpuState,
     pirq: RisingEdge,
     lyc: u8,
 }
@@ -145,7 +359,7 @@ impl Ppu {
     pub fn set_reg(&mut self, addr: u8, val: u8) {
         match addr {
             0x40 => self.lcdc = Lcdc::from_bits_retain(val),
-            0x41 => self.stat_upper = val & 0x78,
+            0x41 => self.stat_upper = StatUpper::from_bits_truncate(val),
             0x42 => self.scy = val,
             0x43 => self.scx = val,
             0x44 => {}
@@ -164,7 +378,7 @@ impl Ppu {
     pub fn get_reg(&self, addr: u8) -> u8 {
         match addr {
             0x40 => self.lcdc.bits(),
-            0x41 => self.stat_upper | 0x80 | self.stat_mode,
+            0x41 => self.stat_upper.bits() | 0x80 | self.stat_mode,
             0x42 => self.scy,
             0x43 => self.scx,
             0x44 => self.visible_ly,
@@ -184,8 +398,8 @@ impl Ppu {
     }
 
     fn disable(&mut self) {
-        if !self.disabled {
-            self.disabled = true;
+        if !matches!(self.state, PpuState::Disabled) {
+            self.state = PpuState::Disabled;
             self.display_memory = DisplayMemory::new();
             self.ly = 0;
             self.visible_ly = 0;
@@ -195,180 +409,158 @@ impl Ppu {
         }
     }
 
-    #[must_use]
-    fn get_pixel_index(&self, tile: usize, y: usize, x: u8) -> u8 {
-        let lower = self.vram[tile * 16 + y];
-        let upper = self.vram[tile * 16 + y + 1];
-        ((upper >> (7 - x) & 1) | ((lower >> (7 - x) & 1) * 2)) * 2
-    }
-
-    fn render_line_bg(&mut self) {
-        fn get_map_base(lcdc: Lcdc) -> usize {
-            if lcdc.contains(Lcdc::BG_TILE_MAP) {
-                0x1c00
-            } else {
-                0x1800
-            }
-        }
-
-        let map_offset =
-            get_map_base(self.lcdc) + (((self.scy as usize + self.ly as usize) & 0xff) >> 3) * 32;
-
-        let mut line_offset = self.scx as usize >> 3;
-        let y = ((self.ly as usize + self.scy as usize) & 7) * 2;
-        let mut x = self.scx & 7;
-
-        let mut tile = self.vram[line_offset + map_offset] as usize;
-
-        if !self.lcdc.contains(Lcdc::BG_WINDOW_TILES) && tile < 128 {
-            tile += 256;
-        }
-
-        for i in 0..40 {
-            let pxs = array::from_fn(|_| {
-                let index = self.get_pixel_index(tile, y, x);
-
-                let px = DisplayPixel::from_bits_truncate(self.bg_pallet >> index);
-
-                x += 1;
-                if x == 8 {
-                    x = 0;
-                    line_offset = (line_offset + 1) & 31;
-                    tile = self.vram[line_offset + map_offset] as usize;
-                    if !self.lcdc.contains(Lcdc::BG_WINDOW_TILES) && tile < 128 {
-                        tile += 256;
-                    }
-                }
-
-                px
-            });
-
-            self.display_memory
-                .set4(((self.ly as usize) * (160 / 4)) + i, pxs);
-        }
-    }
-
-    fn render_line(&mut self) {
-        if self.lcdc.contains(Lcdc::BG_WINDOW_ENABLE) {
-            self.render_line_bg();
-        }
-
-        if self.lcdc.contains(Lcdc::WINDOW_ENABLE) {
-            // TODO: window
-        }
-
-        if self.lcdc.contains(Lcdc::OBJ_ENABLE) {
-            // TODO: sprites
-        }
-    }
-
-    fn update_line(&mut self) -> bool {
-        match self.cycle_mod {
-            0 | 212 => {
-                self.stat_mode = 0;
-                self.ly_cp() || bits::has_bit(self.stat_upper, 3)
-            }
-
-            4 => {
-                self.stat_mode = 2;
-                self.ly_cp() || bits::has_bit(self.stat_upper, 5)
-            }
-
-            40 => {
-                self.stat_mode = 3;
-                self.render_line();
-                self.ly_cp()
-            }
-
-            _ => {
-                self.ly_cp()
-                    || (self.stat_mode == 2 && bits::has_bit(self.stat_upper, 5))
-                    || (self.stat_mode == 0 && bits::has_bit(self.stat_upper, 3))
-            }
-        }
-    }
-
-    #[must_use]
-    fn update_vblank_start(&mut self) -> (InterruptFlags, bool) {
-        if self.cycle_mod == 0 {
-            self.window_ly = 0;
-            (
-                InterruptFlags::empty(),
-                self.ly_cp() || bits::has_bit(self.stat_upper, 3),
-            )
-        } else {
-            let vblank = if self.cycle_mod == 4 {
-                self.stat_mode = 1;
-                InterruptFlags::VBLANK
-            } else {
-                InterruptFlags::empty()
-            };
-
-            (
-                vblank,
-                self.ly_cp()
-                    || bits::has_bit(self.stat_upper, 4)
-                    || bits::has_bit(self.stat_upper, 5),
-            )
-        }
-    }
-
     // nonminimal_bool seems to be messed up here.
     #[allow(clippy::nonminimal_bool)]
     fn ly_cp(&mut self) -> bool {
         if (self.cycle_mod >= 4 && self.lyc == self.ly) || (self.cycle_mod < 4 && self.lyc == 0) {
-            self.stat_upper |= bits::get(2);
-            bits::has_bit(self.stat_upper, 6)
+            self.stat_upper.insert(StatUpper::LYC_LY_COINCIDENCE);
+            return self.stat_upper.contains(StatUpper::LYC_INT_SELECT);
         } else {
-            self.stat_upper &= !bits::get(2);
+            self.stat_upper.remove(StatUpper::LYC_LY_COINCIDENCE);
             false
+        }
+    }
+
+    // a lot of this comes from [pandocs](https://gbdev.io/pandocs/Rendering.html) and [gameroy](https://github.com/Rodrigodd/gameroy/blob/a5acdc921c0561ed93a077622b598df0e068583c/core/src/gameboy/ppu.rs#L936)
+    fn tick_state(&mut self, cycle: i16, reg_if: &mut InterruptFlags) {
+        let mut irq = false;
+        irq |= self.ly_cp();
+
+        match &mut self.state {
+            PpuState::Disabled => unreachable!(),
+            PpuState::OamScan => match cycle {
+                0 => self.stat_mode = 0,
+                1..3 => {}
+                3 => {}
+                4 => {
+                    self.stat_mode = 2;
+                }
+                5..79 => {}
+                79 => {
+                    self.state = PpuState::Draw {
+                        bg_fetcher: PixelFetcher::new(),
+                        bg_fifo: BgFifo::new(),
+                        // going to arbitrarily assume that "fine scx" is decided here until I have a better idea.
+                        screen_x: 0_u8.wrapping_sub(8).wrapping_sub(self.scx % 8),
+                    };
+                }
+                _ => unreachable!(),
+            },
+            PpuState::Draw {
+                bg_fetcher,
+                bg_fifo,
+                screen_x,
+            } => match cycle {
+                0..80 => unreachable!("entered draw at line-cycle {cycle}"),
+                80..84 => {}
+                84 => {
+                    self.stat_mode = 3;
+                    bg_fetcher.tick(&self.vram, bg_fifo, self.scx, self.lcdc, self.ly + self.scy);
+                }
+                _ => {
+                    // eprintln!("draw (screen_x={screen_x}, fifo={})", bg_fifo.len);
+
+                    if let Some(px) = bg_fifo.pop() {
+                        let old_x = *screen_x;
+                        *screen_x += 1;
+                        if old_x < 160 {
+                            let px = (self.bg_pallet >> (px * 2)) & 0b11;
+
+                            self.display_memory.set(
+                                usize::from(self.ly) * 160 + usize::from(old_x),
+                                DisplayPixel::from_bits_truncate(px),
+                            );
+                        }
+                    }
+
+                    bg_fetcher.tick(&self.vram, bg_fifo, self.scx, self.lcdc, self.ly + self.scy);
+
+                    if *screen_x == 160 {
+                        self.state = PpuState::HBlank;
+                    }
+                }
+            },
+            PpuState::HBlank => {
+                self.stat_mode = 0;
+
+                if cycle == 455 {
+                    self.ly += 1;
+                    self.visible_ly = self.ly;
+
+                    self.state = if self.ly == 144 {
+                        PpuState::Vblank
+                    } else {
+                        PpuState::OamScan
+                    };
+                }
+            }
+            PpuState::Vblank => match cycle {
+                4 => {
+                    self.stat_mode = 1;
+
+                    if self.ly == 144 {
+                        *reg_if |= InterruptFlags::VBLANK;
+                    }
+
+                    if self.ly == 153 {
+                        self.visible_ly = 0;
+                    }
+                }
+                455 => {
+                    self.ly += 1;
+                    if self.ly == 154 {
+                        self.ly = 0;
+                        self.state = PpuState::OamScan;
+                    } else {
+                        self.visible_ly = self.ly;
+                    }
+                }
+                _ => {}
+            },
+        }
+
+        irq |= match self.stat_mode {
+            0 => self.stat_upper.contains(StatUpper::MODE_0_INT_SELECT),
+            1 => self.stat_upper.contains(StatUpper::MODE_1_INT_SELECT),
+            2 => self.stat_upper.contains(StatUpper::MODE_2_INT_SELECT),
+            _ => false,
+        };
+
+        static TICKS: AtomicU64 = AtomicU64::new(0);
+        let ticks = TICKS.fetch_add(1, atomic::Ordering::Relaxed);
+
+        let edge = self.pirq.tick(irq);
+        if edge && ticks < (2 << 22) * 12 {
+            eprintln!("e=1;t={}", ticks);
+        }
+
+        if edge {
+            *reg_if |= InterruptFlags::STAT;
         }
     }
 
     #[must_use]
     pub fn tick(&mut self) -> InterruptFlags {
-        use std::cmp::Ordering;
+        let mut reg_if = InterruptFlags::empty();
 
         if !self.lcdc.contains(Lcdc::LCD_ENABLE) {
             self.disable();
-            return InterruptFlags::empty();
+            return reg_if;
         }
 
-        self.disabled = false;
-        let (vblank, irq) = match self.ly.cmp(&144) {
-            Ordering::Less => (InterruptFlags::empty(), self.update_line()),
-            Ordering::Equal => self.update_vblank_start(),
-            Ordering::Greater => (
-                InterruptFlags::empty(),
-                self.ly_cp() || (self.stat_upper & 0x30) > 0,
-            ),
+        if matches!(self.state, PpuState::Disabled) {
+            self.state = PpuState::OamScan;
+        }
+
+        let cycle = {
+            let old = self.cycle_mod;
+            self.cycle_mod = (old + 1) % 456;
+            old
         };
 
-        self.cycle_mod += 1;
-        if self.cycle_mod == 114 * 4 {
-            self.cycle_mod = 0;
-            if self.ly == 153 {
-                self.ly = 0;
-            } else {
-                self.ly += 1;
-                self.visible_ly += 1;
-            }
-        }
+        self.tick_state(cycle, &mut reg_if);
 
-        if self.ly == 153 && self.cycle_mod == 4 {
-            self.disabled = false;
-            self.visible_ly = 0;
-        }
-
-        let edge = self.pirq.tick(irq);
-
-        let stat = if edge {
-            InterruptFlags::STAT
-        } else {
-            InterruptFlags::empty()
-        };
-
-        vblank | stat
+        reg_if
     }
 }
 
@@ -387,12 +579,12 @@ impl Default for Ppu {
             lyc: 0,
             window_ly: 0,
             bg_pallet: 0,
-            stat_upper: 0,
+            stat_upper: StatUpper::empty(),
             stat_mode: 0,
             cycle_mod: 0,
             visible_ly: 0,
-            disabled: false,
             pirq: RisingEdge::new(false),
+            state: PpuState::Disabled,
         }
     }
 }
