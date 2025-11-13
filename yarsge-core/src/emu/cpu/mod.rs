@@ -36,7 +36,7 @@ impl Cpu {
     }
 
     fn fetch_cycle(&self, hw: &mut Hardware) -> (u8, Status) {
-        let (val, interrupts) = hw.read_cycle_intr(self.regs.pc);
+        let (val, interrupts) = hw.read_cycle_intr(self.regs.pc.0);
         if self.ime && !interrupts.is_empty() {
             return (val, Status::InterruptDispatch);
         }
@@ -45,8 +45,8 @@ impl Cpu {
     }
 
     fn fetch_imm8(&mut self, hw: &mut Hardware) -> u8 {
-        let val = hw.read_cycle(self.regs.pc);
-        self.regs.pc = self.regs.pc.wrapping_add(1);
+        let val = hw.read_cycle(self.regs.pc.0);
+        self.regs.pc += 1;
         val
     }
 
@@ -55,8 +55,8 @@ impl Cpu {
     }
 
     fn pop8(&mut self, hw: &mut Hardware) -> u8 {
-        let val = hw.read_cycle(self.regs.sp);
-        self.regs.sp = self.regs.sp.wrapping_add(1);
+        let val = hw.read_cycle(self.regs.sp.0);
+        self.regs.sp += 1;
         val
     }
 
@@ -70,10 +70,10 @@ impl Cpu {
         self.regs.sp -= 1;
 
         let [hi, lo] = val.to_be_bytes();
-        hw.write_cycle(self.regs.sp, hi);
+        hw.write_cycle(self.regs.sp.0, hi);
         self.regs.sp -= 1;
 
-        hw.write_cycle(self.regs.sp, lo);
+        hw.write_cycle(self.regs.sp.0, lo);
     }
 
     // there isn't much way to reduce the line count here,
@@ -244,32 +244,35 @@ impl Cpu {
         self.ime = false;
         // Cycle : M1
         // IDU : Dec PC
-        self.regs.pc = self.regs.pc.wrapping_sub(1);
+        self.regs.pc -= 1;
         hw.idle_cycle();
         // Cycle : M2
         // IDU : Dec SP
-        self.regs.sp = self.regs.sp.wrapping_sub(1);
+        self.regs.sp -= 1;
         hw.idle_cycle();
         // Cycle : M3
         // IDU : Dec SP
         // Addr Bus : SP
         // Data Bus : write PC[15:8]
-        hw.write_cycle(self.regs.sp, (self.regs.pc >> 8) as u8);
-        self.regs.sp = self.regs.sp.wrapping_sub(1);
+
+        let [high, low] = self.regs.pc.0.to_be_bytes();
+
+        hw.write_cycle(self.regs.sp.0, high);
+        self.regs.sp -= 1;
 
         // Cycle : M4
         // Addr Bus : SP
         // Data Bus : write PC[7:0]
-        let flags = hw.write_cycle_intr(self.regs.sp, (self.regs.pc) as u8);
+        let flags = hw.write_cycle_intr(self.regs.sp.0, low);
 
         let bits = flags.bits().trailing_zeros() as u16;
 
         if bits < 5 {
-            self.regs.pc = 0x40 + bits * 8;
+            self.regs.pc.0 = 0x40 + bits * 8;
             hw.reg_if &= !(InterruptFlags::from_bits_retain(1 << bits));
         } else {
             // this is somewhat rare,
-            self.regs.pc = 0;
+            self.regs.pc.0 = 0;
         }
 
         self.regs.ir = self.fetch_imm8(hw);
@@ -278,9 +281,9 @@ impl Cpu {
     }
 
     #[must_use]
-    pub fn new() -> Self {
-        Cpu {
-            regs: Registers::default(),
+    pub const fn new() -> Self {
+        Self {
+            regs: Registers::new(),
             status: Status::Running,
             ime: false,
             break_point_addresses: Vec::new(),
@@ -307,7 +310,7 @@ impl Cpu {
         };
 
         self.break_point_addresses
-            .contains(&self.regs.pc)
+            .contains(&self.regs.pc.0)
             .then_some(Mode::Step)
     }
 }

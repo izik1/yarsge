@@ -1,12 +1,14 @@
 use core::fmt;
+use std::ops::ControlFlow;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
+use sdl3::EventPump;
 use yarsge_core::{Keys, emu};
 
-use sdl2::{event::Event, keyboard::Keycode, pixels::Color};
+use sdl3::{event::Event, keyboard::Keycode, pixels::Color};
 
 use clap::Parser;
 use rgb::RGB8;
@@ -114,8 +116,46 @@ fn lookup_key(map: &[(Keycode, Keys)], code: Keycode) -> Option<Keys> {
     map.iter().find_map(|map| (map.0 == code).then_some(map.1))
 }
 
+fn poll_inputs(
+    event_pump: &mut EventPump,
+    keymap: &[(Keycode, Keys)],
+    key_state: &mut Keys,
+) -> ControlFlow<()> {
+    for event in event_pump.poll_iter() {
+        match event {
+            Event::Quit { .. }
+            | Event::KeyDown {
+                keycode: Some(Keycode::Escape),
+                ..
+            } => return ControlFlow::Break(()),
+
+            Event::KeyDown {
+                keycode: Some(code),
+                ..
+            } => {
+                if let Some(key) = lookup_key(keymap, code) {
+                    key_state.insert(key);
+                }
+            }
+
+            Event::KeyUp {
+                keycode: Some(code),
+                ..
+            } => {
+                if let Some(key) = lookup_key(keymap, code) {
+                    key_state.remove(key);
+                }
+            }
+
+            _ => {}
+        }
+    }
+
+    ControlFlow::Continue(())
+}
+
 fn run(opt: &Opt) -> anyhow::Result<()> {
-    let sdl_context = sdl2::init().unwrap();
+    let sdl_context = sdl3::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
     const WIDTH: usize = 160;
@@ -130,7 +170,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         .build()
         .unwrap();
 
-    let mut canvas = window.into_canvas().build().unwrap();
+    let mut canvas = window.into_canvas();
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3;
@@ -138,8 +178,10 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
     let texcr = canvas.texture_creator();
     let mut tex = texcr
-        .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGB24, WIDTH_32X, HEIGHT_32X)
+        .create_texture_streaming(sdl3::pixels::PixelFormat::RGB24, WIDTH_32X, HEIGHT_32X)
         .unwrap();
+
+    tex.set_scale_mode(sdl3::render::ScaleMode::Nearest);
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
@@ -170,6 +212,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let mut last_subframe = start;
     let mut last_display_frame = start;
     let mut last_time_report = start;
+    let mut last_poll_inputs = start;
 
     let mut total_subframes = 0_u64;
     let mut total_display_frames = 0_u64;
@@ -177,36 +220,6 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     // gb.register_breakpoint(0x0c);
 
     'running: loop {
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => break 'running Ok(()),
-
-                Event::KeyDown {
-                    keycode: Some(code),
-                    ..
-                } => {
-                    if let Some(key) = lookup_key(&keymap, code) {
-                        key_state.insert(key);
-                    }
-                }
-
-                Event::KeyUp {
-                    keycode: Some(code),
-                    ..
-                } => {
-                    if let Some(key) = lookup_key(&keymap, code) {
-                        key_state.remove(key);
-                    }
-                }
-
-                _ => {}
-            }
-        }
-
         let subframe = total_subframes;
         total_subframes += 1;
 
@@ -214,9 +227,23 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         let elapsed = current_frame.duration_since(last_subframe);
         last_subframe = current_frame;
 
+        if current_frame.duration_since(last_poll_inputs) >= Duration::from_micros(500) {
+            last_poll_inputs = current_frame;
+            match poll_inputs(&mut event_pump, &keymap, &mut key_state) {
+                ControlFlow::Continue(()) => {}
+                ControlFlow::Break(()) => break 'running Ok(()),
+            }
+        }
+
         gb.run(elapsed, key_state);
 
         if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
+            let mut ticks: usize = 0;
+            while !ticks.is_multiple_of(8) || current_frame.elapsed() < Duration::from_micros(5) {
+                ticks += 1;
+                std::hint::spin_loop();
+            }
+
             continue;
         }
 

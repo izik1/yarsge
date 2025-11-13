@@ -21,15 +21,15 @@ pub struct Hardware {
 }
 
 impl Hardware {
-    pub fn new(memory: Memory) -> Self {
+    pub const fn new(memory: Memory) -> Self {
         Self {
             cycle_counter: TCycle(0),
-            ppu: Ppu::default(),
+            ppu: Ppu::new(),
             memory,
-            timer: Timer::default(),
+            timer: Timer::new(),
             reg_if: InterruptFlags::empty(),
             reg_ie: InterruptFlags::empty(),
-            dma: Dma::default(),
+            dma: Dma::new(),
             pad: Pad::new(),
         }
     }
@@ -69,25 +69,30 @@ impl Hardware {
     }
 
     pub fn idle_cycle(&mut self) {
-        self.tick_n(TCycle(4), &mut ExternalBus::new());
+        self.tick_n::<4>(&mut ExternalBus::new());
     }
 
     fn tick(&mut self, bus: &mut ExternalBus) {
-        self.tick_n(TCycle(1), bus);
+        self.tick_n::<1>(bus);
     }
 
-    fn tick_n(&mut self, cycles: TCycle, bus: &mut ExternalBus) {
-        for _ in 0..cycles.0 {
+    fn tick_n<const CYCLES: isize>(&mut self, bus: &mut ExternalBus) {
+        const { assert!(CYCLES > 0) };
+
+        for _ in 0..CYCLES {
             self.dma.tick(bus, &mut self.ppu, &mut self.memory);
 
             self.reg_if |= self.timer.tick() | self.ppu.tick();
-
-            if self.pad.tick() {
-                self.reg_if |= InterruptFlags::JOYPAD;
-            }
         }
 
-        self.cycle_counter -= cycles;
+        // ACCURACY:
+        // run joypad at lower frequency because realistically it only needs to run at 1 tick per input change
+        // this is presumably inaccurate because the hardware that checks for an interrupt presumably does so every T-cycle.
+        if const { CYCLES > 0 } && self.pad.tick() {
+            self.reg_if |= InterruptFlags::JOYPAD;
+        }
+
+        self.cycle_counter -= TCycle(CYCLES);
     }
 
     #[must_use]
@@ -108,7 +113,7 @@ impl Hardware {
     fn read_io(&self, addr: u8) -> u8 {
         #[allow(clippy::match_same_arms)]
         match addr {
-            0x00 => self.pad.get_selected(),
+            0x00 => self.pad.selected(),
             0x04..0x08 => self.timer.read_reg(addr),
             0x08..0x0f => 0xff, // Empty range.
             0x0f => self.reg_if.bits() | 0xe0,
@@ -118,15 +123,16 @@ impl Hardware {
             0x4c..0x80 => 0xff, // Empty range.
             0x80.. => unreachable!("Invalid address range for IO regs! (read)"),
             _ => {
-                eprintln!("Unimplemented IO reg (read): (addr: 0xff{addr:02x})");
+                log::warn!("Unimplemented IO reg (read): (addr: 0xff{addr:02x})");
                 0xff
             }
         }
     }
 
     pub fn write_u16_cycle(&mut self, address: u16, value: u16) {
-        self.write_cycle(address, value as u8);
-        self.write_cycle(address.wrapping_add(1), (value >> 8) as u8);
+        let [high, low] = value.to_be_bytes();
+        self.write_cycle(address, low);
+        self.write_cycle(address.wrapping_add(1), high);
     }
 
     pub fn write_cycle(&mut self, addr: u16, val: u8) {
@@ -185,7 +191,7 @@ impl Hardware {
             0x50 => {}
             0x4c..0x50 | 0x51..0x80 => {}
             0x80.. => unreachable!("Invalid address range for IO regs! (write)"),
-            _ => eprintln!("Unimplemented IO reg (write): (addr: 0xff{addr:02x} val: {val:#02x})"),
+            _ => log::warn!("Unimplemented IO reg (write): (addr: 0xff{addr:02x} val: {val:#02x})"),
         }
     }
 }

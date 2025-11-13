@@ -1,3 +1,5 @@
+use std::num::Wrapping;
+
 use crate::emu::registers::RegisterArg;
 use crate::emu::{
     cpu::{Cpu, Status},
@@ -12,16 +14,16 @@ pub enum MathReg {
     Imm,
 }
 
-fn get_register_arg(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> u8 {
+fn get_register_arg(cpu: &Cpu, hw: &mut Hardware, register: RegisterArg) -> u8 {
     match register {
-        RegisterArg::Indirect => hw.read_cycle(cpu.regs.hl),
+        RegisterArg::Indirect => hw.read_cycle(cpu.regs.hl.0),
         RegisterArg::Reg(r) => cpu.regs.reg(r),
     }
 }
 
 fn set_register_arg(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, value: u8) {
     match register {
-        RegisterArg::Indirect => hw.write_cycle(cpu.regs.hl, value),
+        RegisterArg::Indirect => hw.write_cycle(cpu.regs.hl.0, value),
         RegisterArg::Reg(r) => cpu.regs.set_reg(r, value),
     }
 }
@@ -80,19 +82,19 @@ pub fn nop(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 fn jr_jmp(cpu: &mut Cpu, hw: &mut Hardware, imm: i8) {
     // this should be putting some specific junk on the bus (but not asserting read or write)
     hw.idle_cycle();
-    cpu.regs.pc = cpu.regs.pc.wrapping_add(i16::from(imm).cast_unsigned());
+    cpu.regs.pc += i16::from(imm).cast_unsigned();
 }
 
 fn jp_jmp(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) {
     // this should be putting some specific junk on the bus (but not asserting read or write)
     hw.idle_cycle();
-    cpu.regs.pc = addr;
+    cpu.regs.pc.0 = addr;
 }
 
 fn call_jmp(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) {
-    cpu.push16(hw, cpu.regs.pc);
+    cpu.push16(hw, cpu.regs.pc.0);
 
-    cpu.regs.pc = addr;
+    cpu.regs.pc.0 = addr;
 }
 
 fn ret_jmp(cpu: &mut Cpu, hw: &mut Hardware, ei: bool) {
@@ -105,7 +107,7 @@ fn ret_jmp(cpu: &mut Cpu, hw: &mut Hardware, ei: bool) {
         cpu.ime = true;
     }
 
-    cpu.regs.pc = val;
+    cpu.regs.pc.0 = val;
 }
 
 // Mnemonic: JR
@@ -188,22 +190,11 @@ pub fn ld(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     let dest = RegisterArg::from_num(cpu.regs.ir >> 3);
     let src = RegisterArg::from_num(cpu.regs.ir);
 
-    match (dest, src) {
-        // special case: can't double indirect. Game Boy CPU chose to use this for `HALT`.
-        (RegisterArg::Indirect, RegisterArg::Indirect) => unreachable!(),
-        (RegisterArg::Indirect, RegisterArg::Reg(src)) => {
-            hw.write_cycle(cpu.regs.hl, cpu.regs.reg(src));
-        }
+    // special case: can't double indirect. Game Boy CPU chose to use this for `HALT`.
+    debug_assert!(!matches!(src, RegisterArg::Indirect) || !matches!(dest, RegisterArg::Indirect));
 
-        (RegisterArg::Reg(dest), RegisterArg::Indirect) => {
-            cpu.regs.set_reg(dest, hw.read_cycle(cpu.regs.hl));
-        }
-
-        (RegisterArg::Reg(dest), RegisterArg::Reg(src)) => {
-            let value = cpu.regs.reg(src);
-            cpu.regs.set_reg(dest, value);
-        }
-    }
+    let value = get_register_arg(cpu, hw, src);
+    set_register_arg(cpu, hw, dest, value);
 
     cpu.generic_fetch(hw)
 }
@@ -215,7 +206,7 @@ pub fn ld(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Remarks: ----
 // Timing: instant.
 pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let (ir, interrupts) = hw.read_cycle_intr(cpu.regs.pc);
+    let (ir, interrupts) = hw.read_cycle_intr(cpu.regs.pc.0);
     cpu.regs.ir = ir;
 
     if !interrupts.is_empty() {
@@ -268,8 +259,8 @@ pub fn ld_r16_a(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
         R16::SP => (cpu.regs.hl, 0xffff),
     };
 
-    cpu.regs.hl = cpu.regs.hl.wrapping_add(hl_mod);
-    hw.write_cycle(addr, cpu.regs.a);
+    cpu.regs.hl += hl_mod;
+    hw.write_cycle(addr.0, cpu.regs.a);
 
     cpu.generic_fetch(hw)
 }
@@ -363,7 +354,7 @@ pub fn rlca(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 pub fn ld_a16_sp(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     let address = cpu.fetch_imm16(hw);
     let sp = cpu.regs.sp;
-    hw.write_u16_cycle(address, sp);
+    hw.write_u16_cycle(address, sp.0);
 
     cpu.generic_fetch(hw)
 }
@@ -375,12 +366,12 @@ pub fn ld_a16_sp(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Remarks: Half Carry is set if there is a carry between bits 11 and 12. Carry is set if there is a carry out. Otherwise reset Half Carry or Carry respectively
 // Timing: Internal Delay
 pub fn add_hl_reg16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
-    let value = cpu.regs.get_reg_16(register);
-    let result = cpu.regs.hl.wrapping_add(value);
+    let value = Wrapping(cpu.regs.get_reg_16(register));
+    let result = cpu.regs.hl + value;
 
     cpu.regs.f.remove(CpuFlags::N);
 
-    let half_carry = (((cpu.regs.hl & 0xfff) + (value & 0xfff)) & 0x1000) == 0x1000;
+    let half_carry = (((cpu.regs.hl.0 & 0xfff) + (value.0 & 0xfff)) & 0x1000) == 0x1000;
 
     cpu.regs.f.set(CpuFlags::H, half_carry);
     cpu.regs.f.set(CpuFlags::C, result < cpu.regs.hl);
@@ -405,9 +396,9 @@ pub fn ld_a_r16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
         R16::SP => (cpu.regs.hl, 0xffff),
     };
 
-    cpu.regs.hl = cpu.regs.hl.wrapping_add(hl_mod);
+    cpu.regs.hl += hl_mod;
 
-    let value = hw.read_cycle(addr);
+    let value = hw.read_cycle(addr.0);
     cpu.regs.set_reg(Reg::A, value);
 
     cpu.generic_fetch(hw)
@@ -962,18 +953,18 @@ pub fn jp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Remarks: ----
 // Timing: Read, Internal Delay
 pub fn ld_hl_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let r8 = (cpu.fetch_imm8(hw) as i8) as u16;
+    let r8 = i16::from(cpu.fetch_imm8(hw).cast_signed()).cast_unsigned();
     hw.idle_cycle();
 
     cpu.regs.f = CpuFlags::empty();
     cpu.regs
         .f
-        .set(CpuFlags::H, ((cpu.regs.sp & 0x0f) + (r8 & 0x0f)) > 0x0f);
+        .set(CpuFlags::H, ((cpu.regs.sp.0 & 0x0f) + (r8 & 0x0f)) > 0x0f);
     cpu.regs
         .f
-        .set(CpuFlags::C, (((cpu.regs.sp) & 0xff) + (r8 & 0xff)) > 0xff);
+        .set(CpuFlags::C, (((cpu.regs.sp.0) & 0xff) + (r8 & 0xff)) > 0xff);
 
-    cpu.regs.hl = cpu.regs.sp.wrapping_add(r8);
+    cpu.regs.hl.0 = cpu.regs.sp.0.wrapping_add(r8);
 
     cpu.generic_fetch(hw)
 }
@@ -1027,21 +1018,21 @@ pub fn ld_sp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Remarks: ----
 // Timing: Read, Internal Delay, Internal Delay
 pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let r8 = cpu.fetch_imm8(hw) as i8;
+    let r8 = cpu.fetch_imm8(hw).cast_signed();
     hw.idle_cycle();
     hw.idle_cycle();
 
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(
         CpuFlags::H,
-        ((cpu.regs.sp & 0x0f) + (r8 as u16 & 0x0f)) > 0x0f,
+        ((cpu.regs.sp.0 & 0x0f) + (r8 as u16 & 0x0f)) > 0x0f,
     );
     cpu.regs.f.set(
         CpuFlags::C,
-        ((cpu.regs.sp & 0xff) + (r8 as u16 & 0xff)) > 0xff,
+        ((cpu.regs.sp.0 & 0xff) + (r8 as u16 & 0xff)) > 0xff,
     );
 
-    cpu.regs.sp = cpu.regs.sp.wrapping_add(r8 as u16);
+    cpu.regs.sp += i16::from(r8).cast_unsigned();
 
     cpu.generic_fetch(hw)
 }

@@ -27,7 +27,7 @@
           };
 
           # Configuration for the non-Rust dependencies
-          buildInputs = with pkgs; [ openssl.dev SDL2 ];
+          buildInputs = with pkgs; [ openssl.dev SDL2 sdl3 ];
           nativeBuildInputs = with pkgs; [ pkgconfig ];
         in
          {
@@ -42,6 +42,9 @@
                   cargo-watch
                   cargo-outdated
                   cargo-edit
+                  cargo-flamegraph
+                  samply
+                  perf
                 ]);
               RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.rust-src}/lib/rustlib/src/rust/library";
             };

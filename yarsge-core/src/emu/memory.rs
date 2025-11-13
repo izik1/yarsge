@@ -11,7 +11,7 @@ pub struct Memory {
 
 impl Memory {
     #[must_use]
-    pub fn new(game_rom: Box<[u8]>, boot_rom: Box<[u8]>) -> Option<Self> {
+    pub fn new_detect(game_rom: Box<[u8]>, boot_rom: Box<[u8]>) -> Option<Self> {
         if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
         } else {
@@ -121,7 +121,7 @@ impl Memory {
     #[must_use]
     pub fn strobe_read(&mut self, bus: &mut ExternalBus) -> u8 {
         self.strobe(bus);
-        return bus.data;
+        bus.data
     }
 
     pub fn strobe_write(&mut self, bus: &mut ExternalBus, val: u8) {
@@ -162,7 +162,7 @@ impl Memory {
                 0x0000..0x2000 => desc.ram_gate = val == 0b0000_1010,
                 0x2000..0x3000 => desc.rom_bank = (desc.rom_bank & 0xff00) | u16::from(val),
                 0x3000..0x4000 => {
-                    desc.rom_bank = (desc.rom_bank & 0x00ff) | (u16::from(val & 1) << 8)
+                    desc.rom_bank = (desc.rom_bank & 0x00ff) | (u16::from(val & 1) << 8);
                 }
                 0x4000..0x6000 => desc.ram_bank = val & 0xf,
                 _ => {
@@ -189,17 +189,17 @@ struct Mbc1 {
 
 impl Mbc1 {
     #[must_use]
-    fn rom_bank_count(&self) -> usize {
+    const fn rom_bank_count(&self) -> usize {
         2 << (self.banks_rom as usize)
     }
 
     #[must_use]
-    fn rom_bank_mask(&self) -> usize {
+    const fn rom_bank_mask(&self) -> usize {
         self.rom_bank_count() - 1
     }
 
     #[must_use]
-    fn ram_bank_count(&self) -> usize {
+    const fn ram_bank_count(&self) -> usize {
         match self.banks_ram {
             0x02 => 1,
             0x03 => 4,
@@ -210,7 +210,7 @@ impl Mbc1 {
     }
 
     #[must_use]
-    fn ram_bank_mask(&self) -> usize {
+    const fn ram_bank_mask(&self) -> usize {
         self.ram_bank_count() - 1
     }
 }
@@ -226,17 +226,17 @@ struct Mbc5 {
 
 impl Mbc5 {
     #[must_use]
-    fn rom_bank_count(&self) -> usize {
+    const fn rom_bank_count(&self) -> usize {
         2 << (self.banks_rom as usize)
     }
 
     #[must_use]
-    fn rom_bank_mask(&self) -> usize {
+    const fn rom_bank_mask(&self) -> usize {
         self.rom_bank_count() - 1
     }
 
     #[must_use]
-    fn ram_bank_count(&self) -> usize {
+    const fn ram_bank_count(&self) -> usize {
         match self.banks_ram {
             0x02 => 1,
             0x03 => 4,
@@ -247,7 +247,7 @@ impl Mbc5 {
     }
 
     #[must_use]
-    fn ram_bank_mask(&self) -> usize {
+    const fn ram_bank_mask(&self) -> usize {
         self.ram_bank_count() - 1
     }
 }
@@ -263,16 +263,20 @@ impl Mbc {
     #[must_use]
     fn make_ram(&self) -> Box<[u8]> {
         match self {
-            Mbc::Mbc0 => Vec::new().into_boxed_slice(),
-            Mbc::Mbc1(mbc1) => vec![0x00; 0x2000 * mbc1.ram_bank_count()].into_boxed_slice(),
-            Mbc::Mbc5(mbc5) => vec![0x00; 0x2000 * mbc5.ram_bank_count()].into_boxed_slice(),
+            Self::Mbc0 => Vec::new().into_boxed_slice(),
+            Self::Mbc1(mbc1) => vec![0x00; 0x2000 * mbc1.ram_bank_count()].into_boxed_slice(),
+            Self::Mbc5(mbc5) => vec![0x00; 0x2000 * mbc5.ram_bank_count()].into_boxed_slice(),
         }
     }
 
-    fn new_detect(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Mbc> {
+    const fn new_detect(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Self> {
+        if !(banks_rom <= 8 && banks_ram <= 5) {
+            return None;
+        }
+
         match cart_type {
-            0x00 => Some(Mbc::Mbc0),
-            0x01..0x04 => Some(Mbc::Mbc1(Mbc1 {
+            0x00 => Some(Self::Mbc0),
+            0x01..0x04 => Some(Self::Mbc1(Mbc1 {
                 banks_rom,
                 banks_ram,
                 ram_gate: false,
@@ -280,7 +284,7 @@ impl Mbc {
                 bank1: 1,
                 bank2: 0,
             })),
-            0x19..0x1c => Some(Mbc::Mbc5(Mbc5 {
+            0x19..0x1c => Some(Self::Mbc5(Mbc5 {
                 banks_rom,
                 banks_ram,
                 ram_gate: false,
@@ -293,9 +297,9 @@ impl Mbc {
 
     #[must_use]
     fn map_rom_addr(&self, addr: u16) -> usize {
-        match *self {
-            Mbc::Mbc0 => addr as usize,
-            Mbc::Mbc1(ref desc) if addr < 0x4000 => {
+        match self {
+            Self::Mbc0 => addr as usize,
+            Self::Mbc1(desc) if addr < 0x4000 => {
                 if !desc.mode {
                     return addr as usize;
                 }
@@ -305,11 +309,11 @@ impl Mbc {
             }
 
             // if addr >= 0x4000
-            Mbc::Mbc1(ref desc) => ((addr - 0x4000) as usize).wrapping_add(
+            Self::Mbc1(desc) => ((addr - 0x4000) as usize).wrapping_add(
                 ((desc.rom_bank_mask()) & ((desc.bank2 << 5) | desc.bank1) as usize) * 0x4000,
             ),
-            Mbc::Mbc5(_) if addr < 0x4000 => addr as usize,
-            Mbc::Mbc5(ref desc) => ((addr - 0x4000) as usize)
+            Self::Mbc5(_) if addr < 0x4000 => addr as usize,
+            Self::Mbc5(desc) => ((addr - 0x4000) as usize)
                 .wrapping_add(((desc.rom_bank_mask()) & (desc.rom_bank as usize)) * 0x4000),
         }
     }
@@ -317,16 +321,16 @@ impl Mbc {
     #[must_use]
     fn map_ram_addr(&self, addr: u16) -> usize {
         match *self {
-            Mbc::Mbc0 => usize::MAX,
-            Mbc::Mbc1(ref desc) if !desc.ram_gate => usize::MAX,
-            Mbc::Mbc5(ref desc) if !desc.ram_gate => usize::MAX,
-            Mbc::Mbc1(ref desc) if !desc.mode => usize::from(addr & 0x1fff),
-            Mbc::Mbc1(ref desc) => {
+            Self::Mbc0 => usize::MAX,
+            Self::Mbc1(ref desc) if !desc.ram_gate || desc.ram_bank_count() == 0 => usize::MAX,
+            Self::Mbc5(ref desc) if !desc.ram_gate || desc.ram_bank_count() == 0 => usize::MAX,
+            Self::Mbc1(ref desc) if !desc.mode => usize::from(addr & 0x1fff),
+            Self::Mbc1(ref desc) => {
                 usize::from(addr & 0x1fff)
                     | ((desc.ram_bank_mask() & usize::from(desc.bank2)) << 13)
             }
 
-            Mbc::Mbc5(ref desc) => {
+            Self::Mbc5(ref desc) => {
                 usize::from(addr & 0x1fff)
                     | ((desc.ram_bank_mask() & usize::from(desc.ram_bank)) << 13)
             }

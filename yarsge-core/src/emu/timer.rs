@@ -15,6 +15,22 @@ pub struct Timer {
 
 impl Timer {
     #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            prev_tima_overflow: 0,
+            prev_timer: FallingEdge::new(false),
+            tac: 0,
+            tima: 0,
+            tima_overflow: 0,
+            tma: 0,
+            // Gekkio got access to per clock timings!
+            // On another note, yeah, the clock starts 8 t-cycles before
+            // the first byte of the boot-rom is fetched.
+            sys_timer: 8,
+        }
+    }
+
+    #[must_use]
     pub fn read_reg(&self, addr: u8) -> u8 {
         match addr {
             0x04 => (self.sys_timer >> 8) as u8,
@@ -82,17 +98,6 @@ impl Timer {
 
 impl Default for Timer {
     fn default() -> Self {
-        Timer {
-            prev_tima_overflow: 0,
-            prev_timer: FallingEdge::new(false),
-            tac: 0,
-            tima: 0,
-            tima_overflow: 0,
-            tma: 0,
-            // Gekkio got access to per clock timings!
-            // On another note, yeah, the clock starts 8 t-cycles before
-            // the first byte of the boot-rom is fetched.
-            sys_timer: 8,
-        }
+        Self::new()
     }
 }

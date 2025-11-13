@@ -20,7 +20,7 @@ impl<const EDGE: bool> EdgeDetector<EDGE> {
         Self(value)
     }
 
-    fn tick(&mut self, new: bool) -> bool {
+    const fn tick(&mut self, new: bool) -> bool {
         let old = mem::replace(&mut self.0, new);
 
         if EDGE { !old && new } else { old && !new }

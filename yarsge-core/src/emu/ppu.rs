@@ -18,12 +18,13 @@ pub enum DisplayPixel {
 }
 
 impl DisplayPixel {
-    fn from_bits_truncate(bits: u8) -> DisplayPixel {
+    #[inline(always)]
+    fn from_bits_truncate(bits: u8) -> Self {
         match bits & 0b11 {
-            0 => DisplayPixel::White,
-            1 => DisplayPixel::LightGrey,
-            2 => DisplayPixel::DarkGrey,
-            3 => DisplayPixel::Black,
+            0 => Self::White,
+            1 => Self::LightGrey,
+            2 => Self::DarkGrey,
+            3 => Self::Black,
             _ => unreachable!(),
         }
     }
@@ -59,14 +60,18 @@ impl DisplayMemory {
         *byte = (*byte & mask) | (value as u8) << ((idx) * 2);
     }
 
-    fn iter(&self) -> impl IntoIterator<Item = DisplayPixel> {
+    #[inline]
+    const fn iter(&self) -> impl Iterator<Item = DisplayPixel> {
         struct Iter<'a>(&'a [u8], u8);
 
         impl Iterator for Iter<'_> {
             type Item = DisplayPixel;
 
+            #[inline]
             fn next(&mut self) -> Option<Self::Item> {
-                let (&first, rest) = self.0.split_first()?;
+                let &[first, ref rest @ ..] = self.0 else {
+                    return None;
+                };
 
                 let old = self.1;
                 self.1 = (self.1 + 1) & 0b11;
@@ -154,8 +159,8 @@ impl SpriteFifo {
     fn push8(&mut self, pxs: u16, bg_over_sprite: bool, palette: bool) {
         self.raw |= pxs & (u16::MAX >> (self.len * 2));
 
-        self.bg_over_sprite |= (bg_over_sprite as u8) * (u8::MAX >> self.len);
-        self.palette |= (palette as u8) * (u8::MAX >> self.len);
+        self.bg_over_sprite |= u8::from(bg_over_sprite) * (u8::MAX >> self.len);
+        self.palette |= u8::from(palette) * (u8::MAX >> self.len);
 
         self.len = 8;
     }
@@ -179,8 +184,8 @@ impl SpriteFifo {
 
 fn interleave(hi: u8, lo: u8) -> u16 {
     let mut res = 0;
-    let mut hi = hi.reverse_bits() as u16;
-    let mut lo = lo.reverse_bits() as u16;
+    let mut hi = u16::from(hi.reverse_bits());
+    let mut lo = u16::from(lo.reverse_bits());
 
     for _ in 0..8 {
         res <<= 2;
@@ -192,12 +197,8 @@ fn interleave(hi: u8, lo: u8) -> u16 {
     res
 }
 
-fn get_map_base(lcdc: Lcdc) -> usize {
-    if lcdc.contains(Lcdc::BG_TILE_MAP) {
-        0x1c00
-    } else {
-        0x1800
-    }
+const fn get_map_base(lcdc: Lcdc) -> usize {
+    0x1800 + (lcdc.contains(Lcdc::BG_TILE_MAP) as usize) * 400
 }
 
 fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
@@ -211,16 +212,12 @@ fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
     }
 
     // transform from 0x00..=0xff to [0x0000..=0x07f0] and [-0x0800..0x0000]
-    let tile_index = usize::from(
-        i16::from(tile_index.cast_signed())
-            .wrapping_mul(16)
-            .cast_unsigned(),
-    );
+    let tile_index = isize::from(tile_index.cast_signed()).wrapping_mul(16);
 
-    0x1000_usize.wrapping_add(tile_index)
+    0x1000_usize.wrapping_add_signed(tile_index)
 }
 
-fn is_sprite_onscreen(ly: u8, sy: u8, lcdc: Lcdc) -> bool {
+const fn is_sprite_onscreen(ly: u8, sy: u8, lcdc: Lcdc) -> bool {
     let height: u8 = if lcdc.contains(Lcdc::OBJ_SIZE) { 16 } else { 8 };
 
     let y = ly.wrapping_add(16).wrapping_sub(sy);
@@ -281,11 +278,11 @@ impl PixelFetcher {
         }
     }
 
-    fn can_interrupt(&self, bg_fifo: &BgFifo) -> bool {
+    const fn can_interrupt(&self, bg_fifo: &BgFifo) -> bool {
         matches!(self.st, PixelFetcherState::Push { .. }) && bg_fifo.len > 0
     }
 
-    fn can_obj_fetch_cancel(&self) -> bool {
+    const fn can_obj_fetch_cancel(&self) -> bool {
         self.sprite.is_some() && !matches!(self.st, PixelFetcherState::TileDataHighD2 { .. })
     }
 
@@ -319,7 +316,7 @@ impl PixelFetcher {
 
                 None => {
                     let base = get_tile::<false>(tile_index, lcdc);
-                    base + usize::from((ly + scy) % 8) * 2
+                    base + usize::from(ly.wrapping_add(scy) % 8) * 2
                 }
             }
         }
@@ -335,8 +332,8 @@ impl PixelFetcher {
 
                 let x = self.x;
 
-                let x = (x + (scx >> 3)) & 0x1f;
-                let y = (ly + scy) >> 3;
+                let x = (x.wrapping_add(scx >> 3)) & 0x1f;
+                let y = ly.wrapping_add(scy) >> 3;
                 let tile_index = (y as usize) * 32 + x as usize;
                 let offset = get_map_base(lcdc) + tile_index;
 
@@ -451,6 +448,19 @@ enum PpuState {
     Vblank,
 }
 
+impl PpuState {
+    const fn draw(sprites: ArrayVec<Sprite, 10>, scx: u8) -> Self {
+        Self::Draw {
+            px_fetcher: const { PixelFetcher::new() },
+            bg_fifo: const { BgFifo::new() },
+            sprite_fifo: const { SpriteFifo::new() },
+            sprites,
+            // going to arbitrarily assume that "fine scx" is decided here until I have a better idea.
+            screen_x: 0_u8.wrapping_sub(8).wrapping_sub(scx % 8),
+        }
+    }
+}
+
 bitflags::bitflags! {
     struct StatUpper : u8 {
         const LYC_INT_SELECT = 1 << 6;
@@ -486,17 +496,41 @@ pub struct Ppu {
 
 impl Ppu {
     #[must_use]
-    pub fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
+    pub const fn new() -> Self {
+        Self {
+            display_memory: DisplayMemory::new(),
+            obj_pallet_a: 0,
+            obj_pallet_b: 0,
+            vram: [0; 0x2000],
+            oam: [0; 0xa0],
+            scx: 0,
+            scy: 0,
+            lcdc: Lcdc::empty(),
+            ly: 0,
+            lyc: 0,
+            window_ly: 0,
+            bg_pallet: 0,
+            stat_upper: StatUpper::empty(),
+            stat_mode: 0,
+            cycle_mod: 0,
+            visible_ly: 0,
+            pirq: RisingEdge::new(false),
+            state: PpuState::Disabled,
+        }
+    }
+
+    #[must_use]
+    pub const fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
         self.display_memory.iter()
     }
 
     #[must_use]
-    fn oam_blocked(&self) -> bool {
+    const fn oam_blocked(&self) -> bool {
         self.stat_mode > 1
     }
 
     #[must_use]
-    fn vram_blocked(&self) -> bool {
+    const fn vram_blocked(&self) -> bool {
         self.stat_mode == 3
     }
 
@@ -578,13 +612,12 @@ impl Ppu {
     // nonminimal_bool seems to be messed up here.
     #[allow(clippy::nonminimal_bool)]
     fn ly_cp(&mut self) -> bool {
-        if (self.cycle_mod >= 4 && self.lyc == self.ly) || (self.cycle_mod < 4 && self.lyc == 0) {
-            self.stat_upper.insert(StatUpper::LYC_LY_COINCIDENCE);
-            return self.stat_upper.contains(StatUpper::LYC_INT_SELECT);
-        } else {
-            self.stat_upper.remove(StatUpper::LYC_LY_COINCIDENCE);
-            false
-        }
+        self.stat_upper.set(
+            StatUpper::LYC_LY_COINCIDENCE,
+            (self.cycle_mod >= 4 && self.lyc == self.ly) || (self.cycle_mod < 4 && self.lyc == 0),
+        );
+        self.stat_upper
+            .contains(const { StatUpper::LYC_LY_COINCIDENCE.union(StatUpper::LYC_INT_SELECT) })
     }
 
     // a lot of this comes from [pandocs](https://gbdev.io/pandocs/Rendering.html) and [gameroy](https://github.com/Rodrigodd/gameroy/blob/a5acdc921c0561ed93a077622b598df0e068583c/core/src/gameboy/ppu.rs#L936)
@@ -611,11 +644,13 @@ impl Ppu {
                             break;
                         }
 
+                        let [sy, sx, tile, flags] = self.oam[idx * 4..][..4].try_into().unwrap();
+
                         let sprite = Sprite {
-                            sy: self.oam[idx * 4 + 0],
-                            sx: self.oam[idx * 4 + 1],
-                            tile: self.oam[idx * 4 + 2],
-                            flags: SpriteFlags::from_bits_truncate(self.oam[idx * 4 + 3]),
+                            sy,
+                            sx,
+                            tile,
+                            flags: SpriteFlags::from_bits_truncate(flags),
                         };
 
                         if is_sprite_onscreen(self.ly, sprite.sy, self.lcdc) {
@@ -633,14 +668,7 @@ impl Ppu {
 
                     sprites.sort_by_key(|sprite| cmp::Reverse(sprite.sx));
 
-                    self.state = PpuState::Draw {
-                        px_fetcher: PixelFetcher::new(),
-                        bg_fifo: BgFifo::new(),
-                        sprite_fifo: SpriteFifo::new(),
-                        sprites,
-                        // going to arbitrarily assume that "fine scx" is decided here until I have a better idea.
-                        screen_x: 0_u8.wrapping_sub(8).wrapping_sub(self.scx % 8),
-                    };
+                    self.state = PpuState::draw(sprites, self.scx);
                 }
                 _ => unreachable!(),
             },
@@ -837,26 +865,7 @@ impl Ppu {
 }
 
 impl Default for Ppu {
-    fn default() -> Ppu {
-        Ppu {
-            display_memory: DisplayMemory::new(),
-            obj_pallet_a: 0,
-            obj_pallet_b: 0,
-            vram: [0; 0x2000],
-            oam: [0; 0xa0],
-            scx: 0,
-            scy: 0,
-            lcdc: Lcdc::empty(),
-            ly: 0,
-            lyc: 0,
-            window_ly: 0,
-            bg_pallet: 0,
-            stat_upper: StatUpper::empty(),
-            stat_mode: 0,
-            cycle_mod: 0,
-            visible_ly: 0,
-            pirq: RisingEdge::new(false),
-            state: PpuState::Disabled,
-        }
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -1,5 +1,5 @@
 [workspace]
-members = ["yarsge-core", "yarsge-sdl2"]
+members = ["yarsge-core", "yarsge-sdl"]
 resolver = "3"
 
 [workspace.package]

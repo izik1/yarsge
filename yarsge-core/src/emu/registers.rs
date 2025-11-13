@@ -1,3 +1,5 @@
+use std::num::Wrapping;
+
 use super::flags::CpuFlags;
 
 #[derive(Clone, Copy)]
@@ -19,6 +21,7 @@ pub enum RegisterArg {
 
 impl RegisterArg {
     #[must_use]
+    #[inline]
     pub fn from_num(num: u8) -> Self {
         match num & 7 {
             0b000 => Self::Reg(Reg::B),
@@ -43,26 +46,40 @@ pub enum R16 {
 }
 
 pub struct Registers {
-    pub pc: u16,
+    pub pc: Wrapping<u16>,
     pub a: u8,
     pub f: CpuFlags,
-    pub bc: u16,
-    pub de: u16,
-    pub hl: u16,
-    pub sp: u16,
+    pub bc: Wrapping<u16>,
+    pub de: Wrapping<u16>,
+    pub hl: Wrapping<u16>,
+    pub sp: Wrapping<u16>,
     pub ir: u8,
 }
 
 impl Registers {
     #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            pc: Wrapping(0),
+            a: 0,
+            f: CpuFlags::empty(),
+            bc: Wrapping(0),
+            de: Wrapping(0),
+            hl: Wrapping(0),
+            sp: Wrapping(0),
+            ir: 0,
+        }
+    }
+
+    #[must_use]
     pub fn reg(&self, reg: Reg) -> u8 {
         match reg {
-            Reg::B => (self.bc >> 8) as u8,
-            Reg::C => self.bc as u8,
-            Reg::D => (self.de >> 8) as u8,
-            Reg::E => self.de as u8,
-            Reg::H => (self.hl >> 8) as u8,
-            Reg::L => self.hl as u8,
+            Reg::B => (self.bc.0 >> 8) as u8,
+            Reg::C => self.bc.0 as u8,
+            Reg::D => (self.de.0 >> 8) as u8,
+            Reg::E => self.de.0 as u8,
+            Reg::H => (self.hl.0 >> 8) as u8,
+            Reg::L => self.hl.0 as u8,
             Reg::A => self.a,
         }
     }
@@ -70,56 +87,48 @@ impl Registers {
     #[must_use]
     pub fn get_reg_16(&self, reg: R16) -> u16 {
         match reg {
-            R16::BC => self.bc,
-            R16::DE => self.de,
-            R16::HL => self.hl,
-            R16::SP => self.sp,
+            R16::BC => self.bc.0,
+            R16::DE => self.de.0,
+            R16::HL => self.hl.0,
+            R16::SP => self.sp.0,
         }
     }
 
     pub fn set_reg(&mut self, reg: Reg, val: u8) {
         match reg {
-            Reg::B => self.bc = (self.bc & 0xff) | (u16::from(val) << 8),
-            Reg::C => self.bc = (self.bc & 0xff00) | u16::from(val),
-            Reg::D => self.de = (self.de & 0xff) | (u16::from(val) << 8),
-            Reg::E => self.de = (self.de & 0xff00) | u16::from(val),
-            Reg::H => self.hl = (self.hl & 0xff) | (u16::from(val) << 8),
-            Reg::L => self.hl = (self.hl & 0xff00) | u16::from(val),
+            Reg::B => self.bc.0 = (self.bc.0 & 0xff) | (u16::from(val) << 8),
+            Reg::C => self.bc.0 = (self.bc.0 & 0xff00) | u16::from(val),
+            Reg::D => self.de.0 = (self.de.0 & 0xff) | (u16::from(val) << 8),
+            Reg::E => self.de.0 = (self.de.0 & 0xff00) | u16::from(val),
+            Reg::H => self.hl.0 = (self.hl.0 & 0xff) | (u16::from(val) << 8),
+            Reg::L => self.hl.0 = (self.hl.0 & 0xff00) | u16::from(val),
             Reg::A => self.a = val,
         }
     }
 
     #[must_use]
     pub fn get_af(&self) -> u16 {
-        (u16::from(self.a) << 8) | u16::from(self.f.bits())
+        u16::from_be_bytes([self.a, self.f.bits()])
     }
 
     pub fn set_af(&mut self, val: u16) {
-        self.f = CpuFlags::from_bits_truncate(val as u8);
-        self.a = (val >> 8) as u8;
+        let [a, f] = val.to_be_bytes();
+        self.f = CpuFlags::from_bits_truncate(f);
+        self.a = a;
     }
 
     pub fn set_reg_16(&mut self, reg: R16, val: u16) {
         match reg {
-            R16::BC => self.bc = val,
-            R16::DE => self.de = val,
-            R16::HL => self.hl = val,
-            R16::SP => self.sp = val,
+            R16::BC => self.bc.0 = val,
+            R16::DE => self.de.0 = val,
+            R16::HL => self.hl.0 = val,
+            R16::SP => self.sp.0 = val,
         }
     }
 }
 
 impl Default for Registers {
     fn default() -> Self {
-        Registers {
-            pc: 0,
-            a: 0,
-            f: CpuFlags::empty(),
-            bc: 0,
-            de: 0,
-            hl: 0,
-            sp: 0,
-            ir: 0,
-        }
+        Self::new()
     }
 }

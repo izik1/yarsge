@@ -20,9 +20,10 @@ pub struct Dma {
     last_running: bool,
 }
 
-impl Default for Dma {
-    fn default() -> Self {
-        Dma {
+impl Dma {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
             tick: 0,
             src_addr: 0,
             new_src: None,
@@ -33,26 +34,24 @@ impl Default for Dma {
             last_running: false,
         }
     }
-}
 
-impl Dma {
     #[must_use]
-    pub fn running(&self) -> bool {
+    pub const fn running(&self) -> bool {
         self.offset < 0xa0
     }
 
     #[must_use]
-    pub fn oam_blocked(&self) -> bool {
+    pub const fn oam_blocked(&self) -> bool {
         // since this is logically asked for "at the end of T-3", but `running` would reflect "at the start of T-0", we need to track the last value for running.
         self.last_running
     }
 
-    pub fn write_src(&mut self, value: u8) {
+    pub const fn write_src(&mut self, value: u8) {
         self.new_src = Some(value);
     }
 
     #[must_use]
-    pub fn read_src(&self) -> u8 {
+    pub const fn read_src(&self) -> u8 {
         self.src_addr
     }
 
@@ -107,5 +106,11 @@ impl Dma {
 
             4.. => unreachable!(),
         }
+    }
+}
+
+impl Default for Dma {
+    fn default() -> Self {
+        Self::new()
     }
 }

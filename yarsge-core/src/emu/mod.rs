@@ -20,13 +20,13 @@ mod pad;
 pub mod bits {
     #[inline(always)]
     #[must_use]
-    pub fn get(num: u8) -> u8 {
+    pub const fn get(num: u8) -> u8 {
         1 << num
     }
 
     #[inline(always)]
     #[must_use]
-    pub fn has_bit(num: u8, bit: u8) -> bool {
+    pub const fn has_bit(num: u8, bit: u8) -> bool {
         (num & get(bit)) == get(bit)
     }
 }
@@ -98,6 +98,7 @@ pub struct GameBoy {
 
 // const DMG_NOMINAL_CLOCK_FREQ: u64 = 4_194_304;
 // const DMG_PHI_FREQ: u64 = DMG_NOMINAL_CLOCK_FREQ / 4;
+// try to stay in the range such that 1/PS_PER_CLOCK = [4,194,304 Hz - 70ppm : 4,194,304 (Hz) - 50ppm]
 const PS_PER_CLOCK: u64 = 238_420;
 
 impl GameBoy {
@@ -108,7 +109,7 @@ impl GameBoy {
     #[must_use]
     pub fn new(boot_rom: Box<[u8]>, game_rom: Box<[u8]>) -> Option<Self> {
         Some(Self {
-            hw: Hardware::new(memory::Memory::new(game_rom, boot_rom)?),
+            hw: Hardware::new(memory::Memory::new_detect(game_rom, boot_rom)?),
             cpu: Cpu::new(),
             mode: Mode::Run,
             bank_ps: 0,
