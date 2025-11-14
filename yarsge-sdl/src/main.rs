@@ -1,5 +1,6 @@
 use core::fmt;
 use std::ops::ControlFlow;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
@@ -103,10 +104,10 @@ struct Opt {
     scale: u32,
 
     #[clap(help = "Path to the boot rom")]
-    boot_rom: String,
+    boot_rom: PathBuf,
 
     #[clap(help = "Path to the game rom")]
-    game_rom: String,
+    game_rom: PathBuf,
 
     #[clap(short = 'p', long = "palette", default_value_t = Palette::DEFAULT)]
     palette: Palette,
@@ -224,7 +225,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         total_subframes += 1;
 
         let current_frame = std::time::Instant::now();
-        let elapsed = current_frame.duration_since(last_subframe);
+        let delta_time = current_frame.duration_since(last_subframe);
         last_subframe = current_frame;
 
         if current_frame.duration_since(last_poll_inputs) >= Duration::from_micros(500) {
@@ -235,7 +236,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
             }
         }
 
-        gb.run(elapsed, key_state);
+        gb.run(delta_time, key_state);
 
         if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
             let mut ticks: usize = 0;
