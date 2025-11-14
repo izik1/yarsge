@@ -198,7 +198,7 @@ fn interleave(hi: u8, lo: u8) -> u16 {
 }
 
 const fn get_map_base(lcdc: Lcdc) -> usize {
-    0x1800 + (lcdc.contains(Lcdc::BG_TILE_MAP) as usize) * 400
+    0x1800 + (lcdc.contains(Lcdc::BG_TILE_MAP) as usize) * 0x400
 }
 
 fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
