@@ -477,8 +477,10 @@ pub struct Ppu {
     display_memory: DisplayMemory,
     obj_pallet_a: u8,
     obj_pallet_b: u8,
-    scx: u8,
     scy: u8,
+    scx: u8,
+    wy: u8,
+    wx: u8,
     lcdc: Lcdc,
     ly: u8,
     // cmp_ly: u8,
@@ -503,8 +505,10 @@ impl Ppu {
             obj_pallet_b: 0,
             vram: [0; 0x2000],
             oam: [0; 0xa0],
-            scx: 0,
             scy: 0,
+            scx: 0,
+            wy: 0,
+            wx: 0,
             lcdc: Lcdc::empty(),
             ly: 0,
             lyc: 0,
@@ -564,9 +568,8 @@ impl Ppu {
             0x43 => self.scx = val,
             0x44 => {}
             0x45 => self.lyc = val,
-            0x4a | 0x4b => log::warn!(
-                "todo: unimplemented PPU reg write: (addr: 0xff{addr:02x} val: {val:#02x})",
-            ),
+            0x4a => self.wy = val,
+            0x4b => self.wx = val,
             0x47 => self.bg_pallet = val,
             0x48 => self.obj_pallet_a = val & 0xfc,
             0x49 => self.obj_pallet_b = val & 0xfc,
@@ -583,10 +586,8 @@ impl Ppu {
             0x43 => self.scx,
             0x44 => self.visible_ly,
             0x45 => self.lyc,
-            0x4a | 0x4b => {
-                eprintln!("todo: unimplemented PPU reg (read): (addr: 0xff{addr:02x})",);
-                0xff
-            }
+            0x4a => self.wy,
+            0x4b => self.wx,
             0x47 => self.bg_pallet,
             0x48 => self.obj_pallet_a,
             0x49 => self.obj_pallet_b,
