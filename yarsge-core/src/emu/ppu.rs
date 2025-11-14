@@ -755,6 +755,12 @@ impl Ppu {
                     );
 
                     if allow_pop && let Some(px) = bg_fifo.pop() {
+                        let px = if self.lcdc.contains(Lcdc::BG_WINDOW_ENABLE) {
+                            px
+                        } else {
+                            0b00
+                        };
+
                         let sprite_px = sprite_fifo.pop();
 
                         let old_x = *screen_x;
