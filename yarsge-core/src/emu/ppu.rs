@@ -112,6 +112,10 @@ impl BgFifo {
         Self { raw: 0, len: 0 }
     }
 
+    fn clear(&mut self) {
+        *self = Self::new();
+    }
+
     fn push8(&mut self, pxs: u16) -> bool {
         if self.len == 0 {
             self.raw = pxs;
@@ -197,8 +201,14 @@ fn interleave(hi: u8, lo: u8) -> u16 {
     res
 }
 
-const fn get_map_base(lcdc: Lcdc) -> usize {
-    0x1800 + (lcdc.contains(Lcdc::BG_TILE_MAP) as usize) * 0x400
+const fn get_map_base(lcdc: Lcdc, window: bool) -> usize {
+    let tilemap_bit = if window {
+        Lcdc::WINDOW_TILE_MAP
+    } else {
+        Lcdc::BG_TILE_MAP
+    };
+
+    0x1800 + (lcdc.contains(tilemap_bit) as usize) * 0x400
 }
 
 fn get_tile<const OBJ: bool>(tile_index: u8, lcdc: Lcdc) -> usize {
@@ -265,6 +275,7 @@ struct PixelFetcher {
     st: PixelFetcherState,
     sprite: Option<Sprite>,
     first: bool,
+    window: bool,
     x: u8,
 }
 
@@ -273,6 +284,7 @@ impl PixelFetcher {
         Self {
             st: PixelFetcherState::GetTileD1,
             first: true,
+            window: false,
             x: 0,
             sprite: None,
         }
@@ -295,19 +307,22 @@ impl PixelFetcher {
         scy: u8,
         lcdc: Lcdc,
         ly: u8,
+        window_ly: u8,
     ) {
         fn tile_addr(
             sprite: Option<&Sprite>,
             tile_index: u8,
             lcdc: Lcdc,
-            ly: u8,
+            bg_ly: u8,
+            window_ly: u8,
+            window: bool,
             scy: u8,
         ) -> usize {
             match sprite {
                 Some(sprite) => {
                     let base = get_tile::<true>(tile_index, lcdc);
                     base + get_sprite_y(
-                        ly,
+                        bg_ly,
                         sprite.sy,
                         lcdc,
                         sprite.flags.contains(SpriteFlags::Y_FLIP),
@@ -316,7 +331,14 @@ impl PixelFetcher {
 
                 None => {
                     let base = get_tile::<false>(tile_index, lcdc);
-                    base + usize::from(ly.wrapping_add(scy) % 8) * 2
+
+                    let fine_scroll = if window {
+                        window_ly
+                    } else {
+                        bg_ly.wrapping_add(scy)
+                    };
+
+                    base + usize::from(fine_scroll % 8) * 2
                 }
             }
         }
@@ -332,10 +354,20 @@ impl PixelFetcher {
 
                 let x = self.x;
 
-                let x = (x.wrapping_add(scx >> 3)) & 0x1f;
-                let y = ly.wrapping_add(scy) >> 3;
+                let x = if self.window {
+                    x
+                } else {
+                    (x.wrapping_add(scx >> 3)) & 0x1f
+                };
+
+                let y = if self.window {
+                    window_ly >> 3
+                } else {
+                    ly.wrapping_add(scy) >> 3
+                };
+
                 let tile_index = (y as usize) * 32 + x as usize;
-                let offset = get_map_base(lcdc) + tile_index;
+                let offset = get_map_base(lcdc, self.window) + tile_index;
 
                 let tile_index = vram[offset];
 
@@ -345,7 +377,15 @@ impl PixelFetcher {
                 self.st = PixelFetcherState::TileDataLowD1 { tile_index };
             }
             PixelFetcherState::TileDataLowD1 { tile_index } => {
-                let tile_addr = tile_addr(self.sprite.as_ref(), tile_index, lcdc, ly, scy);
+                let tile_addr = tile_addr(
+                    self.sprite.as_ref(),
+                    tile_index,
+                    lcdc,
+                    ly,
+                    window_ly,
+                    self.window,
+                    scy,
+                );
 
                 self.st = PixelFetcherState::TileDataLowD2 {
                     tile_index,
@@ -365,7 +405,15 @@ impl PixelFetcher {
                 tile_index,
                 tile_low,
             } => {
-                let tile_addr = tile_addr(self.sprite.as_ref(), tile_index, lcdc, ly, scy) + 1;
+                let tile_addr = tile_addr(
+                    self.sprite.as_ref(),
+                    tile_index,
+                    lcdc,
+                    ly,
+                    window_ly,
+                    self.window,
+                    scy,
+                ) + 1;
 
                 self.st = PixelFetcherState::TileDataHighD2 {
                     tile_low,
@@ -434,6 +482,12 @@ struct Sprite {
     flags: SpriteFlags,
 }
 
+enum WindowState {
+    DisabledLine,
+    DisabledColumn,
+    Enabled,
+}
+
 enum PpuState {
     Disabled,
     OamScan,
@@ -443,13 +497,14 @@ enum PpuState {
         sprite_fifo: SpriteFifo,
         sprites: ArrayVec<Sprite, 10>,
         screen_x: u8,
+        window: WindowState,
     },
     HBlank,
     Vblank,
 }
 
 impl PpuState {
-    const fn draw(sprites: ArrayVec<Sprite, 10>, scx: u8) -> Self {
+    const fn draw(sprites: ArrayVec<Sprite, 10>, scx: u8, reach_wy: bool) -> Self {
         Self::Draw {
             px_fetcher: const { PixelFetcher::new() },
             bg_fifo: const { BgFifo::new() },
@@ -457,6 +512,10 @@ impl PpuState {
             sprites,
             // going to arbitrarily assume that "fine scx" is decided here until I have a better idea.
             screen_x: 0_u8.wrapping_sub(8).wrapping_sub(scx % 8),
+            window: match reach_wy {
+                true => WindowState::DisabledColumn,
+                false => WindowState::DisabledLine,
+            },
         }
     }
 }
@@ -483,9 +542,10 @@ pub struct Ppu {
     wx: u8,
     lcdc: Lcdc,
     ly: u8,
+    reach_wy: bool,
+    window_ly: u8,
     // cmp_ly: u8,
     bg_pallet: u8,
-    window_ly: u8,
     stat_upper: StatUpper,
     // visible value for `stat`'s lower two bits.
     stat_mode: u8,
@@ -511,8 +571,9 @@ impl Ppu {
             wx: 0,
             lcdc: Lcdc::empty(),
             ly: 0,
-            lyc: 0,
+            reach_wy: false,
             window_ly: 0,
+            lyc: 0,
             bg_pallet: 0,
             stat_upper: StatUpper::empty(),
             stat_mode: 0,
@@ -603,7 +664,9 @@ impl Ppu {
             self.state = PpuState::Disabled;
             self.display_memory = DisplayMemory::new();
             self.ly = 0;
+            self.window_ly = 0;
             self.visible_ly = 0;
+            self.reach_wy = false;
             self.pirq = RisingEdge::new(false);
             self.cycle_mod = 0;
             self.stat_mode = 0;
@@ -633,6 +696,7 @@ impl Ppu {
                 1..3 => {}
                 3 => {}
                 4 => {
+                    self.reach_wy |= self.wy == self.ly;
                     self.stat_mode = 2;
                 }
                 5..79 => {}
@@ -669,7 +733,7 @@ impl Ppu {
 
                     sprites.sort_by_key(|sprite| cmp::Reverse(sprite.sx));
 
-                    self.state = PpuState::draw(sprites, self.scx);
+                    self.state = PpuState::draw(sprites, self.scx, self.reach_wy);
                 }
                 _ => unreachable!(),
             },
@@ -679,6 +743,7 @@ impl Ppu {
                 sprite_fifo,
                 sprites,
                 screen_x,
+                window,
             } => match cycle {
                 0..80 => unreachable!("entered draw at line-cycle {cycle}"),
                 80..84 => {}
@@ -692,6 +757,7 @@ impl Ppu {
                         self.scy,
                         self.lcdc,
                         self.ly,
+                        self.window_ly,
                     );
                 }
                 _ => {
@@ -753,6 +819,7 @@ impl Ppu {
                         self.scy,
                         self.lcdc,
                         self.ly,
+                        self.window_ly,
                     );
 
                     if allow_pop && let Some(px) = bg_fifo.pop() {
@@ -766,6 +833,28 @@ impl Ppu {
 
                         let old_x = *screen_x;
                         *screen_x = screen_x.wrapping_add(1);
+
+                        let px = 'px: {
+                            if self.wx.wrapping_sub(7) == *screen_x {
+                                match window {
+                                    WindowState::DisabledColumn
+                                        if self.lcdc.contains(Lcdc::WINDOW_ENABLE) =>
+                                    {
+                                        debug_assert!(px_fetcher.sprite.is_none());
+                                        *window = WindowState::Enabled;
+                                        px_fetcher.x = 0;
+                                        px_fetcher.st = PixelFetcherState::GetTileD1;
+                                        px_fetcher.window = true;
+                                        bg_fifo.clear();
+                                    }
+                                    WindowState::DisabledLine | WindowState::DisabledColumn => {}
+                                    WindowState::Enabled => break 'px 0b00,
+                                }
+                            }
+
+                            px
+                        };
+
                         if old_x < 160 {
                             // bg has priority if:
                             // 1. the sprite pixel is transparent or
@@ -791,6 +880,9 @@ impl Ppu {
                     }
 
                     if *screen_x == 160 {
+                        if matches!(window, WindowState::Enabled) {
+                            self.window_ly += 1;
+                        }
                         self.state = PpuState::HBlank;
                     }
                 }
@@ -814,6 +906,8 @@ impl Ppu {
                     self.stat_mode = 1;
 
                     if self.ly == 144 {
+                        self.window_ly = 0;
+                        self.reach_wy = false;
                         *reg_if |= InterruptFlags::VBLANK;
                     }
 
