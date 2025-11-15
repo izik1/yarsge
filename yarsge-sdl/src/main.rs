@@ -207,8 +207,6 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let mut gb = emu::GameBoy::new(boot_rom, game_rom)
         .ok_or_else(|| anyhow::anyhow!("Error loading cpu"))?;
 
-    let mut key_state = Keys::empty();
-
     let start = Instant::now();
     let mut last_subframe = start;
     let mut last_display_frame = start;
@@ -230,13 +228,13 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
         if current_frame.duration_since(last_poll_inputs) >= Duration::from_micros(500) {
             last_poll_inputs = current_frame;
-            match poll_inputs(&mut event_pump, &keymap, &mut key_state) {
+            match poll_inputs(&mut event_pump, &keymap, gb.keys_mut()) {
                 ControlFlow::Continue(()) => {}
                 ControlFlow::Break(()) => break 'running Ok(()),
             }
         }
 
-        gb.run(delta_time, key_state);
+        gb.run(delta_time);
 
         if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
             let mut ticks: usize = 0;
@@ -263,7 +261,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
         last_display_frame = current_frame;
 
-        let disp = gb.get_display();
+        let disp = gb.display();
 
         for (px, elems) in disp.into_iter().zip(array.as_chunks_mut::<3>().0) {
             let px = opt.palette.0[px as usize];

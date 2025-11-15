@@ -5,16 +5,16 @@ use super::{
     ppu::{DisplayPixel, Ppu},
     timer::Timer,
 };
-use crate::Keys;
 use crate::emu::bus::{BusState, ExternalBus};
 use crate::emu::{InterruptFlags, TCycle};
 
+#[non_exhaustive]
 pub struct Hardware {
     ppu: Ppu,
     timer: Timer,
     dma: Dma,
     memory: Memory,
-    pad: Pad,
+    pub(crate) pad: Pad,
     pub reg_if: InterruptFlags,
     pub reg_ie: InterruptFlags,
     pub cycle_counter: TCycle,
@@ -34,13 +34,10 @@ impl Hardware {
         }
     }
 
-    pub fn set_keys(&mut self, val: Keys) {
-        self.pad.set_keys(val);
-    }
-
     #[must_use]
-    pub fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
-        self.ppu.get_display()
+    #[inline]
+    pub fn display(&self) -> impl IntoIterator<Item = DisplayPixel> {
+        self.ppu.display()
     }
 
     #[must_use]

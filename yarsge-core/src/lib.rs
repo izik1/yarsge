@@ -32,16 +32,8 @@ type RisingEdge = EdgeDetector<true>;
 type FallingEdge = EdgeDetector<false>;
 
 bitflags::bitflags! {
-        // if !bits::has_bit(self.status, 5) {
-        //     p1 & 0xf
-        // } else if !bits::has_bit(self.status, 4) {
-        //     p1 >> 4
-        // } else {
-        //     0xf
-        // }
 
-
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, Eq, PartialEq, Debug)]
     pub struct Keys : u8 {
         // buttons
         const A = 1 << 0;

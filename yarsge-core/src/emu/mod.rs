@@ -117,13 +117,18 @@ impl GameBoy {
     }
 
     #[must_use]
-    pub fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
-        self.hw.get_display()
+    #[inline]
+    pub fn display(&self) -> impl IntoIterator<Item = DisplayPixel> {
+        self.hw.display()
     }
 
-    pub fn run(&mut self, elapsed: Duration, pad: Keys) {
-        self.hw.set_keys(pad);
+    #[must_use]
+    #[inline(always)]
+    pub fn keys_mut(&mut self) -> &mut Keys {
+        &mut self.hw.pad.keys
+    }
 
+    pub fn run(&mut self, elapsed: Duration) {
         self.bank_ps += u64::try_from(elapsed.as_nanos())
             .ok()
             .and_then(|it| it.checked_mul(1000))

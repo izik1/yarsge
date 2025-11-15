@@ -585,7 +585,8 @@ impl Ppu {
     }
 
     #[must_use]
-    pub const fn get_display(&self) -> impl IntoIterator<Item = DisplayPixel> {
+    #[inline]
+    pub const fn display(&self) -> impl IntoIterator<Item = DisplayPixel> {
         self.display_memory.iter()
     }
 
