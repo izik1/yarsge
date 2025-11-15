@@ -1,17 +1,23 @@
-use crate::emu::bits;
 use crate::{FallingEdge, Keys};
+
+bitflags::bitflags! {
+    struct Status : u8 {
+        const NOT_BUTTONS = 1 << 5;
+        const NOT_DPAD = 1 << 4;
+    }
+}
 
 #[non_exhaustive]
 pub struct Pad {
     pub keys: Keys,
-    status: u8,
+    status: Status,
     keys_interrupt: FallingEdge,
 }
 
 impl Pad {
     pub const fn new() -> Self {
         Self {
-            status: 0x00,
+            status: Status::empty(),
             keys: Keys::empty(),
             keys_interrupt: FallingEdge::new(true),
         }
@@ -19,12 +25,12 @@ impl Pad {
 
     #[inline]
     pub const fn set_status(&mut self, val: u8) {
-        self.status = val & 0x30;
+        self.status = Status::from_bits_truncate(val);
     }
 
     #[must_use]
     pub const fn selected(&self) -> u8 {
-        0xc0 | self.status | self.pad()
+        0xc0 | self.status.bits() | self.pad()
     }
 
     #[must_use]
@@ -33,9 +39,9 @@ impl Pad {
     }
 
     const fn pad(&self) -> u8 {
-        if !bits::has_bit(self.status, 5) {
+        if !self.status.contains(Status::NOT_BUTTONS) {
             !self.keys.bits() & 0xf
-        } else if !bits::has_bit(self.status, 4) {
+        } else if !self.status.contains(Status::NOT_DPAD) {
             !self.keys.bits() >> 4
         } else {
             0xf
@@ -211,10 +217,10 @@ mod tests {
     #[test]
     fn status_bits() {
         let mut pad = Pad::new();
-        assert_eq!(pad.status, 0);
+        assert_eq!(pad.status.bits(), 0);
         assert_eq!(pad.selected(), 0xc0 | 0xf);
         pad.set_status(0xff);
-        assert_eq!(pad.status & !0x30, 0);
+        assert_eq!(pad.status.bits() & !0x30, 0);
         assert_eq!(pad.selected(), 0xff);
     }
 }

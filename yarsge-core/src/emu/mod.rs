@@ -17,20 +17,6 @@ mod hardware;
 mod memory;
 mod pad;
 
-pub mod bits {
-    #[inline(always)]
-    #[must_use]
-    pub const fn get(num: u8) -> u8 {
-        1 << num
-    }
-
-    #[inline(always)]
-    #[must_use]
-    pub const fn has_bit(num: u8, bit: u8) -> bool {
-        (num & get(bit)) == get(bit)
-    }
-}
-
 bitflags::bitflags! {
     #[derive(Copy, Clone)]
     pub struct InterruptFlags: u8 {

@@ -155,7 +155,7 @@ impl Memory {
                 0x0000..0x2000 => desc.ram_gate = val & 0xf == 0b1010,
                 0x2000..0x4000 => desc.bank1 = if val & 0x1f == 0 { 1 } else { val & 0x1f },
                 0x4000..0x6000 => desc.bank2 = val & 0b11,
-                0x6000..0x8000 => desc.mode = super::bits::has_bit(val, 0),
+                0x6000..0x8000 => desc.mode = (val & 1) == 1,
                 _ => unreachable!(),
             },
             Mbc::Mbc5(ref mut desc) => match addr {
