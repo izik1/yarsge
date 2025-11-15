@@ -648,11 +648,11 @@ impl Ppu {
             0x43 => self.scx,
             0x44 => self.visible_ly,
             0x45 => self.lyc,
-            0x4a => self.wy,
-            0x4b => self.wx,
             0x47 => self.bg_pallet,
             0x48 => self.obj_pallet_a,
             0x49 => self.obj_pallet_b,
+            0x4a => self.wy,
+            0x4b => self.wx,
             _ => {
                 log::error!("BUG: invalid PPU write (0xff{addr:02x} -> 0xff)");
                 0xff

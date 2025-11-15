@@ -18,7 +18,7 @@ mod memory;
 mod pad;
 
 bitflags::bitflags! {
-    #[derive(Copy, Clone)]
+    #[derive(Copy, Clone, Debug, Eq, PartialEq)]
     pub struct InterruptFlags: u8 {
         const VBLANK = 0b0000_0001;
         const STAT = 0b0000_0010;

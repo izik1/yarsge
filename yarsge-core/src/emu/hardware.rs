@@ -76,17 +76,17 @@ impl Hardware {
     fn tick_n<const CYCLES: isize>(&mut self, bus: &mut ExternalBus) {
         const { assert!(CYCLES > 0) };
 
-        for _ in 0..CYCLES {
-            self.dma.tick(bus, &mut self.ppu, &mut self.memory);
-
-            self.reg_if |= self.timer.tick() | self.ppu.tick();
-        }
-
         // ACCURACY:
         // run joypad at lower frequency because realistically it only needs to run at 1 tick per input change
         // this is presumably inaccurate because the hardware that checks for an interrupt presumably does so every T-cycle.
         if const { CYCLES > 0 } && self.pad.tick() {
             self.reg_if |= InterruptFlags::JOYPAD;
+        }
+
+        for _ in 0..CYCLES {
+            self.dma.tick(bus, &mut self.ppu, &mut self.memory);
+
+            self.reg_if |= self.timer.tick() | self.ppu.tick();
         }
 
         self.cycle_counter -= TCycle(CYCLES);
