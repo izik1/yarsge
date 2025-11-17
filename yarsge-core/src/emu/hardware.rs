@@ -8,6 +8,45 @@ use super::{
 use crate::emu::bus::{BusState, ExternalBus};
 use crate::emu::{InterruptFlags, TCycle};
 
+pub(crate) trait CpuBus {
+    fn clear_interrupt(&mut self, remove: InterruptFlags);
+
+    #[must_use]
+    fn has_interrupts(&self) -> bool;
+
+    fn tick_cycle(&mut self);
+
+    #[must_use]
+    fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags);
+
+    #[must_use]
+    fn read_cycle(&mut self, addr: u16) -> u8 {
+        self.read_cycle_intr(addr).0
+    }
+
+    #[must_use]
+    fn read_hi_cycle(&mut self, addr: u8) -> u8 {
+        self.read_cycle(u16::from_be_bytes([0xff, addr]))
+    }
+
+    #[must_use]
+    fn write_cycle_intr(&mut self, addr: u16, value: u8) -> InterruptFlags;
+
+    fn write_cycle(&mut self, addr: u16, value: u8) {
+        let _ = self.write_cycle_intr(addr, value);
+    }
+
+    fn write_u16_cycle(&mut self, address: u16, value: u16) {
+        let [high, low] = value.to_be_bytes();
+        self.write_cycle(address, low);
+        self.write_cycle(address.wrapping_add(1), high);
+    }
+
+    fn write_hi_cycle(&mut self, addr: u8, value: u8) {
+        self.write_cycle(u16::from_be_bytes([0xff, addr]), value)
+    }
+}
+
 #[non_exhaustive]
 pub struct Hardware {
     ppu: Ppu,
@@ -38,35 +77,6 @@ impl Hardware {
     #[inline]
     pub fn display(&self) -> impl IntoIterator<Item = DisplayPixel> {
         self.ppu.display()
-    }
-
-    #[must_use]
-    pub fn read_cycle(&mut self, addr: u16) -> u8 {
-        self.read_cycle_intr(addr).0
-    }
-
-    #[must_use]
-    pub fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags) {
-        let mut bus = ExternalBus::new();
-
-        self.tick(&mut bus);
-        bus.set_addr_cpu(addr);
-
-        self.tick(&mut bus);
-
-        let early_interrupts = self.reg_if & self.reg_ie;
-        self.tick(&mut bus);
-
-        let bus_val = self.memory.strobe_read(&mut bus);
-
-        self.tick(&mut bus);
-
-        let val = self.read_byte(addr, bus_val);
-        (val, early_interrupts)
-    }
-
-    pub fn idle_cycle(&mut self) {
-        self.tick_n::<4>(&mut ExternalBus::new());
     }
 
     fn tick(&mut self, bus: &mut ExternalBus) {
@@ -100,9 +110,16 @@ impl Hardware {
             0xfe00..0xfea0 if self.dma.oam_blocked() => 0xff,
             0xfe00..0xfea0 => self.ppu.read_oam(addr - 0xfe00).unwrap_or(0xff),
             0xfea0..0xff00 => 0,
-            0xff00..0xff80 => self.read_io(addr as u8),
-            0xff80..0xffff => self.memory.hram[addr as usize - 0xff80],
-            0xffff => self.reg_ie.bits(),
+            0xff00.. => self.read_byte_hi(addr as u8),
+        }
+    }
+
+    #[must_use]
+    fn read_byte_hi(&self, addr: u8) -> u8 {
+        match addr {
+            0x00..0x80 => self.read_io(addr),
+            0x80..0xff => self.memory.hram[addr as usize - 0x80],
+            0xff => self.reg_ie.bits(),
         }
     }
 
@@ -126,49 +143,23 @@ impl Hardware {
         }
     }
 
-    pub fn write_u16_cycle(&mut self, address: u16, value: u16) {
-        let [high, low] = value.to_be_bytes();
-        self.write_cycle(address, low);
-        self.write_cycle(address.wrapping_add(1), high);
-    }
-
-    pub fn write_cycle(&mut self, addr: u16, val: u8) {
-        let _ = self.write_cycle_intr(addr, val);
-    }
-
-    #[must_use]
-    pub fn write_cycle_intr(&mut self, addr: u16, val: u8) -> InterruptFlags {
-        let mut bus = ExternalBus::new();
-
-        self.tick(&mut bus);
-
-        if !bus.busy() {
-            bus.set_addr_cpu(addr);
-            bus.st.insert(BusState::PIN_NOT_READ);
-        }
-
-        self.tick(&mut bus);
-
-        let early_interrupts = self.reg_if & self.reg_ie;
-
-        self.tick(&mut bus);
-
-        self.memory.strobe_write(&mut bus, val);
-
-        self.tick(&mut bus);
-
+    fn write_byte(&mut self, addr: u16, value: u8) {
         match addr {
             0x0000..0x8000 | 0xa000..0xfe00 => {}
-            0x8000..0xa000 => self.ppu.set_vram(addr - 0x8000, val),
+            0x8000..0xa000 => self.ppu.set_vram(addr - 0x8000, value),
             0xfe00..0xfea0 if self.dma.oam_blocked() => {}
-            0xfe00..0xfea0 => self.ppu.write_oam(addr - 0xfe00, val),
+            0xfe00..0xfea0 => self.ppu.write_oam(addr - 0xfe00, value),
             0xfea0..0xff00 => {}
-            0xff00..0xff80 => self.write_io(addr as u8, val),
-            0xff80..0xffff => self.memory.hram[addr as usize - 0xff80] = val,
-            0xffff => self.reg_ie = InterruptFlags::from_bits_retain(val),
+            0xff00.. => self.write_byte_hi(addr as u8, value),
         }
+    }
 
-        early_interrupts
+    fn write_byte_hi(&mut self, addr: u8, value: u8) {
+        match addr {
+            0x00..0x80 => self.write_io(addr as u8, value),
+            0x80..0xff => self.memory.hram[addr as usize - 0x80] = value,
+            0xff => self.reg_ie = InterruptFlags::from_bits_retain(value),
+        }
     }
 
     fn write_io(&mut self, addr: u8, val: u8) {
@@ -190,5 +181,79 @@ impl Hardware {
             0x80.. => unreachable!("Invalid address range for IO regs! (write)"),
             _ => log::warn!("Unimplemented IO reg (write): (addr: 0xff{addr:02x} val: {val:#02x})"),
         }
+    }
+}
+
+impl CpuBus for Hardware {
+    fn clear_interrupt(&mut self, remove: InterruptFlags) {
+        self.reg_if.remove(remove);
+    }
+
+    fn has_interrupts(&self) -> bool {
+        !(self.reg_ie & self.reg_if).is_empty()
+    }
+
+    fn tick_cycle(&mut self) {
+        self.tick_n::<4>(&mut ExternalBus::new());
+    }
+
+    fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags) {
+        let mut bus = ExternalBus::new();
+
+        self.tick(&mut bus);
+        bus.set_addr_cpu(addr);
+
+        self.tick(&mut bus);
+
+        let early_interrupts = self.reg_if & self.reg_ie;
+        self.tick(&mut bus);
+
+        let bus_val = self.memory.strobe_read(&mut bus);
+
+        self.tick(&mut bus);
+
+        let val = self.read_byte(addr, bus_val);
+        (val, early_interrupts)
+    }
+
+    fn read_hi_cycle(&mut self, addr: u8) -> u8 {
+        // this never uses the external bus, nor checks for interrupts, so we can skip out on a bunch of work.
+        self.tick_cycle();
+
+        // and a bunch of address decoding.
+        self.read_byte_hi(addr)
+    }
+
+    fn write_cycle_intr(&mut self, addr: u16, value: u8) -> InterruptFlags {
+        let mut bus = ExternalBus::new();
+
+        self.tick(&mut bus);
+
+        if !bus.busy() {
+            bus.set_addr_cpu(addr);
+            bus.st.insert(BusState::PIN_NOT_READ);
+        }
+
+        self.tick(&mut bus);
+
+        let early_interrupts = self.reg_if & self.reg_ie;
+
+        self.tick(&mut bus);
+
+        self.memory.strobe_write(&mut bus, value);
+
+        self.tick(&mut bus);
+
+        self.write_byte(addr, value);
+
+        early_interrupts
+    }
+
+    fn write_hi_cycle(&mut self, addr: u8, value: u8) {
+        // this never uses the external bus, nor checks for interrupts, so we can skip out on a bunch of work.
+        self.tick_cycle();
+
+        // and a bunch of address decoding.
+        self.write_byte_hi(addr, value)
     }
 }

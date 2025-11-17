@@ -1,10 +1,10 @@
 use std::num::Wrapping;
 
+use crate::emu::hardware::CpuBus;
 use crate::emu::registers::RegisterArg;
 use crate::emu::{
     cpu::{Cpu, Status},
     flags::CpuFlags,
-    hardware::Hardware,
     registers::{R16, Reg},
 };
 
@@ -14,24 +14,24 @@ pub enum MathReg {
     Imm,
 }
 
-fn get_register_arg(cpu: &Cpu, hw: &mut Hardware, register: RegisterArg) -> u8 {
+fn get_register_arg<Ctx: CpuBus>(cpu: &Cpu, ctx: &mut Ctx, register: RegisterArg) -> u8 {
     match register {
-        RegisterArg::Indirect => hw.read_cycle(cpu.regs.hl.0),
+        RegisterArg::Indirect => ctx.read_cycle(cpu.regs.hl.0),
         RegisterArg::Reg(r) => cpu.regs.reg(r),
     }
 }
 
-fn set_register_arg(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, value: u8) {
+fn set_register_arg<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg, value: u8) {
     match register {
-        RegisterArg::Indirect => hw.write_cycle(cpu.regs.hl.0, value),
+        RegisterArg::Indirect => ctx.write_cycle(cpu.regs.hl.0, value),
         RegisterArg::Reg(r) => cpu.regs.set_reg(r, value),
     }
 }
 
-fn get_math_reg(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> u8 {
+fn get_math_reg<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> u8 {
     match register {
-        MathReg::Imm => cpu.fetch_imm8(hw),
-        MathReg::R(r2) => get_register_arg(cpu, hw, r2),
+        MathReg::Imm => cpu.fetch_imm8(ctx),
+        MathReg::R(r2) => get_register_arg(cpu, ctx, r2),
     }
 }
 
@@ -65,44 +65,44 @@ const fn eval_cc(ir: u8, flags: CpuFlags) -> bool {
 
 #[inline(never)]
 #[cold]
-pub fn invalid(cpu: &mut Cpu, _hw: &mut Hardware) -> ! {
+pub fn invalid<Ctx: CpuBus>(cpu: &mut Cpu, _ctx: &mut Ctx) -> ! {
     panic!("Invalid instruction executed: ir={:02x}", cpu.regs.ir);
 }
 
 // Mnemonic: NOP
 // Full Name : No Operation
-pub fn nop(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn nop<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     // Cycle: M2/M1
     // Addr Bus : PC
     // Data bus : read IR
     // IDU : Inc PC
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
-fn jr_jmp(cpu: &mut Cpu, hw: &mut Hardware, imm: i8) {
+fn jr_jmp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, imm: i8) {
     // this should be putting some specific junk on the bus (but not asserting read or write)
-    hw.idle_cycle();
+    ctx.tick_cycle();
     cpu.regs.pc += i16::from(imm).cast_unsigned();
 }
 
-fn jp_jmp(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) {
+fn jp_jmp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, addr: u16) {
     // this should be putting some specific junk on the bus (but not asserting read or write)
-    hw.idle_cycle();
+    ctx.tick_cycle();
     cpu.regs.pc.0 = addr;
 }
 
-fn call_jmp(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) {
-    cpu.push16(hw, cpu.regs.pc.0);
+fn call_jmp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, addr: u16) {
+    cpu.push16(ctx, cpu.regs.pc.0);
 
     cpu.regs.pc.0 = addr;
 }
 
-fn ret_jmp(cpu: &mut Cpu, hw: &mut Hardware, ei: bool) {
-    let val = cpu.pop16(hw);
+fn ret_jmp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, ei: bool) {
+    let val = cpu.pop16(ctx);
 
     // this should be putting some specific junk on the bus (but not asserting read or write)
     // in the specific case of RETI this also enables interrupts
-    hw.idle_cycle();
+    ctx.tick_cycle();
     if ei {
         cpu.ime = true;
     }
@@ -115,7 +115,7 @@ fn ret_jmp(cpu: &mut Cpu, hw: &mut Hardware, ei: bool) {
 // Description: Jumps to pc + r8.
 // Affected Flags: ----
 // Timing: read, addr-no-rw, <prefetch next>
-pub fn jr_imm8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn jr_imm8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     //   Cycle : M2
     //   Addr Bus : PC
     //   Data bus : read X
@@ -132,11 +132,11 @@ pub fn jr_imm8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     //   Data bus : read IR
     //   IDU : PC = Inc YZ
 
-    let imm = cpu.fetch_imm8(hw).cast_signed();
+    let imm = cpu.fetch_imm8(ctx).cast_signed();
 
-    jr_jmp(cpu, hw, imm);
+    jr_jmp(cpu, ctx, imm);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: JP
@@ -144,10 +144,10 @@ pub fn jr_imm8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Description: Jumps to a16.
 // Affected Flags: ----
 // Timing: read, read, addr-no-rw, <prefetch next>
-pub fn jp_imm16(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = cpu.fetch_imm16(hw);
-    jp_jmp(cpu, hw, addr);
-    cpu.generic_fetch(hw)
+pub fn jp_imm16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm16(ctx);
+    jp_jmp(cpu, ctx, addr);
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: JR cc
@@ -156,13 +156,13 @@ pub fn jp_imm16(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: This instruction stops 4 cycles short if it doesn't jump.
 // Timing: read, <prefetch next>
-pub fn jr_cc_imm8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let imm = cpu.fetch_imm8(hw).cast_signed();
+pub fn jr_cc_imm8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let imm = cpu.fetch_imm8(ctx).cast_signed();
     if eval_cc(cpu.regs.ir, cpu.regs.f) {
-        jr_jmp(cpu, hw, imm);
+        jr_jmp(cpu, ctx, imm);
     }
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: JP cc
@@ -171,13 +171,13 @@ pub fn jr_cc_imm8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: This instruction stops 4 cycles short if it doesn't jump.
 // Timing: read, read, <prefetch next>
-pub fn jp_cc_imm16(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = cpu.fetch_imm16(hw);
+pub fn jp_cc_imm16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm16(ctx);
     if eval_cc(cpu.regs.ir, cpu.regs.f) {
-        jp_jmp(cpu, hw, addr);
+        jp_jmp(cpu, ctx, addr);
     }
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD
@@ -186,17 +186,17 @@ pub fn jp_cc_imm16(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: I really like how this function came out. I think it looks nice.
 // Timing: either "write", "read" or instant.
-pub fn ld(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn ld<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let dest = RegisterArg::from_num(cpu.regs.ir >> 3);
     let src = RegisterArg::from_num(cpu.regs.ir);
 
     // special case: can't double indirect. Game Boy CPU chose to use this for `HALT`.
     debug_assert!(!matches!(src, RegisterArg::Indirect) || !matches!(dest, RegisterArg::Indirect));
 
-    let value = get_register_arg(cpu, hw, src);
-    set_register_arg(cpu, hw, dest, value);
+    let value = get_register_arg(cpu, ctx, src);
+    set_register_arg(cpu, ctx, dest, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: HALT
@@ -205,8 +205,8 @@ pub fn ld(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: instant.
-pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let (ir, interrupts) = hw.read_cycle_intr(cpu.regs.pc.0);
+pub fn halt<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let (ir, interrupts) = ctx.read_cycle_intr(cpu.regs.pc.0);
     cpu.regs.ir = ir;
 
     if !interrupts.is_empty() {
@@ -226,7 +226,7 @@ pub fn halt(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: NA.
-pub fn stop(_cpu: &mut Cpu, _hw: &mut Hardware) -> Status {
+pub fn stop<Ctx: CpuBus>(_cpu: &mut Cpu, _ctx: &mut Ctx) -> Status {
     log::warn!("todo: stop bug");
     // cpu.status = Status::Stop;
     Status::Stop
@@ -238,11 +238,11 @@ pub fn stop(_cpu: &mut Cpu, _hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read
-pub fn ld_r16_imm16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
-    let value = cpu.fetch_imm16(hw);
+pub fn ld_r16_imm16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
+    let value = cpu.fetch_imm16(ctx);
     cpu.regs.set_reg_16(register, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD (r16),A
@@ -251,7 +251,7 @@ pub fn ld_r16_imm16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: ----
 // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
 // Timing: Write
-pub fn ld_r16_a(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
+pub fn ld_r16_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
     let (addr, hl_mod) = match register {
         R16::BC => (cpu.regs.bc, 0x0000),
         R16::DE => (cpu.regs.de, 0x0000),
@@ -260,9 +260,9 @@ pub fn ld_r16_a(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
     };
 
     cpu.regs.hl += hl_mod;
-    hw.write_cycle(addr.0, cpu.regs.a);
+    ctx.write_cycle(addr.0, cpu.regs.a);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: INC r16
@@ -271,12 +271,12 @@ pub fn ld_r16_a(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Internal Delay.
-pub fn inc_16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
-    hw.idle_cycle();
+pub fn inc_16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
+    ctx.tick_cycle();
     let value = cpu.regs.get_reg_16(register).wrapping_add(1);
     cpu.regs.set_reg_16(register, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: INC reg8
@@ -286,9 +286,9 @@ pub fn inc_16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Remarks: Zero is set if reg8 overflows, Half carry is set if there is a half carry between reg8 and 1.
 // If a flags conditions aren't met, it is instead reset.
 // Timing: "Instant" or "Read, Write"
-pub fn inc_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
-    set_register_arg(cpu, hw, register, value.wrapping_add(1));
+pub fn inc_8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
+    set_register_arg(cpu, ctx, register, value.wrapping_add(1));
 
     cpu.regs.f.remove(CpuFlags::N);
     cpu.regs.f.set(CpuFlags::Z, value == 0xff);
@@ -296,7 +296,7 @@ pub fn inc_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status 
     let half_carry = (((value & 0xf) + 1) & 0x10) == 0x10;
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: DEC reg8
@@ -306,15 +306,15 @@ pub fn inc_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status 
 // Remarks: Zero is set if reg8 is 1, Half carry is set if reg8 & 0xf == 0.
 // If a flags conditions aren't met, it is instead reset.
 // Timing: "Instant" or "Read, Write"
-pub fn dec_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
-    set_register_arg(cpu, hw, register, value.wrapping_sub(1));
+pub fn dec_8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
+    set_register_arg(cpu, ctx, register, value.wrapping_sub(1));
 
     cpu.regs.f.set(CpuFlags::Z, value == 1);
     cpu.regs.f.insert(CpuFlags::N);
     cpu.regs.f.set(CpuFlags::H, (value & 0xf) == 0);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD reg8,d8
@@ -323,11 +323,11 @@ pub fn dec_8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status 
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "Read" or "Read, Write"
-pub fn ld_r8_imm8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = cpu.fetch_imm8(hw);
-    set_register_arg(cpu, hw, register, value);
+pub fn ld_r8_imm8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = cpu.fetch_imm8(ctx);
+    set_register_arg(cpu, ctx, register, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RLCA
@@ -336,13 +336,13 @@ pub fn ld_r8_imm8(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> St
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rlca(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn rlca<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::C, cpu.regs.a >= 0x80);
 
     cpu.regs.a = cpu.regs.a.rotate_left(1);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD (a16),SP
@@ -351,12 +351,12 @@ pub fn rlca(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read, Write, Write
-pub fn ld_a16_sp(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let address = cpu.fetch_imm16(hw);
+pub fn ld_a16_sp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let address = cpu.fetch_imm16(ctx);
     let sp = cpu.regs.sp;
-    hw.write_u16_cycle(address, sp.0);
+    ctx.write_u16_cycle(address, sp.0);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: ADD HL,R16
@@ -365,7 +365,7 @@ pub fn ld_a16_sp(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: N (res), H (set|res), C (set|res)
 // Remarks: Half Carry is set if there is a carry between bits 11 and 12. Carry is set if there is a carry out. Otherwise reset Half Carry or Carry respectively
 // Timing: Internal Delay
-pub fn add_hl_reg16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
+pub fn add_hl_reg16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
     let value = Wrapping(cpu.regs.get_reg_16(register));
     let result = cpu.regs.hl + value;
 
@@ -376,10 +376,10 @@ pub fn add_hl_reg16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
     cpu.regs.f.set(CpuFlags::H, half_carry);
     cpu.regs.f.set(CpuFlags::C, result < cpu.regs.hl);
 
-    hw.idle_cycle();
+    ctx.tick_cycle();
     cpu.regs.hl = result;
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD A,(r16)
@@ -388,7 +388,7 @@ pub fn add_hl_reg16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: ----
 // Remarks: If r16 is HL, then HL increments after the operation. If r16 is SP it instead uses HL for the operation, and decrements HL after.
 // Timing: Read
-pub fn ld_a_r16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
+pub fn ld_a_r16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
     let (addr, hl_mod) = match register {
         R16::BC => (cpu.regs.bc, 0x0000),
         R16::DE => (cpu.regs.de, 0x0000),
@@ -398,10 +398,10 @@ pub fn ld_a_r16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 
     cpu.regs.hl += hl_mod;
 
-    let value = hw.read_cycle(addr.0);
+    let value = ctx.read_cycle(addr.0);
     cpu.regs.set_reg(Reg::A, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: DEC r16
@@ -410,12 +410,12 @@ pub fn ld_a_r16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Internal Delay.
-pub fn dec_16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
-    hw.idle_cycle();
+pub fn dec_16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
+    ctx.tick_cycle();
     cpu.regs
         .set_reg_16(register, cpu.regs.get_reg_16(register).wrapping_sub(1));
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RRCA
@@ -424,12 +424,12 @@ pub fn dec_16(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rrca(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn rrca<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::C, (cpu.regs.a & 0x01) == 0x01);
     cpu.regs.a = cpu.regs.a.rotate_right(1);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RLA
@@ -438,13 +438,13 @@ pub fn rrca(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 7 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rla(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn rla<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let a = cpu.regs.a;
     cpu.regs.a = (a << 1) | get_cin_lsb(cpu.regs.f);
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::C, a & 0x80 == 0x80);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RRA
@@ -453,13 +453,13 @@ pub fn rla(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (res), N (res), H (res), C (set|res)
 // Remarks: Carry is set if bit 0 is set, otherwise it is reset.
 // Timing: Instant.
-pub fn rra(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn rra<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let a = cpu.regs.a;
     cpu.regs.a = (a >> 1) | get_cin_msb(cpu.regs.f);
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::C, a & 0x01 == 0x01);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: DAA
@@ -468,7 +468,7 @@ pub fn rra(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (set|res), H (res), C (-|set)
 // Remarks: Confusing
 // Timing: Instant.
-pub fn daa(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn daa<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let mut res = i32::from(cpu.regs.a); // todo: check if this can be i16.
     if cpu.regs.f.contains(CpuFlags::N) {
         if cpu.regs.f.contains(CpuFlags::H) {
@@ -498,7 +498,7 @@ pub fn daa(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
     cpu.regs.f.set(CpuFlags::Z, cpu.regs.a == 0);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: CPL
@@ -507,11 +507,11 @@ pub fn daa(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: N (set), H (set)
 // Remarks: ----
 // Timing: Instant.
-pub fn cpl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn cpl<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.regs.a = !cpu.regs.a;
     cpu.regs.f |= CpuFlags::N | CpuFlags::H;
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SCF
@@ -520,11 +520,11 @@ pub fn cpl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: N (res), H (res), C (set)
 // Remarks: ----
 // Timing: Instant.
-pub fn scf(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn scf<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.regs.f &= CpuFlags::Z;
     cpu.regs.f |= CpuFlags::C;
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: CCF
@@ -533,11 +533,11 @@ pub fn scf(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: N (res), H (res), C (^C)
 // Remarks: ----
 // Timing: Instant.
-pub fn ccf(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn ccf<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.regs.f &= CpuFlags::Z | CpuFlags::C;
     cpu.regs.f ^= CpuFlags::C;
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: ADD
@@ -546,9 +546,9 @@ pub fn ccf(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (set|res), N (res), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn add(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn add<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.a;
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     cpu.regs.a = a.wrapping_add(value);
 
@@ -560,7 +560,7 @@ pub fn add(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 
     cpu.regs.f.set(CpuFlags::C, cpu.regs.a < a);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: ADC
@@ -569,10 +569,10 @@ pub fn add(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn adc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn adc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.a;
     let c_in = get_cin_lsb(cpu.regs.f);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     cpu.regs.a = a.wrapping_add(value).wrapping_add(c_in);
 
@@ -585,7 +585,7 @@ pub fn adc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
     let carry_flag = u16::from(a) + u16::from(value) + u16::from(c_in) > 0xff;
     cpu.regs.f.set(CpuFlags::C, carry_flag);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SUB
@@ -594,9 +594,9 @@ pub fn adc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn sub(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn sub<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.reg(Reg::A);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     let result = a.wrapping_sub(value);
     cpu.regs.set_reg(Reg::A, result);
@@ -606,7 +606,7 @@ pub fn sub(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
     cpu.regs.f.set(CpuFlags::H, (a & 0xf) < (value & 0xf));
     cpu.regs.f.set(CpuFlags::C, value > a);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SBC
@@ -615,10 +615,10 @@ pub fn sub(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn sbc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn sbc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.reg(Reg::A);
     let carry_in = get_cin_lsb(cpu.regs.f);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     let result = u16::from(a)
         .wrapping_sub(u16::from(value))
@@ -634,7 +634,7 @@ pub fn sbc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 
     cpu.regs.f.set(CpuFlags::C, result > 0xff);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: AND
@@ -643,9 +643,9 @@ pub fn sbc(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (set), C (res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn and(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn and<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.reg(Reg::A);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     let result = a & value;
     cpu.regs.set_reg(Reg::A, result);
@@ -656,7 +656,7 @@ pub fn and(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
             CpuFlags::empty()
         };
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: XOR
@@ -665,9 +665,9 @@ pub fn and(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn xor(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn xor<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.reg(Reg::A);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     let result = a ^ value;
     cpu.regs.set_reg(Reg::A, result);
@@ -677,7 +677,7 @@ pub fn xor(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
         CpuFlags::empty()
     };
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: OR
@@ -686,9 +686,9 @@ pub fn xor(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn or(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn or<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.reg(Reg::A);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     let result = a | value;
     cpu.regs.set_reg(Reg::A, result);
@@ -698,7 +698,7 @@ pub fn or(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
         CpuFlags::empty()
     };
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: CP
@@ -707,16 +707,16 @@ pub fn or(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: Z (set|res), N (set), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read or Instant
-pub fn cp(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
+pub fn cp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
     let a = cpu.regs.reg(Reg::A);
-    let value = get_math_reg(cpu, hw, register);
+    let value = get_math_reg(cpu, ctx, register);
 
     cpu.regs.f.set(CpuFlags::Z, a == value);
     cpu.regs.f.insert(CpuFlags::N);
     cpu.regs.f.set(CpuFlags::H, (a & 0xf) < (value & 0xf));
     cpu.regs.f.set(CpuFlags::C, a < value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RET <cc>
@@ -725,7 +725,7 @@ pub fn cp(cpu: &mut Cpu, hw: &mut Hardware, register: MathReg) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "Internal Delay" or "Read, Read, Internal Delay"
-pub fn ret_cc(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn ret_cc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     // cc=true
     //   Cycle : M2
     //   Addr Bus : 0000
@@ -760,14 +760,14 @@ pub fn ret_cc(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
     //   IDU : Inc PC
 
     // check cc
-    hw.idle_cycle();
+    ctx.tick_cycle();
 
     if eval_cc(cpu.regs.ir, cpu.regs.f) {
-        ret_jmp(cpu, hw, false);
+        ret_jmp(cpu, ctx, false);
     }
 
     // generic fetch that's done either way
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: POP <Reg-16>
@@ -776,14 +776,14 @@ pub fn ret_cc(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ---- or Z (set|res), N (set|res), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read, Read
-pub fn pop(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
-    let value = cpu.pop16(hw);
+pub fn pop<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
+    let value = cpu.pop16(ctx);
     match register {
         R16::SP => cpu.regs.set_af(value),
         r => cpu.regs.set_reg_16(r, value),
     }
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: CALL cc
@@ -792,12 +792,12 @@ pub fn pop(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "Read, Read, Delay, Write, Write"
-pub fn call(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = cpu.fetch_imm16(hw);
+pub fn call<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm16(ctx);
 
-    call_jmp(cpu, hw, addr);
+    call_jmp(cpu, ctx, addr);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 // Mnemonic: CALL <COND> | CALL
 // Full Name: Call <COND> | Call
@@ -805,13 +805,13 @@ pub fn call(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "Read, Read" | "Read, Read, Delay, Write, Write"
-pub fn call_cc(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = cpu.fetch_imm16(hw);
+pub fn call_cc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm16(ctx);
     if eval_cc(cpu.regs.ir, cpu.regs.f) {
-        call_jmp(cpu, hw, addr);
+        call_jmp(cpu, ctx, addr);
     }
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: PUSH <Reg-16>
@@ -820,15 +820,15 @@ pub fn call_cc(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Delay, Write, Write
-pub fn push(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
+pub fn push<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Status {
     let value = match register {
         R16::SP => cpu.regs.get_af(),
         r => cpu.regs.get_reg_16(r),
     };
 
-    cpu.push16(hw, value);
+    cpu.push16(ctx, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RST <addr>
@@ -837,10 +837,10 @@ pub fn push(cpu: &mut Cpu, hw: &mut Hardware, register: R16) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Delay, Write, Write
-pub fn rst(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) -> Status {
-    call_jmp(cpu, hw, addr);
+pub fn rst<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, addr: u16) -> Status {
+    call_jmp(cpu, ctx, addr);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RET/RETI
@@ -849,9 +849,9 @@ pub fn rst(cpu: &mut Cpu, hw: &mut Hardware, addr: u16) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read, Internal Delay
-pub fn ret<const EI: bool>(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    ret_jmp(cpu, hw, EI);
-    cpu.generic_fetch(hw)
+pub fn ret<const EI: bool, Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    ret_jmp(cpu, ctx, EI);
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LDH (a8),A
@@ -860,12 +860,12 @@ pub fn ret<const EI: bool>(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Write
-pub fn ldh_a8_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xff00 | u16::from(cpu.fetch_imm8(hw));
+pub fn ldh_a8_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm8(ctx);
     let a = cpu.regs.reg(Reg::A);
-    hw.write_cycle(addr, a);
+    ctx.write_hi_cycle(addr, a);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LDH (c),A
@@ -874,12 +874,12 @@ pub fn ldh_a8_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Write
-pub fn ldh_c_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xff00 | u16::from(cpu.regs.reg(Reg::C));
+pub fn ldh_c_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.regs.reg(Reg::C);
     let a = cpu.regs.reg(Reg::A);
-    hw.write_cycle(addr, a);
+    ctx.write_hi_cycle(addr, a);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LDH (a8),A
@@ -888,12 +888,12 @@ pub fn ldh_c_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read
-pub fn ldh_a_a8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xff00 | u16::from(cpu.fetch_imm8(hw));
-    let value = hw.read_cycle(addr);
+pub fn ldh_a_a8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm8(ctx);
+    let value = ctx.read_hi_cycle(addr);
     cpu.regs.set_reg(Reg::A, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LDH (c),A
@@ -902,12 +902,12 @@ pub fn ldh_a_a8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read
-pub fn ldh_a_c(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = 0xff00 | u16::from(cpu.regs.reg(Reg::C));
-    let value = hw.read_cycle(addr);
+pub fn ldh_a_c<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.regs.reg(Reg::C);
+    let value = ctx.read_hi_cycle(addr);
     cpu.regs.set_reg(Reg::A, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: DI
@@ -916,9 +916,9 @@ pub fn ldh_a_c(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Instant
-pub fn di(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn di<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.ime = false;
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: EI
@@ -927,8 +927,8 @@ pub fn di(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: Interrupt enabling is delayed by 4-TCycles.
 // Timing: Instant (delayed affect)
-pub fn ei(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let status = cpu.generic_fetch(hw);
+pub fn ei<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let status = cpu.generic_fetch(ctx);
     cpu.ime = true;
 
     status
@@ -940,10 +940,10 @@ pub fn ei(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Instant
-pub fn jp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn jp_hl<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     cpu.regs.pc = cpu.regs.hl;
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD (HL),SP+r8
@@ -952,9 +952,9 @@ pub fn jp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (res), N (res), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read, Internal Delay
-pub fn ld_hl_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let r8 = i16::from(cpu.fetch_imm8(hw).cast_signed()).cast_unsigned();
-    hw.idle_cycle();
+pub fn ld_hl_sp_r8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let r8 = i16::from(cpu.fetch_imm8(ctx).cast_signed()).cast_unsigned();
+    ctx.tick_cycle();
 
     cpu.regs.f = CpuFlags::empty();
     cpu.regs
@@ -966,7 +966,7 @@ pub fn ld_hl_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
     cpu.regs.hl.0 = cpu.regs.sp.0.wrapping_add(r8);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD A,(a16)
@@ -975,12 +975,12 @@ pub fn ld_hl_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read, Read
-pub fn ld_a_a16(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let address = cpu.fetch_imm16(hw);
-    let value = hw.read_cycle(address);
+pub fn ld_a_a16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let address = cpu.fetch_imm16(ctx);
+    let value = ctx.read_cycle(address);
     cpu.regs.set_reg(Reg::A, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD (a16),A
@@ -989,12 +989,12 @@ pub fn ld_a_a16(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Read, Read, Write
-pub fn ld_a16_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let addr = cpu.fetch_imm16(hw);
+pub fn ld_a16_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let addr = cpu.fetch_imm16(ctx);
     let a = cpu.regs.reg(Reg::A);
-    hw.write_cycle(addr, a);
+    ctx.write_cycle(addr, a);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: LD SP,HL
@@ -1003,12 +1003,12 @@ pub fn ld_a16_a(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: ----
 // Remarks: ----
 // Timing: Internal delay
-pub fn ld_sp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
+pub fn ld_sp_hl<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let hl = cpu.regs.hl;
-    hw.idle_cycle();
+    ctx.tick_cycle();
     cpu.regs.sp = hl;
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: ADD SP,r8
@@ -1017,10 +1017,10 @@ pub fn ld_sp_hl(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (res), N (res), H (set|res), C (set|res)
 // Remarks: ----
 // Timing: Read, Internal Delay, Internal Delay
-pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
-    let r8 = cpu.fetch_imm8(hw).cast_signed();
-    hw.idle_cycle();
-    hw.idle_cycle();
+pub fn add_sp_r8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
+    let r8 = cpu.fetch_imm8(ctx).cast_signed();
+    ctx.tick_cycle();
+    ctx.tick_cycle();
 
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(
@@ -1034,7 +1034,7 @@ pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 
     cpu.regs.sp += i16::from(r8).cast_unsigned();
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // ----------
@@ -1047,15 +1047,15 @@ pub fn add_sp_r8(cpu: &mut Cpu, hw: &mut Hardware) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set.  If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn rlc(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
-    set_register_arg(cpu, hw, register, value.rotate_left(1));
+pub fn rlc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
+    set_register_arg(cpu, ctx, register, value.rotate_left(1));
 
     cpu.regs.f.set(CpuFlags::Z, value == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x80) == 0x80);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RRC
@@ -1064,15 +1064,15 @@ pub fn rlc(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn rrc(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
-    set_register_arg(cpu, hw, register, value.rotate_right(1));
+pub fn rrc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
+    set_register_arg(cpu, ctx, register, value.rotate_right(1));
 
     cpu.regs.f.set(CpuFlags::Z, value == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x01) == 0x01);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RL
@@ -1081,16 +1081,16 @@ pub fn rrc(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn rl(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
+pub fn rl<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
     let result = (value << 1) | get_cin_lsb(cpu.regs.f);
-    set_register_arg(cpu, hw, register, result);
+    set_register_arg(cpu, ctx, register, result);
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x80) == 0x80);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RR
@@ -1099,17 +1099,17 @@ pub fn rl(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn rr(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
+pub fn rr<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
     let result = (value >> 1) | get_cin_msb(cpu.regs.f);
 
-    set_register_arg(cpu, hw, register, result);
+    set_register_arg(cpu, ctx, register, result);
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x01) == 0x01);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SLA
@@ -1118,16 +1118,16 @@ pub fn rr(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 7 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn sla(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
+pub fn sla<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
     let result = value << 1;
-    set_register_arg(cpu, hw, register, result);
+    set_register_arg(cpu, ctx, register, result);
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x80) == 0x80);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SRA
@@ -1136,16 +1136,16 @@ pub fn sla(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn sra(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
+pub fn sra<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
     let result = (value >> 1) | (value & 0x80);
-    set_register_arg(cpu, hw, register, result);
+    set_register_arg(cpu, ctx, register, result);
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x01) == 0x01);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SWAP
@@ -1154,14 +1154,14 @@ pub fn sra(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (res)
 // Remarks: Zero is set if the input was 0, otherwise it is reset
 // Timing: "read, write" or instant.
-pub fn swap(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
-    set_register_arg(cpu, hw, register, value.rotate_right(4));
+pub fn swap<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
+    set_register_arg(cpu, ctx, register, value.rotate_right(4));
 
     cpu.regs.f = CpuFlags::empty();
     cpu.regs.f.set(CpuFlags::Z, value == 0);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SRL
@@ -1170,16 +1170,16 @@ pub fn swap(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (res), C (set|res)
 // Remarks: Zero is set if the input was 0, Carry is set if bit 0 is set. If their conditions aren't satisfied, they are reset.
 // Timing: "read, write" or instant.
-pub fn srl(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
-    let value = get_register_arg(cpu, hw, register);
+pub fn srl<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> Status {
+    let value = get_register_arg(cpu, ctx, register);
     let result = value >> 1;
-    set_register_arg(cpu, hw, register, result);
+    set_register_arg(cpu, ctx, register, result);
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.remove(CpuFlags::N | CpuFlags::H);
     cpu.regs.f.set(CpuFlags::C, (value & 0x01) == 0x01);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: BIT
@@ -1189,14 +1189,14 @@ pub fn srl(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg) -> Status {
 // Affected Flags: Z (set|res), N (res), H (set)
 // Remarks: Zero is set if the bit is unset, and gets reset otherwise.
 // Timing: "read" or instant.
-pub fn bit(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, mask: u8) -> Status {
+pub fn bit<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg, mask: u8) -> Status {
     cpu.regs.f &= CpuFlags::C;
     cpu.regs.f |= CpuFlags::H;
-    let b = (get_register_arg(cpu, hw, register) & mask) == 0;
+    let b = (get_register_arg(cpu, ctx, register) & mask) == 0;
 
     cpu.regs.f.set(CpuFlags::Z, b);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: RES
@@ -1206,11 +1206,11 @@ pub fn bit(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, mask: u8) ->
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "read, write" or instant.
-pub fn res(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, mask: u8) -> Status {
-    let value = get_register_arg(cpu, hw, register) & !mask;
-    set_register_arg(cpu, hw, register, value);
+pub fn res<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg, mask: u8) -> Status {
+    let value = get_register_arg(cpu, ctx, register) & !mask;
+    set_register_arg(cpu, ctx, register, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
 
 // Mnemonic: SET
@@ -1220,9 +1220,9 @@ pub fn res(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, mask: u8) ->
 // Affected Flags: ----
 // Remarks: ----
 // Timing: "read, write" or instant.
-pub fn set(cpu: &mut Cpu, hw: &mut Hardware, register: RegisterArg, mask: u8) -> Status {
-    let value = get_register_arg(cpu, hw, register) | mask;
-    set_register_arg(cpu, hw, register, value);
+pub fn set<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg, mask: u8) -> Status {
+    let value = get_register_arg(cpu, ctx, register) | mask;
+    set_register_arg(cpu, ctx, register, value);
 
-    cpu.generic_fetch(hw)
+    cpu.generic_fetch(ctx)
 }
