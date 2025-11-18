@@ -1,3 +1,4 @@
+use std::cmp;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::Duration;
 
@@ -121,9 +122,8 @@ impl GameBoy {
             .unwrap_or(u64::MAX);
 
         // limit bank time to 10ms (so that if we start lagging we reach slowdown sooner than stuttering)
-        if self.bank_ps > 10_000_000_000 {
-            self.bank_ps = 10_000_000_000;
-        }
+        // fixme: make this dynamic so that it's 10ms of _real time_, predicted based on how long the emulator runs.
+        self.bank_ps = cmp::min(self.bank_ps, 10_000_000_000);
 
         // truncates
         let bankable_clocks: u64 = self.bank_ps / PS_PER_CLOCK;
