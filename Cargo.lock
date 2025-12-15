@@ -460,6 +460,7 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "libc",
  "log",
  "rgb",
  "sdl3",

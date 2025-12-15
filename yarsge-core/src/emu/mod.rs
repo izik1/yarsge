@@ -1,6 +1,6 @@
 use std::cmp;
 use std::ops::{Add, AddAssign, Sub, SubAssign};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::Keys;
 use crate::emu::cpu::Cpu;
@@ -141,6 +141,28 @@ impl GameBoy {
             if self.mode == Mode::Step {
                 self.hw.cycle_counter = TCycle(0);
             }
+        }
+    }
+
+    pub fn run_host_time(
+        &mut self,
+        start: Instant,
+        duration: Duration,
+        total_emulated_time: &mut Duration,
+    ) {
+        if duration == Duration::ZERO {
+            return;
+        }
+
+        loop {
+            let remaining = duration.saturating_sub(start.elapsed());
+
+            if remaining == Duration::ZERO {
+                return;
+            }
+
+            *total_emulated_time += remaining * 4;
+            self.run(remaining * 4);
         }
     }
 }

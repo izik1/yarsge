@@ -1,4 +1,5 @@
 use core::fmt;
+use std::cmp;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -6,7 +7,9 @@ use std::time::{Duration, Instant};
 
 use anyhow::Context;
 
-use sdl3::EventPump;
+use sdl3::render::Canvas;
+use sdl3::video::Window;
+use sdl3::{EventPump, Sdl, VideoSubsystem};
 use yarsge_core::{Keys, emu};
 
 use sdl3::{event::Event, keyboard::Keycode, pixels::Color};
@@ -109,8 +112,11 @@ struct Opt {
     #[clap(help = "Path to the game rom")]
     game_rom: PathBuf,
 
-    #[clap(short = 'p', long = "palette", default_value_t = Palette::DEFAULT)]
+    #[clap(short = 'p', long, default_value_t = Palette::DEFAULT)]
     palette: Palette,
+
+    #[clap(long, help = r#"overclock the CPU to run as fast as possible"#)]
+    no_time_control: bool,
 }
 
 fn lookup_key(map: &[(Keycode, Keys)], code: Keycode) -> Option<Keys> {
@@ -155,17 +161,104 @@ fn poll_inputs(
     ControlFlow::Continue(())
 }
 
-fn run(opt: &Opt) -> anyhow::Result<()> {
-    let sdl_context = sdl3::init().unwrap();
-    let video_subsystem = sdl_context.video().unwrap();
+fn microsleep(start: Instant, time: Duration) {
+    {
+        let remaining = time.saturating_sub(start.elapsed());
+        // windows moment
+        let thread_sleep_time = remaining.saturating_sub(Duration::from_millis(15));
+        if thread_sleep_time > Duration::ZERO {
+            // sleep most of the way there with the big imprecise sleep
+            std::thread::sleep(thread_sleep_time);
+        }
+    }
 
+    // then use libc nano sleep (and windows high precision timers) to cut down what we can.
+    #[cfg(target_os = "linux")]
+    loop {
+        let remaining = time.saturating_sub(start.elapsed());
+        if remaining < Duration::from_micros(1500) {
+            break;
+        }
+
+        unsafe {
+            let _ = libc::nanosleep(
+                std::ptr::from_ref(&libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: i64::from(
+                        remaining
+                            .saturating_sub(Duration::from_micros(500))
+                            .subsec_nanos()
+                            .cast_signed(),
+                    ),
+                }),
+                std::ptr::null_mut(),
+            );
+        }
+    }
+
+    {
+        let mut ticks: usize = 7;
+
+        loop {
+            ticks += 1;
+            if !ticks.is_multiple_of(8) {
+                continue;
+            }
+
+            let remaining = time.saturating_sub(start.elapsed());
+
+            if remaining < Duration::from_micros(50) {
+                break;
+            }
+
+            std::thread::yield_now();
+            std::hint::spin_loop();
+        }
+    }
+
+    // fixme: tsc based sleep
+    // need to actually figure out how to do it, rpcs3 _has_ an implementation, but I can't use it (or presumably study it) due to license mismatches.
+
+    let mut ticks: usize = 0;
+    while !ticks.is_multiple_of(8) || start.elapsed() < time {
+        ticks += 1;
+        std::hint::spin_loop();
+    }
+}
+
+// pc = 16 bits
+// a = 8 bits
+// ir = 8 bits
+// continue flag ()
+
+// rax:63 = continue, eax:31:16 = pc, eax:8:0 = a, eax:15:8 = ir
+
+struct SdlContext {
+    sdl: Sdl,
+    video_subsystem: VideoSubsystem,
+    canvas: Canvas<Window>,
+    event_pump: EventPump,
+    draw_buffer: Box<[u8; Self::BUFFER_SIZE]>,
+}
+
+impl SdlContext {
     const WIDTH: usize = 160;
     const HEIGHT: usize = 144;
     const WIDTH_32X: u32 = 160;
     const HEIGHT_32X: u32 = 144;
+    const BUFFER_SIZE: usize = Self::WIDTH * Self::HEIGHT * 3;
+}
 
+#[inline(never)]
+fn sdl_init(scale: u32) -> SdlContext {
+    let sdl = sdl3::init().unwrap();
+    let video_subsystem = sdl.video().unwrap();
     let window = video_subsystem
-        .window(NAME, WIDTH_32X * opt.scale, HEIGHT_32X * opt.scale)
+        .window(
+            NAME,
+            SdlContext::WIDTH_32X * scale,
+            SdlContext::HEIGHT_32X * scale,
+        )
         .position_centered()
         .opengl()
         .build()
@@ -174,17 +267,89 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let mut canvas = window.into_canvas();
 
     canvas.set_draw_color(Color::RGB(0, 0, 0));
-    const BUFFER_SIZE: usize = WIDTH * HEIGHT * 3;
-    let mut array: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
+    let event_pump = sdl.event_pump().unwrap();
+
+    SdlContext {
+        sdl,
+        video_subsystem,
+        canvas,
+        event_pump,
+        draw_buffer: Box::new([0; SdlContext::BUFFER_SIZE]),
+    }
+}
+
+struct Statistics {
+    next_report: Instant,
+    total_microsleep_time: Duration,
+    total_emulated_time: Duration,
+    subframe: u64,
+    display_frame: u64,
+}
+
+impl Statistics {
+    const PERIOD: Duration = Duration::from_secs(1);
+
+    fn new(start: Instant) -> Self {
+        Self {
+            next_report: start + Self::PERIOD,
+            total_microsleep_time: Duration::ZERO,
+            total_emulated_time: Duration::ZERO,
+            subframe: 0,
+            display_frame: 0,
+        }
+    }
+}
+
+#[cold]
+#[inline(never)]
+fn report_statistics(stats: &mut Statistics, current_frame: Instant, start: Instant) {
+    // if we've lapsed, just reset the clock
+    if stats.next_report + Duration::from_secs(1) < current_frame {
+        stats.next_report = current_frame + Duration::from_secs(1);
+    } else {
+        stats.next_report += Duration::from_secs(1);
+    }
+
+    let elapsed = start.elapsed();
+
+    // should be very close to 1 unless `no-time-control` is set`
+    log::debug!(
+        target: "statistics",
+        "micro_sleep_factor: {:.3}, emu time factor: {:.6}",
+        stats.total_microsleep_time.as_secs_f64() / elapsed.as_secs_f64(),
+        stats.total_emulated_time.as_secs_f64() / elapsed.as_secs_f64(),
+    );
+    log::debug!(
+        target: "statistics",
+        "UPS: {:.2}, FPS: {:.2}",
+        (stats.subframe as f64) / elapsed.as_secs_f64(),
+        (stats.display_frame as f64) / elapsed.as_secs_f64(),
+    );
+}
+
+#[inline(never)]
+fn run(opt: &Opt) -> anyhow::Result<()> {
+    const INPUT_POLL_PERIOD: Duration = Duration::from_micros(500);
+    const DISPLAY_PERIOD: Duration = Duration::from_micros(500);
+
+    let SdlContext {
+        sdl: _sdl,
+        video_subsystem: _video_subsystem,
+        mut canvas,
+        mut event_pump,
+        mut draw_buffer,
+    } = sdl_init(opt.scale);
 
     let texcr = canvas.texture_creator();
     let mut tex = texcr
-        .create_texture_streaming(sdl3::pixels::PixelFormat::RGB24, WIDTH_32X, HEIGHT_32X)
+        .create_texture_streaming(
+            sdl3::pixels::PixelFormat::RGB24,
+            SdlContext::WIDTH_32X,
+            SdlContext::HEIGHT_32X,
+        )
         .unwrap();
 
     tex.set_scale_mode(sdl3::render::ScaleMode::Nearest);
-
-    let mut event_pump = sdl_context.event_pump().unwrap();
 
     let boot_rom = std::fs::read(&opt.boot_rom)
         .context("Failed to open the boot rom")?
@@ -209,69 +374,102 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
     let start = Instant::now();
     let mut last_subframe = start;
-    let mut last_display_frame = start;
-    let mut last_time_report = start;
-    let mut last_poll_inputs = start;
 
-    let mut total_subframes = 0_u64;
-    let mut total_display_frames = 0_u64;
+    let mut next_display_frame = start;
+    let mut next_poll_inputs = start;
 
-    // gb.register_breakpoint(0x0c);
+    let mut stats = Statistics::new(start);
 
     'running: loop {
-        let subframe = total_subframes;
-        total_subframes += 1;
+        stats.subframe += 1;
 
         let current_frame = std::time::Instant::now();
-        let delta_time = current_frame.duration_since(last_subframe);
+
+        let current_frame = {
+            // fixme: technically we should also consider framerate report timing, but, eh.
+            let micro_sleep_time = cmp::min(
+                next_poll_inputs.saturating_duration_since(current_frame),
+                next_display_frame.saturating_duration_since(current_frame),
+            );
+
+            // assume we can run at 4x speed.
+            // in practice this should work with up to _28x_ speed according to my own CPU.
+            let micro_sleep_time: Duration = micro_sleep_time.saturating_sub(micro_sleep_time / 4);
+
+            match opt.no_time_control {
+                true => {
+                    gb.run_host_time(
+                        current_frame,
+                        micro_sleep_time,
+                        &mut stats.total_emulated_time,
+                    );
+                    std::time::Instant::now()
+                }
+                false => {
+                    if micro_sleep_time >= Duration::from_nanos(500) {
+                        microsleep(current_frame, micro_sleep_time);
+                        stats.total_microsleep_time += micro_sleep_time;
+                        std::time::Instant::now()
+                    } else {
+                        current_frame
+                    }
+                }
+            }
+        };
+
+        let delta_time: Duration = current_frame.duration_since(last_subframe);
+        gb.run(delta_time);
+        stats.total_emulated_time += delta_time;
+
         last_subframe = current_frame;
 
-        if current_frame.duration_since(last_poll_inputs) >= Duration::from_micros(500) {
-            last_poll_inputs = current_frame;
+        if let Some(elapsed) = current_frame.checked_duration_since(next_poll_inputs) {
+            next_poll_inputs = if elapsed > INPUT_POLL_PERIOD {
+                if elapsed > Duration::from_millis(10) {
+                    log::warn!("input unresponsive! (time since last poll: {elapsed:.3?})");
+                }
+
+                current_frame + INPUT_POLL_PERIOD
+            } else {
+                next_poll_inputs + INPUT_POLL_PERIOD
+            };
+
             match poll_inputs(&mut event_pump, &keymap, gb.keys_mut()) {
                 ControlFlow::Continue(()) => {}
                 ControlFlow::Break(()) => break 'running Ok(()),
             }
         }
 
-        gb.run(delta_time);
-
-        if current_frame.duration_since(last_display_frame) < Duration::from_micros(200) {
-            let mut ticks: usize = 0;
-            while !ticks.is_multiple_of(8) || current_frame.elapsed() < Duration::from_micros(5) {
-                ticks += 1;
-                std::hint::spin_loop();
-            }
-
+        let Some(elapsed) = current_frame.checked_duration_since(next_display_frame) else {
             continue;
-        }
+        };
 
-        let display_frame = total_display_frames;
-        total_display_frames += 1;
+        next_display_frame = if elapsed > DISPLAY_PERIOD {
+            current_frame + DISPLAY_PERIOD
+        } else {
+            next_display_frame + DISPLAY_PERIOD
+        };
 
-        if current_frame.duration_since(last_time_report) >= Duration::from_secs(1) {
-            last_time_report = current_frame;
-            log::debug!(
-                target: "framerate",
-                "UPS: {:.2}, FPS: {:.2}",
-                (subframe as f64) / start.elapsed().as_secs_f64(),
-                (display_frame as f64) / start.elapsed().as_secs_f64(),
-            );
-        }
-
-        last_display_frame = current_frame;
+        stats.display_frame += 1;
 
         let disp = gb.display();
 
-        for (px, elems) in disp.into_iter().zip(array.as_chunks_mut::<3>().0) {
+        for (px, elems) in disp.into_iter().zip(draw_buffer.as_chunks_mut::<3>().0) {
             let px = opt.palette.0[px as usize];
 
             *elems = px.into();
         }
 
-        tex.update(None, &array, WIDTH * 3).unwrap();
+        tex.update(None, &*draw_buffer, SdlContext::WIDTH * 3)
+            .unwrap();
         canvas.copy(&tex, None, None).unwrap();
         canvas.present();
+
+        if log::log_enabled!(target: "statistics", log::Level::Debug)
+            && current_frame >= stats.next_report
+        {
+            report_statistics(&mut stats, current_frame, start);
+        }
     }
 }
 

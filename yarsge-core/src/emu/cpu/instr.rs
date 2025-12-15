@@ -399,7 +399,7 @@ pub fn ld_a_r16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: R16) -> Sta
     cpu.regs.hl += hl_mod;
 
     let value = ctx.read_cycle(addr.0);
-    cpu.regs.set_reg(Reg::A, value);
+    cpu.regs.a = value;
 
     cpu.generic_fetch(ctx)
 }
@@ -547,8 +547,8 @@ pub fn ccf<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
 // Remarks: ----
 // Timing: Read or Instant
 pub fn add<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.a;
     let value = get_math_reg(cpu, ctx, register);
+    let a = cpu.regs.a;
 
     cpu.regs.a = a.wrapping_add(value);
 
@@ -570,9 +570,9 @@ pub fn add<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 // Remarks: ----
 // Timing: Read or Instant
 pub fn adc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
+    let value = get_math_reg(cpu, ctx, register);
     let a = cpu.regs.a;
     let c_in = get_cin_lsb(cpu.regs.f);
-    let value = get_math_reg(cpu, ctx, register);
 
     cpu.regs.a = a.wrapping_add(value).wrapping_add(c_in);
 
@@ -595,11 +595,11 @@ pub fn adc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 // Remarks: ----
 // Timing: Read or Instant
 pub fn sub<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.reg(Reg::A);
     let value = get_math_reg(cpu, ctx, register);
+    let a = cpu.regs.a;
 
     let result = a.wrapping_sub(value);
-    cpu.regs.set_reg(Reg::A, result);
+    cpu.regs.a = result;
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.insert(CpuFlags::N);
@@ -616,23 +616,21 @@ pub fn sub<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 // Remarks: ----
 // Timing: Read or Instant
 pub fn sbc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.reg(Reg::A);
-    let carry_in = get_cin_lsb(cpu.regs.f);
+    let a = cpu.regs.a;
+    let carry_in = cpu.regs.f.contains(CpuFlags::C);
     let value = get_math_reg(cpu, ctx, register);
 
-    let result = u16::from(a)
-        .wrapping_sub(u16::from(value))
-        .wrapping_sub(u16::from(carry_in));
+    let (result, carry_out) = a.borrowing_sub(value, carry_in);
 
-    cpu.regs.set_reg(Reg::A, result as u8);
+    cpu.regs.a = result as u8;
 
-    cpu.regs.f.set(CpuFlags::Z, (result & 0xff) == 0);
+    cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.insert(CpuFlags::N);
 
-    let half_carry = (a & 0xf) < ((value & 0xf) + carry_in);
+    let half_carry = (a & 0xf) < ((value & 0xf) + (carry_in as u8));
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
-    cpu.regs.f.set(CpuFlags::C, result > 0xff);
+    cpu.regs.f.set(CpuFlags::C, carry_out);
 
     cpu.generic_fetch(ctx)
 }
@@ -644,11 +642,11 @@ pub fn sbc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 // Remarks: ----
 // Timing: Read or Instant
 pub fn and<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.reg(Reg::A);
     let value = get_math_reg(cpu, ctx, register);
+    let a = cpu.regs.a;
 
     let result = a & value;
-    cpu.regs.set_reg(Reg::A, result);
+    cpu.regs.a = result;
     cpu.regs.f = CpuFlags::H
         | if result == 0 {
             CpuFlags::Z
@@ -666,11 +664,11 @@ pub fn and<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 // Remarks: ----
 // Timing: Read or Instant
 pub fn xor<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.reg(Reg::A);
+    let a = cpu.regs.a;
     let value = get_math_reg(cpu, ctx, register);
 
     let result = a ^ value;
-    cpu.regs.set_reg(Reg::A, result);
+    cpu.regs.a = result;
     cpu.regs.f = if result == 0 {
         CpuFlags::Z
     } else {
@@ -687,11 +685,11 @@ pub fn xor<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 // Remarks: ----
 // Timing: Read or Instant
 pub fn or<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.reg(Reg::A);
     let value = get_math_reg(cpu, ctx, register);
+    let a = cpu.regs.a;
 
     let result = a | value;
-    cpu.regs.set_reg(Reg::A, result);
+    cpu.regs.a = result;
     cpu.regs.f = if result == 0 {
         CpuFlags::Z
     } else {
@@ -708,7 +706,7 @@ pub fn or<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Statu
 // Remarks: ----
 // Timing: Read or Instant
 pub fn cp<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Status {
-    let a = cpu.regs.reg(Reg::A);
+    let a = cpu.regs.a;
     let value = get_math_reg(cpu, ctx, register);
 
     cpu.regs.f.set(CpuFlags::Z, a == value);
@@ -862,7 +860,7 @@ pub fn ret<const EI: bool, Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status 
 // Timing: Read, Write
 pub fn ldh_a8_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let addr = cpu.fetch_imm8(ctx);
-    let a = cpu.regs.reg(Reg::A);
+    let a = cpu.regs.a;
     ctx.write_hi_cycle(addr, a);
 
     cpu.generic_fetch(ctx)
@@ -876,7 +874,7 @@ pub fn ldh_a8_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
 // Timing: Write
 pub fn ldh_c_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let addr = cpu.regs.reg(Reg::C);
-    let a = cpu.regs.reg(Reg::A);
+    let a = cpu.regs.a;
     ctx.write_hi_cycle(addr, a);
 
     cpu.generic_fetch(ctx)
@@ -891,7 +889,7 @@ pub fn ldh_c_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
 pub fn ldh_a_a8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let addr = cpu.fetch_imm8(ctx);
     let value = ctx.read_hi_cycle(addr);
-    cpu.regs.set_reg(Reg::A, value);
+    cpu.regs.a = value;
 
     cpu.generic_fetch(ctx)
 }
@@ -905,7 +903,7 @@ pub fn ldh_a_a8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
 pub fn ldh_a_c<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let addr = cpu.regs.reg(Reg::C);
     let value = ctx.read_hi_cycle(addr);
-    cpu.regs.set_reg(Reg::A, value);
+    cpu.regs.a = value;
 
     cpu.generic_fetch(ctx)
 }
@@ -978,7 +976,7 @@ pub fn ld_hl_sp_r8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
 pub fn ld_a_a16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let address = cpu.fetch_imm16(ctx);
     let value = ctx.read_cycle(address);
-    cpu.regs.set_reg(Reg::A, value);
+    cpu.regs.a = value;
 
     cpu.generic_fetch(ctx)
 }
@@ -991,7 +989,7 @@ pub fn ld_a_a16<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
 // Timing: Read, Read, Write
 pub fn ld_a16_a<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let addr = cpu.fetch_imm16(ctx);
-    let a = cpu.regs.reg(Reg::A);
+    let a = cpu.regs.a;
     ctx.write_cycle(addr, a);
 
     cpu.generic_fetch(ctx)
@@ -1190,10 +1188,11 @@ pub fn srl<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg) -> 
 // Remarks: Zero is set if the bit is unset, and gets reset otherwise.
 // Timing: "read" or instant.
 pub fn bit<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: RegisterArg, mask: u8) -> Status {
+    let arg = get_register_arg(cpu, ctx, register);
+    let b = (arg & mask) == 0;
+
     cpu.regs.f &= CpuFlags::C;
     cpu.regs.f |= CpuFlags::H;
-    let b = (get_register_arg(cpu, ctx, register) & mask) == 0;
-
     cpu.regs.f.set(CpuFlags::Z, b);
 
     cpu.generic_fetch(ctx)

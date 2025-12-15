@@ -186,19 +186,20 @@ impl SpriteFifo {
     }
 }
 
+// https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
+// because we're interleaving bytes we can do `hi` and `lo` at the same time.
 fn interleave(hi: u8, lo: u8) -> u16 {
-    let mut res = 0;
-    let mut hi = u16::from(hi.reverse_bits());
-    let mut lo = u16::from(lo.reverse_bits());
+    let hi = u32::from(hi);
+    let lo = u32::from(lo);
 
-    for _ in 0..8 {
-        res <<= 2;
-        res |= ((hi & 1) << 1) | (lo & 1);
-        hi >>= 1;
-        lo >>= 1;
-    }
+    let res = (hi << 16) | lo;
 
-    res
+    let res = (res | (res << 4)) & 0x0f0f0f0f;
+    let res = (res | (res << 2)) & 0x33333333;
+    let res = (res | (res << 1)) & 0x55555555;
+
+    let res = res | ((res >> 16) << 1);
+    res as u16
 }
 
 const fn get_map_base(lcdc: Lcdc, window: bool) -> usize {
@@ -549,7 +550,7 @@ pub struct Ppu {
     stat_upper: StatUpper,
     // visible value for `stat`'s lower two bits.
     stat_mode: u8,
-    cycle_mod: i16,
+    cycle_mod: u16,
     visible_ly: u8,
     state: PpuState,
     pirq: RisingEdge,
@@ -686,7 +687,7 @@ impl Ppu {
     }
 
     // a lot of this comes from [pandocs](https://gbdev.io/pandocs/Rendering.html) and [gameroy](https://github.com/Rodrigodd/gameroy/blob/a5acdc921c0561ed93a077622b598df0e068583c/core/src/gameboy/ppu.rs#L936)
-    fn tick_state(&mut self, cycle: i16, reg_if: &mut InterruptFlags) {
+    fn tick_state(&mut self, cycle: u16, reg_if: &mut InterruptFlags) {
         let mut irq = false;
         irq |= self.ly_cp();
 
@@ -969,5 +970,32 @@ impl Ppu {
 impl Default for Ppu {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    #[test]
+    fn interleave_compare() {
+        fn interleave(hi: u8, lo: u8) -> u16 {
+            let mut res = 0;
+            let mut hi = u16::from(hi.reverse_bits());
+            let mut lo = u16::from(lo.reverse_bits());
+
+            for _ in 0..8 {
+                res <<= 2;
+                res |= ((hi & 1) << 1) | (lo & 1);
+                hi >>= 1;
+                lo >>= 1;
+            }
+
+            res
+        }
+
+        for hi in 0..=u8::MAX {
+            for lo in 0..=u8::MAX {
+                assert_eq!(super::interleave(hi, lo), interleave(hi, lo));
+            }
+        }
     }
 }

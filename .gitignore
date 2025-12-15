@@ -2,3 +2,5 @@
 **/*.rs.bk
 .idea/
 yarsge-core/Cargo.lock
+perf.data
+perf.data.old

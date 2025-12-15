@@ -12,6 +12,9 @@ rgb = "0.8.52"
 sdl3 = "0.16.0"
 yarsge-core.workspace = true
 
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2.177"
+
 [dependencies.clap]
 features = ["derive"]
 version = "4.0.0"
