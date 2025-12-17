@@ -20,6 +20,10 @@ impl<const EDGE: bool> EdgeDetector<EDGE> {
         Self(value)
     }
 
+    const fn get(&self) -> bool {
+        self.0
+    }
+
     const fn tick(&mut self, new: bool) -> bool {
         let old = mem::replace(&mut self.0, new);
 

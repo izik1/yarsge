@@ -133,6 +133,10 @@ impl GameBoy {
         // any leftovers remains in the bank.
         self.bank_ps -= bankable_clocks * PS_PER_CLOCK;
 
+        if self.hw.cycle_counter > TCycle(0) {
+            self.hw.tick_pad();
+        }
+
         while self.hw.cycle_counter > TCycle(0) {
             if let Some(new_mode) = self.cpu.run(&mut self.hw) {
                 self.mode = new_mode;

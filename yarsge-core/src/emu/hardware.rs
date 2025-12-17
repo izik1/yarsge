@@ -3,10 +3,9 @@ use super::{
     memory::Memory,
     pad::Pad,
     ppu::{DisplayPixel, Ppu},
-    timer::Timer,
 };
 use crate::emu::bus::{BusState, ExternalBus};
-use crate::emu::{InterruptFlags, TCycle};
+use crate::emu::{InterruptFlags, TCycle, timer};
 
 pub(crate) trait CpuBus {
     fn clear_interrupt(&mut self, remove: InterruptFlags);
@@ -50,7 +49,7 @@ pub(crate) trait CpuBus {
 #[non_exhaustive]
 pub struct Hardware {
     ppu: Ppu,
-    timer: Timer,
+    timer: timer::Lazy,
     dma: Dma,
     memory: Memory,
     pub(crate) pad: Pad,
@@ -65,7 +64,7 @@ impl Hardware {
             cycle_counter: TCycle(0),
             ppu: Ppu::new(),
             memory,
-            timer: Timer::new(),
+            timer: timer::Lazy::new(),
             reg_if: InterruptFlags::empty(),
             reg_ie: InterruptFlags::empty(),
             dma: Dma::new(),
@@ -79,31 +78,32 @@ impl Hardware {
         self.ppu.display()
     }
 
-    fn tick(&mut self, bus: &mut ExternalBus) {
-        self.tick_n::<1>(bus);
+    pub(crate) fn tick_pad(&mut self) {
+        // ACCURACY:
+        // run joypad at lower frequency because realistically it only needs to run at 1 tick per input change
+        // this is presumably inaccurate because the hardware that checks for an interrupt presumably does so every T-cycle.
+        if self.pad.tick() {
+            self.reg_if |= InterruptFlags::JOYPAD;
+            let _ = self.pad.tick();
+        }
     }
 
     fn tick_n<const CYCLES: isize>(&mut self, bus: &mut ExternalBus) {
         const { assert!(CYCLES > 0) };
 
-        // ACCURACY:
-        // run joypad at lower frequency because realistically it only needs to run at 1 tick per input change
-        // this is presumably inaccurate because the hardware that checks for an interrupt presumably does so every T-cycle.
-        if const { CYCLES > 0 } && self.pad.tick() {
-            self.reg_if |= InterruptFlags::JOYPAD;
-        }
-
         for _ in 0..CYCLES {
             self.dma.tick(bus, &mut self.ppu, &mut self.memory);
 
-            self.reg_if |= self.timer.tick() | self.ppu.tick();
+            self.reg_if |= self.ppu.tick();
         }
+
+        self.reg_if |= self.timer.tick(CYCLES as u32);
 
         self.cycle_counter -= TCycle(CYCLES);
     }
 
     #[must_use]
-    fn read_byte(&self, addr: u16, bus_value: u8) -> u8 {
+    fn read_byte(&mut self, addr: u16, bus_value: u8) -> u8 {
         match addr {
             0x0000..0x8000 | 0xa000..0xfe00 => bus_value,
             0x8000..0xa000 => self.ppu.get_vram(addr - 0x8000).unwrap_or(0xff),
@@ -115,7 +115,7 @@ impl Hardware {
     }
 
     #[must_use]
-    fn read_byte_hi(&self, addr: u8) -> u8 {
+    fn read_byte_hi(&mut self, addr: u8) -> u8 {
         match addr {
             0x00..0x80 => self.read_io(addr),
             0x80..0xff => self.memory.hram[addr as usize - 0x80],
@@ -124,7 +124,7 @@ impl Hardware {
     }
 
     #[must_use]
-    fn read_io(&self, addr: u8) -> u8 {
+    fn read_io(&mut self, addr: u8) -> u8 {
         #[allow(clippy::match_same_arms)]
         match addr {
             0x00 => self.pad.selected(),
@@ -198,22 +198,34 @@ impl CpuBus for Hardware {
     }
 
     fn read_cycle_intr(&mut self, addr: u16) -> (u8, InterruptFlags) {
+        // ACCURACY: technically the address should be on the bus on tick 1, and in the
         let mut bus = ExternalBus::new();
 
-        self.tick(&mut bus);
-        bus.set_addr_cpu(addr);
-
-        self.tick(&mut bus);
+        self.tick_n::<2>(&mut bus);
 
         let early_interrupts = self.reg_if & self.reg_ie;
-        self.tick(&mut bus);
+        self.tick_n::<2>(&mut bus);
 
+        bus.set_addr_cpu(addr);
         let bus_val = self.memory.strobe_read(&mut bus);
-
-        self.tick(&mut bus);
-
         let val = self.read_byte(addr, bus_val);
         (val, early_interrupts)
+    }
+
+    fn read_cycle(&mut self, addr: u16) -> u8 {
+        if addr >= 0xff00 {
+            return self.read_hi_cycle(addr as u8);
+        }
+
+        let mut bus = ExternalBus::new();
+
+        self.tick_n::<4>(&mut bus);
+
+        bus.set_addr_cpu(addr);
+        let bus_val = self.memory.strobe_read(&mut bus);
+        let val = self.read_byte(addr, bus_val);
+
+        val
     }
 
     fn read_hi_cycle(&mut self, addr: u8) -> u8 {
@@ -227,26 +239,40 @@ impl CpuBus for Hardware {
     fn write_cycle_intr(&mut self, addr: u16, value: u8) -> InterruptFlags {
         let mut bus = ExternalBus::new();
 
-        self.tick(&mut bus);
+        self.tick_n::<2>(&mut bus);
+
+        let early_interrupts = self.reg_if & self.reg_ie;
+
+        self.tick_n::<2>(&mut bus);
 
         if !bus.busy() {
             bus.set_addr_cpu(addr);
             bus.st.insert(BusState::PIN_NOT_READ);
         }
 
-        self.tick(&mut bus);
-
-        let early_interrupts = self.reg_if & self.reg_ie;
-
-        self.tick(&mut bus);
-
         self.memory.strobe_write(&mut bus, value);
-
-        self.tick(&mut bus);
 
         self.write_byte(addr, value);
 
         early_interrupts
+    }
+
+    fn write_cycle(&mut self, addr: u16, value: u8) {
+        if addr >= 0xff00 {
+            return self.write_hi_cycle(addr as u8, value);
+        }
+
+        let mut bus = ExternalBus::new();
+        self.tick_n::<4>(&mut bus);
+
+        if !bus.busy() {
+            bus.set_addr_cpu(addr);
+            bus.st.insert(BusState::PIN_NOT_READ);
+        }
+
+        self.memory.strobe_write(&mut bus, value);
+
+        self.write_byte(addr, value);
     }
 
     fn write_hi_cycle(&mut self, addr: u8, value: u8) {
