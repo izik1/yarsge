@@ -3,9 +3,9 @@ mod instr;
 use super::registers::Registers;
 use super::registers::{self, R16, Reg};
 
+use crate::emu::InterruptFlags;
 use crate::emu::hardware::CpuBus;
 use crate::emu::registers::RegisterArg;
-use crate::emu::{InterruptFlags, Mode};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum Status {
@@ -20,14 +20,9 @@ pub struct Cpu {
     pub regs: registers::Registers,
     pub status: Status,
     ime: bool,
-    break_point_addresses: Vec<u16>,
 }
 
 impl Cpu {
-    pub fn register_breakpoint(&mut self, address: u16) {
-        self.break_point_addresses.push(address);
-    }
-
     fn generic_fetch<Ctx: CpuBus>(&mut self, ctx: &mut Ctx) -> Status {
         let (val, st) = self.fetch_cycle(ctx);
         self.regs.pc += 1;
@@ -287,11 +282,10 @@ impl Cpu {
             regs: Registers::new(),
             status: Status::Running,
             ime: false,
-            break_point_addresses: Vec::new(),
         }
     }
 
-    pub(crate) fn run<Ctx: CpuBus>(&mut self, ctx: &mut Ctx) -> Option<Mode> {
+    pub(crate) fn run<Ctx: CpuBus>(&mut self, ctx: &mut Ctx) {
         self.status = match self.status {
             Status::Running => self.decode_execute(ctx),
             Status::Halt => {
@@ -310,10 +304,6 @@ impl Cpu {
             }
             Status::InterruptDispatch => self.handle_interrupts(ctx),
         };
-
-        self.break_point_addresses
-            .contains(&self.regs.pc.0)
-            .then_some(Mode::Step)
     }
 }
 

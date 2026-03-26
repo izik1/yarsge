@@ -70,16 +70,9 @@ impl SubAssign for TCycle {
     }
 }
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-pub enum Mode {
-    Step,
-    Run,
-}
-
 pub struct GameBoy {
     hw: Hardware,
     cpu: Cpu,
-    mode: Mode,
     bank_ps: u64,
 }
 
@@ -89,16 +82,12 @@ pub struct GameBoy {
 const PS_PER_CLOCK: u64 = 238_420;
 
 impl GameBoy {
-    pub fn register_breakpoint(&mut self, address: u16) {
-        self.cpu.register_breakpoint(address);
-    }
 
     #[must_use]
     pub fn new(boot_rom: Box<[u8]>, game_rom: Box<[u8]>) -> Option<Self> {
         Some(Self {
             hw: Hardware::new(memory::Memory::new_detect(game_rom, boot_rom)?),
             cpu: Cpu::new(),
-            mode: Mode::Run,
             bank_ps: 0,
         })
     }
@@ -138,13 +127,7 @@ impl GameBoy {
         }
 
         while self.hw.cycle_counter > TCycle(0) {
-            if let Some(new_mode) = self.cpu.run(&mut self.hw) {
-                self.mode = new_mode;
-            }
-
-            if self.mode == Mode::Step {
-                self.hw.cycle_counter = TCycle(0);
-            }
+            self.cpu.run(&mut self.hw);
         }
     }
 
