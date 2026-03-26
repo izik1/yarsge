@@ -42,7 +42,7 @@ pub(crate) trait CpuBus {
     }
 
     fn write_hi_cycle(&mut self, addr: u8, value: u8) {
-        self.write_cycle(u16::from_be_bytes([0xff, addr]), value)
+        self.write_cycle(u16::from_be_bytes([0xff, addr]), value);
     }
 }
 
@@ -156,7 +156,7 @@ impl Hardware {
 
     fn write_byte_hi(&mut self, addr: u8, value: u8) {
         match addr {
-            0x00..0x80 => self.write_io(addr as u8, value),
+            0x00..0x80 => self.write_io(addr, value),
             0x80..0xff => self.memory.hram[addr as usize - 0x80] = value,
             0xff => self.reg_ie = InterruptFlags::from_bits_retain(value),
         }
@@ -223,9 +223,8 @@ impl CpuBus for Hardware {
 
         bus.set_addr_cpu(addr);
         let bus_val = self.memory.strobe_read(&mut bus);
-        let val = self.read_byte(addr, bus_val);
 
-        val
+        self.read_byte(addr, bus_val)
     }
 
     fn read_hi_cycle(&mut self, addr: u8) -> u8 {
@@ -280,6 +279,6 @@ impl CpuBus for Hardware {
         self.tick_cycle();
 
         // and a bunch of address decoding.
-        self.write_byte_hi(addr, value)
+        self.write_byte_hi(addr, value);
     }
 }

@@ -121,7 +121,7 @@ impl Lazy {
             self.timer.next_interrupt_count()
         );
         debug_assert_eq!(interrupt, InterruptFlags::TIMER);
-        return interrupt;
+        interrupt
     }
 
     pub fn tick(&mut self, ticks: u32) -> InterruptFlags {
@@ -130,7 +130,7 @@ impl Lazy {
         // the second bit of information is important for the very specific situation of "the div doesn't change" or "the div changes by a small amount".
 
         // `ticks` is going to be relatively small currently.
-        self.banked_cycles += ticks as u32;
+        self.banked_cycles += ticks;
 
         match (self.banked_cycles, self.cycles_to_next_interrupt) {
             (..MAX_TICKS, None) => InterruptFlags::empty(),
@@ -234,7 +234,7 @@ impl Timer {
             // 1 => 4
             // 2 => 3
             // 3 => 2
-            if tick % 4 == 0 {
+            if tick.is_multiple_of(4) {
                 return const { NonZero::new(1).unwrap() };
             }
 
@@ -272,11 +272,9 @@ impl Timer {
             cycles_per_tima_inc - (u32::from(self.sys_timer) & (cycles_per_tima_inc - 1))
         };
 
-        let total = extra_time
+        extra_time
             .checked_add(cycles_to_next_tima_inc)
-            .and_then(|it| it.checked_add((256 - u32::from(self.tima) - 1) * cycles_per_tima_inc));
-
-        total
+            .and_then(|it| it.checked_add((256 - u32::from(self.tima) - 1) * cycles_per_tima_inc))
     }
 
     pub fn write_reg(&mut self, addr: u8, val: u8) {
@@ -329,7 +327,7 @@ impl Timer {
 
         // try to align to self.tick % 4 == 0
 
-        let ticks_to_zero = if self.tick % 4 == 0 {
+        let ticks_to_zero = if self.tick.is_multiple_of(4) {
             0
         } else {
             4 - self.tick % 4

@@ -209,15 +209,15 @@ pub fn halt<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     let (ir, interrupts) = ctx.read_cycle_intr(cpu.regs.pc.0);
     cpu.regs.ir = ir;
 
-    if !interrupts.is_empty() {
-        if cpu.ime {
-            return Status::InterruptDispatch;
-        }
-
-        return Status::Running;
+    if interrupts.is_empty() {
+        return Status::Halt;
     }
 
-    Status::Halt
+    if cpu.ime {
+        return Status::InterruptDispatch;
+    }
+
+    return Status::Running;
 }
 
 // Mnemonic: STOP

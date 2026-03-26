@@ -20,7 +20,7 @@ impl<const EDGE: bool> EdgeDetector<EDGE> {
         Self(value)
     }
 
-    const fn get(&self) -> bool {
+    const fn get(self) -> bool {
         self.0
     }
 
