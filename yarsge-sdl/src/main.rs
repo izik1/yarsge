@@ -477,7 +477,12 @@ impl Statistics {
 
 #[cold]
 #[inline(never)]
-fn report_statistics(stats: &mut Statistics, current_frame: Instant, start: Instant) {
+fn report_statistics(
+    stats: &mut Statistics,
+    audio_bytes_ahead: Option<i32>,
+    current_frame: Instant,
+    start: Instant,
+) {
     // if we've lapsed, just reset the clock
     if stats.next_report + Duration::from_secs(1) < current_frame {
         stats.next_report = current_frame + Duration::from_secs(1);
@@ -500,6 +505,17 @@ fn report_statistics(stats: &mut Statistics, current_frame: Instant, start: Inst
         (stats.subframe as f64) / elapsed.as_secs_f64(),
         (stats.display_frame as f64) / elapsed.as_secs_f64(),
     );
+
+    if let Some(audio_bytes_ahead) = audio_bytes_ahead {
+        let bytes = audio_bytes_ahead as u32;
+        log::debug!(
+            target: "statistics",
+            "Audio buffer (bytes: {bytes}, samples: {samples}, duration: {duration:.03}s)",
+            // 2 channels (f32) * 4 bytes per float.
+            samples = bytes / 8,
+            duration = f64::from(bytes / 8) * const { 48000.0f64.recip() },
+        );
+    }
 }
 
 #[inline(never)]
@@ -661,7 +677,12 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         if log::log_enabled!(target: "statistics", log::Level::Debug)
             && current_frame >= stats.next_report
         {
-            report_statistics(&mut stats, current_frame, start);
+            report_statistics(
+                &mut stats,
+                stream.as_ref().map(|it| it.available_bytes().unwrap()),
+                current_frame,
+                start,
+            );
         }
     }
 }

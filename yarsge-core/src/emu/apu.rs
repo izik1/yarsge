@@ -1,4 +1,3 @@
-use std::ops::ControlFlow;
 use std::{array, cmp};
 
 use crate::FallingEdge;
@@ -13,14 +12,14 @@ struct Dac {
 
 impl Dac {
     fn tick(&mut self, enabled: bool, digital: u8) -> f32 {
-        if enabled {
-            return ((15.0 - f32::from(digital)) / 7.5) - 1.0;
-        }
+        self.capacitance = if enabled {
+            ((15.0 - f32::from(digital)) / 7.5) - 1.0
+        } else {
+            // I assume this is how this one works, but I don't actually have numbers.
+            self.capacitance * 0.999958
+        };
 
-        // fixme: there's capacitance, samples don't magically teleport.
-        0.0
-
-        // self.capacitor *=
+        self.capacitance
     }
 }
 
@@ -37,6 +36,10 @@ impl LengthTimer {
             current: 0,
             enable: false,
         }
+    }
+
+    fn trigger<const OFFSET: u8>(&mut self) {
+        self.current = OFFSET + self.initial;
     }
 
     fn tick(&mut self) -> bool {
@@ -64,6 +67,16 @@ impl Envelope {
         }
     }
 
+    #[must_use]
+    fn dac_enabled(&self) -> bool {
+        self.initial_volume != 0 || self.direction
+    }
+
+    fn trigger(&mut self) {
+        self.volume = self.initial_volume;
+        self.sweep_step = self.sweep_pace;
+    }
+
     fn tick(&mut self) {
         self.sweep_step = self.sweep_step.wrapping_sub(1);
         if self.sweep_step == 0 {
@@ -72,6 +85,16 @@ impl Envelope {
             // self.volume = self.volume.wrapping_add_signed(adjustment) % 16;
             self.volume = cmp::min(15, self.volume.saturating_add_signed(adjustment));
         }
+    }
+
+    fn read(&self) -> u8 {
+        (self.initial_volume << 4) | (u8::from(self.direction) << 3) | self.sweep_pace
+    }
+
+    fn write(&mut self, val: u8) {
+        self.initial_volume = val >> 4;
+        self.direction = (val & 0x08) == 0x08;
+        self.sweep_pace = val & 0b111;
     }
 }
 
@@ -158,7 +181,7 @@ impl Pwm {
 
     #[must_use]
     fn dac_enabled(&self) -> bool {
-        self.envelope.initial_volume != 0 || self.envelope.direction
+        self.envelope.dac_enabled()
     }
 
     fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
@@ -175,11 +198,10 @@ impl Pwm {
 
         if dot == 0 && self.trigger {
             self.trigger = false;
-            self.length.current = 192 + self.length.initial;
+            self.length.trigger::<192>();
             self.shadow_period = self.period;
             self.period_div = self.shadow_period;
-            self.envelope.volume = self.envelope.initial_volume;
-            self.envelope.sweep_step = self.envelope.sweep_pace;
+            self.envelope.trigger();
             self.sweep.timer = self.sweep.pace;
             self.sweep.enabled = self.sweep.pace != 0 || self.sweep.timer != 0;
             self.enabled = true;
@@ -213,13 +235,9 @@ impl Pwm {
 
             if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
                 self.envelope.tick();
-                // if self.envelope.volume == 0 {
-                //     self.enabled = false;
-                // }
             }
 
             if self.sweep.enabled && div_apu_mod % 4 == 0 && self.sweep.timer > 0 {
-                dbg!("hi");
                 let (enabled, shadow_period) = self.sweep.tick(self.shadow_period);
                 self.enabled &= enabled;
 
@@ -241,7 +259,122 @@ impl Pwm {
 
 struct Wave {}
 
-struct Noise {}
+struct Lsfr {
+    register: u16,
+    short: bool,
+}
+
+impl Lsfr {
+    const fn new() -> Self {
+        Self {
+            register: 0,
+            short: false,
+        }
+    }
+    fn trigger(&mut self) {
+        *self = Self {
+            register: 0,
+            short: self.short,
+        };
+    }
+
+    fn tick(&mut self) {
+        let bit = u16::from((self.register & 1) == ((self.register >> 1) & 1));
+        let bit = 0_u16.wrapping_sub(bit);
+        let mask = 0x8000 | (u16::from(self.short) << 7);
+        self.register = (self.register & !mask) | (bit & mask);
+    }
+
+    fn current(&self) -> bool {
+        self.register & 1 == 1
+    }
+}
+
+struct Noise {
+    dac: Dac,
+    length: LengthTimer,
+    envelope: Envelope,
+    lsfr: Lsfr,
+    dot: u8,
+    clock_shift: u8,
+    clock_divider: u8,
+    enabled: bool,
+    trigger: bool,
+    clock: u16,
+}
+
+impl Noise {
+    const fn new() -> Self {
+        Self {
+            dac: Dac { capacitance: 0.0 },
+            length: LengthTimer::new(),
+            envelope: Envelope::new(),
+            trigger: false,
+            dot: 0,
+            enabled: false,
+            lsfr: Lsfr::new(),
+            clock_shift: 0,
+            clock_divider: 0,
+            clock: 0,
+        }
+    }
+
+    #[must_use]
+    fn dac_enabled(&self) -> bool {
+        self.envelope.dac_enabled()
+    }
+
+    fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
+        let dot = self.dot % 4;
+        self.dot = (dot + 1) % 4;
+
+        if dot == 0 && self.trigger {
+            self.trigger = false;
+            self.length.trigger::<192>();
+            self.envelope.trigger();
+            self.lsfr.trigger();
+            self.enabled = true;
+        }
+
+        if !self.enabled {
+            return self.dac.tick(self.dac_enabled(), 0);
+        }
+
+        // lsfr ticks are a bit weird
+        // I assume they can happen on any dot, but nothing actually says anything about that.
+
+        if self.clock > 0 {
+            self.clock -= 1;
+        }
+
+        if self.clock == 0 && self.clock_shift < 14 {
+            self.lsfr.tick();
+            let base = if self.clock_divider == 0 {
+                8
+            } else {
+                16 * self.clock_divider
+            };
+            self.clock = u16::from(base) << self.clock_shift;
+        }
+
+        // only tick envelope and length if the channel is running.
+        if let Some(div_apu_mod) = div_apu_mod {
+            if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
+                self.envelope.volume = 0;
+                self.enabled = false;
+            }
+
+            if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
+                self.envelope.tick();
+            }
+        }
+
+        let digital = self.lsfr.current() as u8;
+
+        self.dac
+            .tick(self.dac_enabled(), digital * self.envelope.volume)
+    }
+}
 
 bitflags::bitflags! {
     struct AudioMasterControl : u8 {
@@ -282,15 +415,16 @@ impl Capacitor {
 pub struct Apu<S> {
     sampler: S,
     div_apu: FallingEdge,
-    amc: AudioMasterControl,
     panning: SoundPanning,
     vin_panning: VinPanning,
     left_volume: u8,
     right_volume: u8,
     pwm1: Pwm,
     pwm2: Pwm,
+    noise: Noise,
     div_apu_mod: u8,
     capacitor: Capacitor,
+    enabled: bool,
 }
 
 impl<S: ApuSampler> Apu<S> {
@@ -298,13 +432,14 @@ impl<S: ApuSampler> Apu<S> {
         Self {
             sampler,
             div_apu: FallingEdge::new(false),
-            amc: AudioMasterControl::empty(),
+            enabled: false,
             panning: SoundPanning::empty(),
             vin_panning: VinPanning::empty(),
             left_volume: 0,
             right_volume: 0,
             pwm1: Pwm::new(),
             pwm2: Pwm::new(),
+            noise: Noise::new(),
             div_apu_mod: 0,
             capacitor: Capacitor(0.0),
         }
@@ -329,9 +464,7 @@ impl<S: ApuSampler> Apu<S> {
                 self.pwm1.length.initial = val & 0x3f;
             }
             0x12 => {
-                self.pwm1.envelope.initial_volume = val >> 4;
-                self.pwm1.envelope.direction = val & 0x08 == 0x08;
-                self.pwm1.envelope.sweep_pace = val & 0b111;
+                self.pwm1.envelope.write(val);
             }
             0x13 => {
                 self.pwm1.period = (self.pwm1.period & 0x300) | u16::from(val);
@@ -347,9 +480,7 @@ impl<S: ApuSampler> Apu<S> {
                 self.pwm2.length.initial = val & 0x3f;
             }
             0x17 => {
-                self.pwm2.envelope.initial_volume = val >> 4;
-                self.pwm2.envelope.direction = (val & 0xf) >> 3 > 0;
-                self.pwm2.envelope.sweep_pace = val & 0b111;
+                self.pwm2.envelope.write(val);
             }
             0x18 => {
                 self.pwm2.period = (self.pwm2.period & 0x300) | u16::from(val);
@@ -359,12 +490,34 @@ impl<S: ApuSampler> Apu<S> {
                 self.pwm2.length.enable = val & 0x40 == 0x40;
                 self.pwm2.period = (self.pwm2.period & 0x0ff) | (u16::from(val & 0x7) << 8);
             }
+            0x20 => {
+                self.noise.length.initial = val & 0x3f;
+            }
+
+            0x21 => {
+                self.noise.envelope.write(val);
+            }
+
+            0x22 => {
+                self.noise.clock_divider = val & 0x07;
+                self.noise.lsfr.short = !(val & 0x08 == 0x08);
+                self.noise.clock_shift = val >> 4;
+            }
+
+            0x23 => {
+                self.noise.trigger = val & 0x80 == 0x80;
+                self.noise.length.enable = val & 0x40 == 0x40;
+            }
+
             0x24 => {
                 self.vin_panning = VinPanning::from_bits_truncate(val);
                 self.left_volume = (val >> 4) & 0x7;
                 self.right_volume = val & 0x7;
             }
             0x25 => self.panning = SoundPanning::from_bits_retain(val),
+            0x26 => {
+                self.enabled = val & 0x80 == 0x80;
+            }
             0x10..0x40 => {
                 log::error!("BUG: unimplemented APU write (0xff{addr:02x} -> {val:#02x})")
             }
@@ -375,7 +528,24 @@ impl<S: ApuSampler> Apu<S> {
     #[must_use]
     pub fn read_reg(&self, addr: u8) -> u8 {
         match addr {
+            0x12 => self.pwm1.envelope.read(),
+
+            0x17 => self.pwm2.envelope.read(),
+
+            0x21 => self.pwm2.envelope.read(),
+
+            0x24 => self.vin_panning.bits() | (self.left_volume << 4) | self.right_volume,
+
             0x25 => self.panning.bits(),
+            0x26 => {
+                let mut amc = AudioMasterControl::empty();
+                amc.set(AudioMasterControl::AUDIO_ENABLE, self.enabled);
+                amc.set(AudioMasterControl::CH1_ENABLE, self.pwm1.enabled);
+                amc.set(AudioMasterControl::CH2_ENABLE, self.pwm2.enabled);
+                amc.set(AudioMasterControl::CH3_ENABLE, false);
+                amc.set(AudioMasterControl::CH4_ENABLE, self.noise.enabled);
+                amc.bits()
+            }
 
             0x10..0x40 => {
                 log::error!("BUG: unimplemented APU read (0xff{addr:02x} -> 0xff)");
@@ -415,8 +585,20 @@ impl<S: ApuSampler> Apu<S> {
             let sample = self.pwm2.tick(div_apu.then_some(self.div_apu_mod));
 
             let pan = [
-                self.panning.contains(SoundPanning::CH1_LEFT) as u8 as f32,
-                self.panning.contains(SoundPanning::CH1_RIGHT) as u8 as f32,
+                self.panning.contains(SoundPanning::CH2_LEFT) as u8 as f32,
+                self.panning.contains(SoundPanning::CH2_RIGHT) as u8 as f32,
+            ];
+
+            let [left, right] = pan;
+            [left * sample, right * sample]
+        };
+
+        let sample4 = {
+            let sample = self.noise.tick(div_apu.then_some(self.div_apu_mod));
+
+            let pan = [
+                self.panning.contains(SoundPanning::CH4_LEFT) as u8 as f32,
+                self.panning.contains(SoundPanning::CH4_RIGHT) as u8 as f32,
             ];
 
             let [left, right] = pan;
@@ -425,7 +607,11 @@ impl<S: ApuSampler> Apu<S> {
 
         let sample = if self.any_dac_enabled() {
             // adjust sample volume by like, -20dB pls and ty.
-            array::from_fn(|idx| self.capacitor.sample(sample1[idx] + sample2[idx]) * 0.1)
+            array::from_fn(|idx| {
+                self.capacitor
+                    .sample(sample1[idx] + sample2[idx] + sample4[idx])
+                    * 0.1
+            })
         } else {
             [0.0; 2]
         };
