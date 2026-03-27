@@ -61,10 +61,16 @@ impl Lazy {
         }
     }
 
+    /// Calculates the timer's DIV register without running the timer.
+    pub fn lazy_div(&self, extra_cycles: u32) -> u8 {
+        let cycles = self.banked_cycles.wrapping_add(extra_cycles);
+        (self.timer.lazy_div(cycles) >> 8) as u8
+    }
+
     #[must_use]
     pub fn read_reg(&mut self, addr: u8) -> u8 {
         match addr {
-            Timer::ADDR_DIV => (self.timer.lazy_div(self.banked_cycles) >> 8) as u8,
+            Timer::ADDR_DIV => self.lazy_div(0),
             // this is invariant with time, it always reads back exactly what was written (sans unused bits).
             Timer::ADDR_TAC => self.timer.tac | 0xf8,
             _ => {

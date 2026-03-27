@@ -8,3 +8,6 @@ edition.workspace = true
 arrayvec = "0.7.6"
 bitflags = "2.10.0"
 log = "0.4.14"
+
+[dev-dependencies]
+hound = "3.5.1"

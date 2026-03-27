@@ -4,6 +4,7 @@ use super::{
     pad::Pad,
     ppu::{DisplayPixel, Ppu},
 };
+use crate::emu::apu::{Apu, ApuSampler};
 use crate::emu::bus::{BusState, ExternalBus};
 use crate::emu::{InterruptFlags, TCycle, timer};
 
@@ -47,19 +48,20 @@ pub(crate) trait CpuBus {
 }
 
 #[non_exhaustive]
-pub struct Hardware {
+pub struct Hardware<S> {
     ppu: Ppu,
     timer: timer::Lazy,
     dma: Dma,
     memory: Memory,
     pub(crate) pad: Pad,
+    pub(crate) apu: Apu<S>,
     pub reg_if: InterruptFlags,
     pub reg_ie: InterruptFlags,
     pub cycle_counter: TCycle,
 }
 
-impl Hardware {
-    pub const fn new(memory: Memory) -> Self {
+impl<S: ApuSampler> Hardware<S> {
+    pub const fn new(memory: Memory, apu_sampler: S) -> Self {
         Self {
             cycle_counter: TCycle(0),
             ppu: Ppu::new(),
@@ -69,6 +71,7 @@ impl Hardware {
             reg_ie: InterruptFlags::empty(),
             dma: Dma::new(),
             pad: Pad::new(),
+            apu: Apu::new(apu_sampler),
         }
     }
 
@@ -95,6 +98,10 @@ impl Hardware {
             self.dma.tick(bus, &mut self.ppu, &mut self.memory);
 
             self.reg_if |= self.ppu.tick();
+        }
+
+        for _ in 0..CYCLES {
+            self.apu.tick(self.timer.lazy_div(CYCLES as u32));
         }
 
         self.reg_if |= self.timer.tick(CYCLES as u32);
@@ -131,7 +138,7 @@ impl Hardware {
             0x04..0x08 => self.timer.read_reg(addr),
             0x08..0x0f => 0xff, // Empty range.
             0x0f => self.reg_if.bits() | 0xe0,
-            0x10..0x40 => 0xff, // TODO: APU, silently ignore
+            0x10..0x40 => self.apu.read_reg(addr),
             0x46 => self.dma.read_src(),
             0x40..0x46 | 0x47..0x4c => self.ppu.get_reg(addr),
             0x4c..0x80 => 0xff, // Empty range.
@@ -170,7 +177,7 @@ impl Hardware {
             0x04..0x08 => self.timer.write_reg(addr, val),
             0x08..0x0f => {} // Empty range.
             0x0f => self.reg_if = InterruptFlags::from_bits_truncate(val),
-            0x10..0x40 => {} // TODO: APU, silently ignore
+            0x10..0x40 => self.apu.write_reg(addr, val),
             0x46 => {
                 self.dma.write_src(val);
             }
@@ -184,7 +191,7 @@ impl Hardware {
     }
 }
 
-impl CpuBus for Hardware {
+impl<S: ApuSampler> CpuBus for Hardware<S> {
     fn clear_interrupt(&mut self, remove: InterruptFlags) {
         self.reg_if.remove(remove);
     }

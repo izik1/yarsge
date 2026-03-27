@@ -3,10 +3,12 @@ use std::ops::{Add, AddAssign, Sub, SubAssign};
 use std::time::{Duration, Instant};
 
 use crate::Keys;
+use crate::emu::apu::ApuSampler;
 use crate::emu::cpu::Cpu;
 use crate::emu::hardware::Hardware;
 use crate::emu::ppu::DisplayPixel;
 
+pub mod apu;
 pub mod cpu;
 pub mod dma;
 pub mod ppu;
@@ -70,8 +72,8 @@ impl SubAssign for TCycle {
     }
 }
 
-pub struct GameBoy {
-    hw: Hardware,
+pub struct GameBoy<S: ApuSampler> {
+    hw: Hardware<S>,
     cpu: Cpu,
     bank_ps: u64,
 }
@@ -81,12 +83,11 @@ pub struct GameBoy {
 // try to stay in the range such that 1/PS_PER_CLOCK = [4,194,304 Hz - 70ppm : 4,194,304 (Hz) - 50ppm]
 const PS_PER_CLOCK: u64 = 238_420;
 
-impl GameBoy {
-
+impl<S: ApuSampler> GameBoy<S> {
     #[must_use]
-    pub fn new(boot_rom: Box<[u8]>, game_rom: Box<[u8]>) -> Option<Self> {
+    pub fn new(boot_rom: Box<[u8]>, game_rom: Box<[u8]>, apu_sampler: S) -> Option<Self> {
         Some(Self {
-            hw: Hardware::new(memory::Memory::new_detect(game_rom, boot_rom)?),
+            hw: Hardware::new(memory::Memory::new_detect(game_rom, boot_rom)?, apu_sampler),
             cpu: Cpu::new(),
             bank_ps: 0,
         })
@@ -151,5 +152,15 @@ impl GameBoy {
             *total_emulated_time += remaining * 4;
             self.run(remaining * 4);
         }
+    }
+
+    #[must_use]
+    pub fn sampler(&self) -> &S {
+        self.hw.apu.sampler()
+    }
+
+    #[must_use]
+    pub fn sampler_mut(&mut self) -> &mut S {
+        self.hw.apu.sampler_mut()
     }
 }
