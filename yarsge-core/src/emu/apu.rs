@@ -604,26 +604,29 @@ impl<S: ApuSampler> Apu<S> {
             [self.panning_cvt[6] * sample, self.panning_cvt[7] * sample]
         };
 
-        let sample = if self.any_dac_enabled() {
-            // adjust sample volume by like, -20dB pls and ty.
-            array::from_fn(|idx| {
-                self.hpf[idx].sample(sample1[idx] + sample2[idx] + sample4[idx]) * 0.1
-            })
-        } else {
+        if !self.any_dac_enabled() {
             return self.sampler.push_samples([0.0; 2]);
-        };
+        }
 
-        let sample = {
+        let sample = [
+            sample1[0] + sample2[0] + sample4[0],
+            sample1[1] + sample2[1] + sample4[1],
+        ];
+
+        let sample: [_; 2] = {
             let clamp = |vol| match vol {
                 0 => 1,
                 7.. => 8,
                 x => x,
             };
 
-            let [vl, vr] = [clamp(self.left_volume), clamp(self.right_volume)];
-            let [sl, sr] = sample;
-            [((vl as f32) / 8.0) * sl, (vr as f32) / 8.0 * sr]
+            let volume = [clamp(self.left_volume), clamp(self.right_volume)];
+
+            // adjust sample volume by like, -20dB pls and ty (this isn't part of the emulation, it's just to prevent everything from blowing my ears out).
+            array::from_fn(|idx| f32::from(volume[idx]) / 8.0 * sample[idx] * 0.1)
         };
+
+        let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
 
         self.sampler.push_samples(sample);
     }
