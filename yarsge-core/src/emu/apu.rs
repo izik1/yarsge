@@ -1,6 +1,7 @@
 use std::{array, cmp};
 
 use crate::FallingEdge;
+use crate::util::FloatExt as _;
 
 pub trait ApuSampler {
     fn push_samples(&mut self, samples: [f32; 2]);
@@ -13,7 +14,7 @@ struct Dac {
 impl Dac {
     fn tick(&mut self, enabled: bool, digital: u8) -> f32 {
         self.capacitance = if enabled {
-            ((15.0 - f32::from(digital)) / 7.5) - 1.0
+            (15.0 - f32::from(digital)).mul_add_fast(const { 7.5f32.recip() }, -1.0)
         } else {
             // I assume this is how this one works, but I don't actually have numbers.
             self.capacitance * 0.999958
@@ -407,7 +408,7 @@ struct Capacitor(f32);
 impl Capacitor {
     fn sample(&mut self, sample: f32) -> f32 {
         let out = sample - self.0;
-        self.0 = sample - out * 0.999958;
+        self.0 = out.mul_add_fast(0.999958, -sample);
         out
     }
 }
@@ -582,7 +583,7 @@ impl<S: ApuSampler> Apu<S> {
     }
 
     pub fn tick(&mut self, div: u8) {
-        // 512 hz timer.w
+        // 512 hz timer.
         let div_apu = self.div_apu.tick(div & 0b0001_0000 > 0);
         if div_apu {
             self.div_apu_mod = (self.div_apu_mod + 1) % 8;
@@ -611,7 +612,7 @@ impl<S: ApuSampler> Apu<S> {
                     * 0.1
             })
         } else {
-            [0.0; 2]
+            return self.sampler.push_samples([0.0; 2]);
         };
 
         let sample = {

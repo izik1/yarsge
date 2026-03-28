@@ -6,18 +6,16 @@ use std::str::FromStr;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-
+use clap::Parser;
+use rgb::RGB8;
 use sdl3::audio::{AudioDevice, AudioSpec, AudioStreamOwner};
 use sdl3::render::Canvas;
 use sdl3::video::Window;
 use sdl3::{AudioSubsystem, EventPump, Sdl, VideoSubsystem};
-use yarsge_core::emu::apu::ApuSampler;
-use yarsge_core::{Keys, emu};
-
 use sdl3::{event::Event, keyboard::Keycode, pixels::Color};
-
-use clap::Parser;
-use rgb::RGB8;
+use yarsge_core::emu::apu::ApuSampler;
+use yarsge_core::util::FloatExt as _;
+use yarsge_core::{Keys, emu};
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -453,8 +451,8 @@ impl MeanFilter {
             let [bl, br] = self.sample;
             let [sl, sr] = sample;
             [
-                bl + (sl * self.mean_recip_divisor),
-                br + (sr * self.mean_recip_divisor),
+                sl.mul_add_fast(self.mean_recip_divisor, bl),
+                sr.mul_add_fast(self.mean_recip_divisor, br),
             ]
         };
 
