@@ -424,7 +424,7 @@ pub struct Apu<S> {
     pwm2: Pwm,
     noise: Noise,
     div_apu_mod: u8,
-    capacitor: Capacitor,
+    hpf: [Capacitor; 2],
     enabled: bool,
     panning_cvt: [f32; 8],
 }
@@ -443,7 +443,7 @@ impl<S: ApuSampler> Apu<S> {
             pwm2: Pwm::new(),
             noise: Noise::new(),
             div_apu_mod: 0,
-            capacitor: Capacitor(0.0),
+            hpf: [const { Capacitor(0.0) }; 2],
             panning_cvt: [0.0; 8],
         }
     }
@@ -607,9 +607,7 @@ impl<S: ApuSampler> Apu<S> {
         let sample = if self.any_dac_enabled() {
             // adjust sample volume by like, -20dB pls and ty.
             array::from_fn(|idx| {
-                self.capacitor
-                    .sample(sample1[idx] + sample2[idx] + sample4[idx])
-                    * 0.1
+                self.hpf[idx].sample(sample1[idx] + sample2[idx] + sample4[idx]) * 0.1
             })
         } else {
             return self.sampler.push_samples([0.0; 2]);
