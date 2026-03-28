@@ -127,7 +127,6 @@ impl Sweep {
     }
 
     fn tick(&mut self, shadow_period: u16) -> (bool, u16) {
-        eprintln!("period: 0x{shadow_period:03x}");
         self.timer = self.timer - 1;
 
         if self.timer != 0 {
@@ -385,6 +384,7 @@ bitflags::bitflags! {
         const CH1_ENABLE = 1 << 0;
     }
 
+    #[derive(Eq, PartialEq)]
     struct SoundPanning : u8 {
         const CH4_LEFT = 1 << 7;
         const CH3_LEFT = 1 << 6;
@@ -425,6 +425,7 @@ pub struct Apu<S> {
     div_apu_mod: u8,
     capacitor: Capacitor,
     enabled: bool,
+    panning_cvt: [f32; 8],
 }
 
 impl<S: ApuSampler> Apu<S> {
@@ -442,6 +443,7 @@ impl<S: ApuSampler> Apu<S> {
             noise: Noise::new(),
             div_apu_mod: 0,
             capacitor: Capacitor(0.0),
+            panning_cvt: [0.0; 8],
         }
     }
 
@@ -514,12 +516,29 @@ impl<S: ApuSampler> Apu<S> {
                 self.left_volume = (val >> 4) & 0x7;
                 self.right_volume = val & 0x7;
             }
-            0x25 => self.panning = SoundPanning::from_bits_retain(val),
+            0x25 => {
+                let new = SoundPanning::from_bits_retain(val);
+
+                // in most games this address is rarely even accessed, (less than 1 time per second), tetris on the other hand constantly changes the panning to the same thing, so.
+                if self.panning != new {
+                    self.panning = SoundPanning::from_bits_retain(val);
+                    self.panning_cvt = [
+                        self.panning.contains(SoundPanning::CH1_LEFT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH1_RIGHT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH2_LEFT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH2_RIGHT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH3_LEFT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH3_RIGHT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH4_LEFT) as u8 as f32,
+                        self.panning.contains(SoundPanning::CH4_RIGHT) as u8 as f32,
+                    ];
+                }
+            }
             0x26 => {
                 self.enabled = val & 0x80 == 0x80;
             }
             0x10..0x40 => {
-                log::error!("BUG: unimplemented APU write (0xff{addr:02x} -> {val:#02x})")
+                log::debug!("BUG: unimplemented APU write (0xff{addr:02x} -> {val:#02x})")
             }
             _ => log::error!("BUG: invalid APU write (0xff{addr:02x} -> {val:#02x})"),
         }
@@ -571,38 +590,17 @@ impl<S: ApuSampler> Apu<S> {
 
         let sample1 = {
             let sample = self.pwm1.tick(div_apu.then_some(self.div_apu_mod));
-
-            let pan = [
-                self.panning.contains(SoundPanning::CH1_LEFT) as u8 as f32,
-                self.panning.contains(SoundPanning::CH1_RIGHT) as u8 as f32,
-            ];
-
-            let [left, right] = pan;
-            [left * sample, right * sample]
+            [self.panning_cvt[0] * sample, self.panning_cvt[1] * sample]
         };
 
         let sample2 = {
             let sample = self.pwm2.tick(div_apu.then_some(self.div_apu_mod));
-
-            let pan = [
-                self.panning.contains(SoundPanning::CH2_LEFT) as u8 as f32,
-                self.panning.contains(SoundPanning::CH2_RIGHT) as u8 as f32,
-            ];
-
-            let [left, right] = pan;
-            [left * sample, right * sample]
+            [self.panning_cvt[2] * sample, self.panning_cvt[3] * sample]
         };
 
         let sample4 = {
             let sample = self.noise.tick(div_apu.then_some(self.div_apu_mod));
-
-            let pan = [
-                self.panning.contains(SoundPanning::CH4_LEFT) as u8 as f32,
-                self.panning.contains(SoundPanning::CH4_RIGHT) as u8 as f32,
-            ];
-
-            let [left, right] = pan;
-            [left * sample, right * sample]
+            [self.panning_cvt[6] * sample, self.panning_cvt[7] * sample]
         };
 
         let sample = if self.any_dac_enabled() {
@@ -644,26 +642,26 @@ impl<S: ApuSampler> Apu<S> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::VecDeque;
 
-    use crate::emu::apu::Pwm2;
+    use crate::emu::apu::Pwm;
 
+    // this isn't really a test but idk what to do with it.
     #[test]
     fn test() {
-        let mut pwm2_a = Pwm2::new();
-        pwm2_a.initial_volume = 5;
+        let mut pwm2_a = Pwm::new();
+        pwm2_a.envelope.initial_volume = 5;
         pwm2_a.period = 1750;
         pwm2_a.trigger = true;
         pwm2_a.wave_duty = 2;
 
-        let mut pwm2_b = Pwm2::new();
-        pwm2_b.initial_volume = 5;
+        let mut pwm2_b = Pwm::new();
+        pwm2_b.envelope.initial_volume = 5;
         pwm2_b.period = 1812;
         pwm2_b.trigger = true;
         pwm2_b.wave_duty = 2;
 
-        let mut pwm2_c = Pwm2::new();
-        pwm2_c.initial_volume = 5;
+        let mut pwm2_c = Pwm::new();
+        pwm2_c.envelope.initial_volume = 5;
         pwm2_c.period = 1849;
         pwm2_c.trigger = true;
         pwm2_c.wave_duty = 2;
@@ -672,11 +670,11 @@ mod tests {
         let mut out_samples = Vec::new();
         let mut capacitor = 0.0;
         for _ in 0..(1 << 22) {
-            let sample_a = pwm2_a.tick();
-            let sample_b = pwm2_b.tick();
-            let sample_c = pwm2_c.tick();
+            let sample_a = pwm2_a.tick(None);
+            let sample_b = pwm2_b.tick(None);
+            let sample_c = pwm2_c.tick(None);
 
-            let sample = (sample_a + sample_b + sample_c);
+            let sample = sample_a + sample_b + sample_c;
             let mut out = 0.0;
             if pwm2_a.dac_enabled() || pwm2_b.dac_enabled() || pwm2_c.dac_enabled() {
                 out = sample - capacitor;

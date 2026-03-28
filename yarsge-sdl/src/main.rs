@@ -1,9 +1,9 @@
 use core::fmt;
+use std::cmp;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::{Duration, Instant};
-use std::{array, cmp};
 
 use anyhow::Context;
 
@@ -414,13 +414,18 @@ impl NearestNeighborFilter {
 
 // Theoretically an improvement of `NearestNeighbor` on account of
 struct MeanFilter {
-    sub_buffer: Vec<[f32; 2]>,
+    sample: [f32; 2],
     phase: u32,
     expansion_factor: u32,
     decimation_factor: u32,
+    mean_recip_divisor: f32,
 }
 
 impl MeanFilter {
+    fn next_samples(expansion_factor: u32, decimation_factor: u32, phase: u32) -> u8 {
+        (decimation_factor - phase).div_ceil(expansion_factor) as u8
+    }
+
     fn new(expansion_factor: u32, decimation_factor: u32) -> Self {
         // sure, we could support net expansion, but, meh.
         assert!(expansion_factor <= decimation_factor);
@@ -430,26 +435,40 @@ impl MeanFilter {
         );
 
         Self {
-            sub_buffer: Vec::with_capacity(decimation_factor.div_ceil(expansion_factor) as usize),
+            sample: [0.0; 2],
             phase: 0,
             expansion_factor,
             decimation_factor,
+            mean_recip_divisor: f32::from(Self::next_samples(
+                expansion_factor,
+                decimation_factor,
+                0,
+            ))
+            .recip(),
         }
     }
 
     fn filter(&mut self, sample: [f32; 2]) -> Option<[f32; 2]> {
-        self.sub_buffer.push(sample);
+        self.sample = {
+            let [bl, br] = self.sample;
+            let [sl, sr] = sample;
+            [
+                bl + (sl * self.mean_recip_divisor),
+                br + (sr * self.mean_recip_divisor),
+            ]
+        };
 
         self.phase += self.expansion_factor;
         self.phase = self.phase.checked_sub(self.decimation_factor)?;
 
-        let divider = self.sub_buffer.len();
-        let sample = self.sub_buffer.drain(..).fold([0.0; 2], |acc, elem| {
-            array::from_fn(|idx| acc[idx] + elem[idx])
-        });
+        self.mean_recip_divisor = f32::from(Self::next_samples(
+            self.expansion_factor,
+            self.decimation_factor,
+            self.phase,
+        ))
+        .recip();
 
-        let sample = sample.map(|it: f32| it / (divider as f32));
-        Some(sample)
+        Some(std::mem::take(&mut self.sample))
     }
 }
 
