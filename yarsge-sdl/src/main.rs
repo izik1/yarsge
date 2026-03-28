@@ -330,6 +330,9 @@ fn audio_init(
     .unwrap();
     let stream = device.open_device_stream(None).unwrap();
 
+    // arbitrarily put 0.03 seconds of audio to try to prevent pops?
+    stream.put_data_f32(&[0.0; 480 * 2 * 3]).unwrap();
+
     Some((stream, sampler))
 }
 
