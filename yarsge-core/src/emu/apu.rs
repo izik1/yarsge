@@ -579,7 +579,7 @@ impl<S: ApuSampler> Apu<S> {
     }
 
     fn any_dac_enabled(&self) -> bool {
-        self.pwm1.dac_enabled() || self.pwm2.dac_enabled()
+        self.pwm1.dac_enabled() || self.pwm2.dac_enabled() || self.noise.dac_enabled()
     }
 
     pub fn tick(&mut self, div: u8) {
