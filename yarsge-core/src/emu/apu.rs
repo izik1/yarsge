@@ -754,7 +754,7 @@ impl<S: ApuSampler> Apu<S> {
                 amc.set(AudioMasterControl::CH2_ENABLE, self.pwm2.enabled);
                 amc.set(AudioMasterControl::CH3_ENABLE, self.wave.enabled);
                 amc.set(AudioMasterControl::CH4_ENABLE, self.noise.enabled);
-                amc.bits()
+                amc.bits() | 0b0111_0000
             }
 
             // nothing here (but it's a valid range, not a bug)
