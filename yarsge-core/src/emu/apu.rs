@@ -122,6 +122,18 @@ impl Sweep {
         }
     }
 
+    fn write(&mut self, val: u8) {
+        let pace = (val >> 4) & 0x7;
+
+        if self.pace == 0 {
+            self.timer = pace;
+        }
+
+        self.pace = pace;
+        self.direction = val & 0b1000 == 0b1000;
+        self.step = val & 0x7;
+    }
+
     fn calc_period(&self, shadow_period: u16) -> Option<u16> {
         let sweep_sign = i16::from(!self.direction) * 2 - 1;
 
@@ -309,7 +321,13 @@ impl Wave {
         // sample is *not* cleared.
     }
 
-    fn tick(&mut self, div_apu_mod: Option<u8>) -> u8 {
+    fn on_div_apu(&mut self, div_apu_mod: u8) {
+        if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
+            self.enabled = false;
+        }
+    }
+
+    fn tick(&mut self) -> u8 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
@@ -334,14 +352,6 @@ impl Wave {
                     self.sample &= 0xf;
                 }
             }
-        }
-
-        if let Some(div_apu_mod) = div_apu_mod
-            && self.length.enable
-            && div_apu_mod % 2 == 0
-            && self.length.tick()
-        {
-            self.enabled = false;
         }
 
         if !self.enabled || self.volume == 0 {
@@ -417,7 +427,17 @@ impl Noise {
         self.envelope.dac_enabled()
     }
 
-    fn tick(&mut self, div_apu_mod: Option<u8>) -> u8 {
+    fn on_div_apu(&mut self, div_apu_mod: u8) {
+        if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
+            self.enabled = false;
+        }
+
+        if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
+            self.envelope.tick();
+        }
+    }
+
+    fn tick(&mut self) -> u8 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
@@ -448,18 +468,6 @@ impl Noise {
                 16 * self.clock_divider
             };
             self.clock = u16::from(base) << self.clock_shift;
-        }
-
-        // only tick envelope and length if the channel is running.
-        if let Some(div_apu_mod) = div_apu_mod {
-            if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
-                self.envelope.volume = 0;
-                self.enabled = false;
-            }
-
-            if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
-                self.envelope.tick();
-            }
         }
 
         let digital = self.lsfr.current() as u8;
@@ -618,15 +626,7 @@ impl<S: ApuSampler> Apu<S> {
     pub fn write_reg(&mut self, addr: u8, val: u8) {
         match addr {
             0x10 => {
-                let pace = (val >> 4) & 0x7;
-
-                if self.pwm1.sweep.pace == 0 {
-                    self.pwm1.sweep.timer = pace;
-                }
-
-                self.pwm1.sweep.pace = pace;
-                self.pwm1.sweep.direction = val & 0b1000 == 0b1000;
-                self.pwm1.sweep.step = val & 0x7;
+                self.pwm1.sweep.write(val);
             }
             0x11 => {
                 self.pwm1.wave_duty = val >> 6;
@@ -743,6 +743,10 @@ impl<S: ApuSampler> Apu<S> {
         }
     }
 
+    fn read_volume_vin_pan(&self) -> u8 {
+        self.vin_panning.bits() | (self.left_volume << 4) | self.right_volume
+    }
+
     #[must_use]
     pub fn read_reg(&self, addr: u8) -> u8 {
         match addr {
@@ -752,7 +756,7 @@ impl<S: ApuSampler> Apu<S> {
 
             0x21 => self.pwm2.envelope.read(),
 
-            0x24 => self.vin_panning.bits() | (self.left_volume << 4) | self.right_volume,
+            0x24 => self.read_volume_vin_pan(),
 
             0x25 => self.panning.bits(),
             0x26 => {
@@ -786,12 +790,72 @@ impl<S: ApuSampler> Apu<S> {
             || self.noise.dac_enabled()
     }
 
+    fn calc_volume(&self) -> [f32; 2] {
+        let clamp = |vol| match vol {
+            0 => 1,
+            7.. => 8,
+            x => x,
+        };
+
+        // adjust sample volume by like, -20dB pls and ty (this isn't part of the emulation, it's just to prevent everything from blowing my ears out).
+        let volume = [clamp(self.left_volume), clamp(self.right_volume)];
+        volume.map(|it| f32::from(it) * const { 1.0 / 8.0 * 0.1 })
+    }
+
+    fn calc_dac(sample: [u8; 4], dacs: &mut [Dac; 4], dac_enabled: [bool; 4]) -> [f32; 4] {
+        array::from_fn(|idx| dacs[idx].tick(dac_enabled[idx], sample[idx]))
+    }
+
+    fn pan(sample: &[f32; 4], panning_cvt: &[f32; 8]) -> [f32; 2] {
+        array::from_fn(|i| {
+            sample
+                .into_iter()
+                .enumerate()
+                .map(|(j, sample)| panning_cvt[j * 2 + i] * sample)
+                .sum()
+        })
+    }
+
     pub fn tick_many(&mut self, ticks: u32) {
         // never DIV APU here.
 
         // fixme: proper implementation (we have some more things to change about the APU first)
+
+        if !self.any_dac_enabled() {
+            for _ in 0..ticks {
+                let _ = self.pwm1.tick(None);
+                let _ = self.pwm2.tick(None);
+                let _ = self.wave.tick();
+                let _ = self.noise.tick();
+                self.sampler.push_samples([0.0; 2]);
+            }
+
+            return;
+        }
+
+        let dac_enabled = [
+            self.pwm1.dac_enabled(),
+            self.pwm2.dac_enabled(),
+            self.wave.dac_enabled(),
+            self.noise.dac_enabled(),
+        ];
+
+        let volume = self.calc_volume();
+
         for _ in 0..ticks {
-            self.tick(false);
+            let sample = [
+                self.pwm1.tick(None),
+                self.pwm2.tick(None),
+                self.wave.tick(),
+                self.noise.tick(),
+            ];
+
+            let sample = Self::calc_dac(sample, &mut self.dacs, dac_enabled);
+            let sample = Self::pan(&sample, &self.panning_cvt);
+            let sample: [_; 2] = array::from_fn(|idx| volume[idx] * sample[idx]);
+            let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
+
+            self.sampler.push_samples(sample);
         }
     }
 
@@ -803,11 +867,16 @@ impl<S: ApuSampler> Apu<S> {
 
         let div_apu_mod = div_apu.then_some(self.div_apu_mod);
 
+        if let Some(div_apu_mod) = div_apu_mod {
+            self.wave.on_div_apu(div_apu_mod);
+            self.noise.on_div_apu(div_apu_mod);
+        }
+
         let sample = [
             self.pwm1.tick(div_apu_mod),
             self.pwm2.tick(div_apu_mod),
-            self.wave.tick(div_apu_mod),
-            self.noise.tick(div_apu_mod),
+            self.wave.tick(),
+            self.noise.tick(),
         ];
 
         if !self.any_dac_enabled() {
@@ -821,31 +890,11 @@ impl<S: ApuSampler> Apu<S> {
             self.noise.dac_enabled(),
         ];
 
-        let sample: [_; 4] =
-            array::from_fn(|idx| self.dacs[idx].tick(dac_enabled[idx], sample[idx]));
+        let volume = self.calc_volume();
 
-        // self.panning_cvt[xj * 2 + i] * sample[j]
-        let sample: [f32; 2] = array::from_fn(|i| {
-            sample
-                .into_iter()
-                .enumerate()
-                .map(|(j, sample)| self.panning_cvt[j * 2 + i] * sample)
-                .sum()
-        });
-
-        let sample: [_; 2] = {
-            let clamp = |vol| match vol {
-                0 => 1,
-                7.. => 8,
-                x => x,
-            };
-
-            let volume = [clamp(self.left_volume), clamp(self.right_volume)];
-
-            // adjust sample volume by like, -20dB pls and ty (this isn't part of the emulation, it's just to prevent everything from blowing my ears out).
-            array::from_fn(|idx| f32::from(volume[idx]) * const { 1.0 / 8.0 * 0.1 } * sample[idx])
-        };
-
+        let sample = Self::calc_dac(sample, &mut self.dacs, dac_enabled);
+        let sample = Self::pan(&sample, &self.panning_cvt);
+        let sample: [_; 2] = array::from_fn(|idx| volume[idx] * sample[idx]);
         let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
 
         self.sampler.push_samples(sample);
