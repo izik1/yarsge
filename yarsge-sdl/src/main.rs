@@ -542,6 +542,7 @@ fn report_statistics(
 fn run(opt: &Opt) -> anyhow::Result<()> {
     const INPUT_POLL_PERIOD: Duration = Duration::from_micros(500);
     const DISPLAY_PERIOD: Duration = Duration::from_micros(500);
+    const AUDIO_SINK_PERIOD: Duration = Duration::from_millis(3);
 
     let SdlContext {
         sdl: _sdl,
@@ -592,7 +593,8 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let mut last_subframe = start;
 
     let mut next_display_frame = start;
-    let mut next_poll_inputs = start;
+    let mut next_poll_inputs = start + INPUT_POLL_PERIOD;
+    let mut next_audio_sink = stream.is_some().then(|| start + AUDIO_SINK_PERIOD);
 
     let mut stats = Statistics::new(start);
 
@@ -607,9 +609,15 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
         let current_frame = {
             // fixme: technically we should also consider framerate report timing, but, eh.
+            let time_until_display = next_display_frame.saturating_duration_since(current_frame);
             let micro_sleep_time = cmp::min(
                 next_poll_inputs.saturating_duration_since(current_frame),
-                next_display_frame.saturating_duration_since(current_frame),
+                next_audio_sink.map_or(time_until_display, |it| {
+                    cmp::min(
+                        it.saturating_duration_since(current_frame),
+                        time_until_display,
+                    )
+                }),
             );
 
             // assume we can run at 4x speed.
@@ -661,6 +669,21 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
             }
         }
 
+        if let Some(stream) = &stream
+            && let Some(next) = next_audio_sink
+            && let Some(elapsed) = current_frame.checked_duration_since(next)
+        {
+            next_audio_sink = Some(if elapsed > AUDIO_SINK_PERIOD {
+                current_frame + AUDIO_SINK_PERIOD
+            } else {
+                next + INPUT_POLL_PERIOD
+            });
+
+            let samples = gb.sampler_mut().samples.drain(..);
+            let samples = samples.as_slice().as_flattened();
+            stream.put_data_f32(samples).unwrap();
+        }
+
         let Some(elapsed) = current_frame.checked_duration_since(next_display_frame) else {
             continue;
         };
@@ -672,14 +695,6 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         };
 
         stats.display_frame += 1;
-
-        if let Some(stream) = &stream {
-            let samples = gb.sampler_mut().samples.drain(..);
-            let samples = samples.as_slice().as_flattened();
-            if !samples.is_empty() {
-                stream.put_data_f32(samples).unwrap();
-            }
-        }
 
         let disp = gb.display();
 

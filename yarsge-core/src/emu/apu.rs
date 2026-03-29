@@ -263,7 +263,97 @@ impl Pwm {
     }
 }
 
-struct Wave {}
+struct Wave {
+    dac: Dac,
+    dac_enabled: bool,
+    length: LengthTimer,
+    // u2
+    volume: u8,
+    period: u16,
+    period_div: u16,
+    // u5
+    sample_idx: u8,
+    // u4
+    sample: u8,
+    pattern_ram: [u8; 0x10],
+    enabled: bool,
+    trigger: bool,
+    dot: u8,
+}
+
+impl Wave {
+    const fn new() -> Self {
+        Self {
+            dac: Dac { capacitance: 0.0 },
+            dac_enabled: false,
+            length: LengthTimer::new(),
+            volume: 0,
+            period: 0,
+            period_div: 0,
+            sample_idx: 0,
+            sample: 0,
+            pattern_ram: [0; 0x10],
+            enabled: false,
+            trigger: false,
+            dot: 0,
+        }
+    }
+
+    #[must_use]
+    #[inline(always)]
+    fn dac_enabled(&self) -> bool {
+        self.dac_enabled
+    }
+
+    fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
+        let dot = self.dot % 4;
+        self.dot = (dot + 1) % 4;
+
+        if dot == 0 && self.trigger {
+            self.trigger = false;
+            self.enabled = true;
+            self.period_div = self.period;
+            self.length.trigger::<0>();
+            self.sample_idx = 0;
+            // sample is *not* cleared.
+        }
+
+        if !self.enabled {
+            return self.dac.tick(self.dac_enabled(), 0);
+        }
+
+        if self.dot % 2 == 0 {
+            self.period_div = (self.period_div + 1) % 2048;
+
+            if self.period_div == 0 {
+                self.period_div = self.period;
+                self.sample_idx = (self.sample_idx + 1) % 32;
+                self.sample = self.pattern_ram[(self.sample_idx / 2) as usize];
+                if self.sample_idx % 2 == 0 {
+                    self.sample >>= 4;
+                } else {
+                    self.sample &= 0xf;
+                }
+            }
+        }
+
+        if let Some(div_apu_mod) = div_apu_mod
+            && self.length.enable
+            && div_apu_mod % 2 == 0
+            && self.length.tick()
+        {
+            self.enabled = false;
+        }
+
+        if !self.enabled || self.volume == 0 {
+            return self.dac.tick(self.dac_enabled(), 0);
+        }
+
+        let digital = self.sample >> (self.volume - 1);
+
+        self.dac.tick(self.dac_enabled(), digital)
+    }
+}
 
 struct Lsfr {
     register: u16,
@@ -428,6 +518,7 @@ pub struct Apu<S> {
     right_volume: u8,
     pwm1: Pwm,
     pwm2: Pwm,
+    wave: Wave,
     noise: Noise,
     div_apu_mod: u8,
     hpf: [Capacitor; 2],
@@ -447,6 +538,7 @@ impl<S: ApuSampler> Apu<S> {
             right_volume: 0,
             pwm1: Pwm::new(),
             pwm2: Pwm::new(),
+            wave: Wave::new(),
             noise: Noise::new(),
             div_apu_mod: 0,
             hpf: [const { Capacitor(0.0) }; 2],
@@ -499,6 +591,30 @@ impl<S: ApuSampler> Apu<S> {
                 self.pwm2.length.enable = val & 0x40 == 0x40;
                 self.pwm2.period = (self.pwm2.period & 0x0ff) | (u16::from(val & 0x7) << 8);
             }
+
+            0x1a => {
+                self.wave.dac_enabled = val & 0x80 == 0x80;
+                self.wave.enabled &= self.wave.dac_enabled;
+            }
+
+            0x1b => {
+                self.wave.length.initial = val;
+            }
+
+            0x1c => {
+                self.wave.volume = (val >> 5) & 0b11;
+            }
+
+            0x1d => {
+                self.wave.period = (self.wave.period & 0x300) | u16::from(val);
+            }
+
+            0x1e => {
+                self.wave.trigger = val & 0x80 == 0x80;
+                self.wave.length.enable = val & 0x40 == 0x40;
+                self.wave.period = (self.wave.period & 0x0ff) | (u16::from(val & 0x7) << 8);
+            }
+
             0x20 => {
                 self.noise.length.initial = val & 0x3f;
             }
@@ -544,10 +660,18 @@ impl<S: ApuSampler> Apu<S> {
             0x26 => {
                 self.enabled = val & 0x80 == 0x80;
             }
-            0x10..0x40 => {
-                log::debug!("BUG: unimplemented APU write (0xff{addr:02x} -> {val:#02x})")
+
+            // nothing here (but it's a valid range, not a bug)
+            0x15 | 0x1f | 0x27..0x30 => {}
+
+            0x30..0x40 => {
+                // fixme: more precise timings.
+                if !self.wave.enabled {
+                    self.wave.pattern_ram[(addr - 0x30) as usize] = val;
+                }
             }
-            _ => log::error!("BUG: invalid APU write (0xff{addr:02x} -> {val:#02x})"),
+
+            ..0x10 | 0x40.. => log::error!("BUG: invalid APU write (0xff{addr:02x} -> {val:#02x})"),
         }
     }
 
@@ -573,6 +697,9 @@ impl<S: ApuSampler> Apu<S> {
                 amc.bits()
             }
 
+            // nothing here (but it's a valid range, not a bug)
+            0x15 | 0x1f | 0x27..0x30 => 0xff,
+
             0x10..0x40 => {
                 log::error!("BUG: unimplemented APU read (0xff{addr:02x} -> 0xff)");
                 0xff
@@ -585,7 +712,10 @@ impl<S: ApuSampler> Apu<S> {
     }
 
     fn any_dac_enabled(&self) -> bool {
-        self.pwm1.dac_enabled() || self.pwm2.dac_enabled() || self.noise.dac_enabled()
+        self.pwm1.dac_enabled()
+            || self.pwm2.dac_enabled()
+            || self.wave.dac_enabled()
+            || self.noise.dac_enabled()
     }
 
     pub fn tick(&mut self, div: u8) {
@@ -600,7 +730,7 @@ impl<S: ApuSampler> Apu<S> {
         let sample = [
             self.pwm1.tick(div_apu_mod),
             self.pwm2.tick(div_apu_mod),
-            0.0,
+            self.wave.tick(div_apu_mod),
             self.noise.tick(div_apu_mod),
         ];
 
@@ -643,72 +773,5 @@ impl<S: ApuSampler> Apu<S> {
     #[must_use]
     pub(crate) fn sampler_mut(&mut self) -> &mut S {
         &mut self.sampler
-    }
-}
-
-#[cfg(test)]
-mod tests {
-
-    use crate::emu::apu::Pwm;
-
-    // this isn't really a test but idk what to do with it.
-    #[test]
-    fn test() {
-        let mut pwm2_a = Pwm::new();
-        pwm2_a.envelope.initial_volume = 5;
-        pwm2_a.period = 1750;
-        pwm2_a.trigger = true;
-        pwm2_a.wave_duty = 2;
-
-        let mut pwm2_b = Pwm::new();
-        pwm2_b.envelope.initial_volume = 5;
-        pwm2_b.period = 1812;
-        pwm2_b.trigger = true;
-        pwm2_b.wave_duty = 2;
-
-        let mut pwm2_c = Pwm::new();
-        pwm2_c.envelope.initial_volume = 5;
-        pwm2_c.period = 1849;
-        pwm2_c.trigger = true;
-        pwm2_c.wave_duty = 2;
-
-        let mut in_samples = Vec::new();
-        let mut out_samples = Vec::new();
-        let mut capacitor = 0.0;
-        for _ in 0..(1 << 22) {
-            let sample_a = pwm2_a.tick(None);
-            let sample_b = pwm2_b.tick(None);
-            let sample_c = pwm2_c.tick(None);
-
-            let sample = sample_a + sample_b + sample_c;
-            let mut out = 0.0;
-            if pwm2_a.dac_enabled() || pwm2_b.dac_enabled() || pwm2_c.dac_enabled() {
-                out = sample - capacitor;
-                capacitor = sample - out * 0.999958;
-            }
-
-            in_samples.push(out);
-
-            if in_samples.len() >= 1 {
-                out_samples.push(in_samples.drain(..1).sum::<f32>() / 1.0);
-            }
-        }
-
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate: 1 << 22,
-            bits_per_sample: 32,
-            sample_format: hound::SampleFormat::Float,
-        };
-
-        let mut writer = hound::WavWriter::create("tmp.wav", spec).unwrap();
-        for &sample in &out_samples {
-            writer.write_sample(sample).unwrap();
-        }
-
-        writer.finalize().unwrap();
-
-        eprintln!("{:?}", &out_samples[12500..13500]);
-        panic!("at the disco");
     }
 }
