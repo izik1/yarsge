@@ -4,7 +4,7 @@ use super::{
     pad::Pad,
     ppu::{DisplayPixel, Ppu},
 };
-use crate::emu::apu::{Apu, ApuSampler};
+use crate::emu::apu::{self, ApuSampler};
 use crate::emu::bus::{BusState, ExternalBus};
 use crate::emu::{InterruptFlags, TCycle, timer};
 
@@ -54,7 +54,7 @@ pub struct Hardware<S> {
     dma: Dma,
     memory: Memory,
     pub(crate) pad: Pad,
-    pub(crate) apu: Apu<S>,
+    pub(crate) apu: apu::Lazy<S>,
     pub reg_if: InterruptFlags,
     pub reg_ie: InterruptFlags,
     pub cycle_counter: TCycle,
@@ -71,7 +71,7 @@ impl<S: ApuSampler> Hardware<S> {
             reg_ie: InterruptFlags::empty(),
             dma: Dma::new(),
             pad: Pad::new(),
-            apu: Apu::new(apu_sampler),
+            apu: apu::Lazy::new(apu_sampler),
         }
     }
 
@@ -100,8 +100,8 @@ impl<S: ApuSampler> Hardware<S> {
             self.reg_if |= self.ppu.tick();
         }
 
-        for _ in 0..CYCLES {
-            self.apu.tick(self.timer.lazy_div(CYCLES as u32));
+        for x in 0..CYCLES {
+            self.apu.tick(self.timer.lazy_div(x as u32));
         }
 
         self.reg_if |= self.timer.tick(CYCLES as u32);

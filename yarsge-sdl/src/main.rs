@@ -676,7 +676,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
             next_audio_sink = Some(if elapsed > AUDIO_SINK_PERIOD {
                 current_frame + AUDIO_SINK_PERIOD
             } else {
-                next + INPUT_POLL_PERIOD
+                next + AUDIO_SINK_PERIOD
             });
 
             let samples = gb.sampler_mut().samples.drain(..);

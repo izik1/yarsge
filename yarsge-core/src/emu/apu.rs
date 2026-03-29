@@ -305,17 +305,21 @@ impl Wave {
         self.dac_enabled
     }
 
+    fn trigger(&mut self) {
+        self.trigger = false;
+        self.enabled = self.dac_enabled;
+        self.period_div = self.period;
+        self.length.trigger::<0>();
+        self.sample_idx = 0;
+        // sample is *not* cleared.
+    }
+
     fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
         if dot == 0 && self.trigger {
-            self.trigger = false;
-            self.enabled = true;
-            self.period_div = self.period;
-            self.length.trigger::<0>();
-            self.sample_idx = 0;
-            // sample is *not* cleared.
+            self.trigger();
         }
 
         if !self.enabled {
@@ -509,9 +513,81 @@ impl Capacitor {
     }
 }
 
+pub(crate) struct Lazy<S> {
+    banked_cycles: u32,
+    div_apu: FallingEdge,
+    apu: Apu<S>,
+}
+
+impl<S: ApuSampler> Lazy<S> {
+    pub const fn new(sampler: S) -> Self {
+        Self {
+            banked_cycles: 0,
+            div_apu: FallingEdge::new(false),
+            apu: Apu::new(sampler),
+        }
+    }
+
+    fn force(&mut self, div_apu: bool) {
+        let banked_cycles = std::mem::take(&mut self.banked_cycles);
+        if !div_apu {
+            return self.apu.tick_many(banked_cycles);
+        }
+
+        if banked_cycles > 1 {
+            self.apu.tick_many(banked_cycles - 1);
+        }
+
+        self.apu.tick(div_apu);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn tick_force(&mut self, div_apu: bool) {
+        self.force(div_apu);
+    }
+
+    pub fn tick(&mut self, div: u8) {
+        // this is practically unreachable except in the very specific situation where:
+        // - the APU isn't being actively used
+        // - the audio sink is `mute`
+        // - div keeps getting reset
+        // but the APU isn't free to emulate so let's cap out the ticks at some point.
+        const MAX_TICKS: u32 = 1 << (22 - 5);
+
+        // fixme: how to lazy div_apu?
+
+        self.banked_cycles += 1;
+
+        let div_apu = self.div_apu.tick(div & 0b0001_0000 > 0);
+
+        if div_apu || self.banked_cycles >= MAX_TICKS {
+            self.tick_force(div_apu);
+        }
+    }
+
+    pub fn write_reg(&mut self, addr: u8, val: u8) {
+        // fixme: this is way too conservative.
+        self.force(false);
+        self.apu.write_reg(addr, val);
+    }
+
+    #[must_use]
+    pub fn read_reg(&mut self, addr: u8) -> u8 {
+        // fixme: this is way too conservative.
+        self.force(false);
+        self.apu.read_reg(addr)
+    }
+
+    #[must_use]
+    pub(crate) fn sampler_mut(&mut self) -> &mut S {
+        self.force(false);
+        &mut self.apu.sampler
+    }
+}
+
 pub struct Apu<S> {
     sampler: S,
-    div_apu: FallingEdge,
     panning: SoundPanning,
     vin_panning: VinPanning,
     left_volume: u8,
@@ -530,7 +606,6 @@ impl<S: ApuSampler> Apu<S> {
     pub const fn new(sampler: S) -> Self {
         Self {
             sampler,
-            div_apu: FallingEdge::new(false),
             enabled: false,
             panning: SoundPanning::empty(),
             vin_panning: VinPanning::empty(),
@@ -547,7 +622,6 @@ impl<S: ApuSampler> Apu<S> {
     }
 
     pub fn write_reg(&mut self, addr: u8, val: u8) {
-        // eprintln!("APU 0xff{addr:02x} = 0x{val:02x}");
         match addr {
             0x10 => {
                 let pace = (val >> 4) & 0x7;
@@ -692,7 +766,7 @@ impl<S: ApuSampler> Apu<S> {
                 amc.set(AudioMasterControl::AUDIO_ENABLE, self.enabled);
                 amc.set(AudioMasterControl::CH1_ENABLE, self.pwm1.enabled);
                 amc.set(AudioMasterControl::CH2_ENABLE, self.pwm2.enabled);
-                amc.set(AudioMasterControl::CH3_ENABLE, false);
+                amc.set(AudioMasterControl::CH3_ENABLE, self.wave.enabled);
                 amc.set(AudioMasterControl::CH4_ENABLE, self.noise.enabled);
                 amc.bits()
             }
@@ -718,9 +792,17 @@ impl<S: ApuSampler> Apu<S> {
             || self.noise.dac_enabled()
     }
 
-    pub fn tick(&mut self, div: u8) {
+    pub fn tick_many(&mut self, ticks: u32) {
+        // never DIV APU here.
+
+        // fixme: proper implementation (we have some more things to change about the APU first)
+        for _ in 0..ticks {
+            self.tick(false);
+        }
+    }
+
+    pub fn tick(&mut self, div_apu: bool) {
         // 512 hz timer.
-        let div_apu = self.div_apu.tick(div & 0b0001_0000 > 0);
         if div_apu {
             self.div_apu_mod = (self.div_apu_mod + 1) % 8;
         }
@@ -763,15 +845,5 @@ impl<S: ApuSampler> Apu<S> {
         let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
 
         self.sampler.push_samples(sample);
-    }
-
-    #[must_use]
-    pub(crate) fn sampler(&self) -> &S {
-        &self.sampler
-    }
-
-    #[must_use]
-    pub(crate) fn sampler_mut(&mut self) -> &mut S {
-        &mut self.sampler
     }
 }

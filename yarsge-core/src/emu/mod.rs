@@ -155,11 +155,6 @@ impl<S: ApuSampler> GameBoy<S> {
     }
 
     #[must_use]
-    pub fn sampler(&self) -> &S {
-        self.hw.apu.sampler()
-    }
-
-    #[must_use]
     pub fn sampler_mut(&mut self) -> &mut S {
         self.hw.apu.sampler_mut()
     }
