@@ -47,6 +47,10 @@ impl LengthTimer {
         self.current = OFFSET + self.initial;
     }
 
+    fn div_apu_tick(&mut self) -> bool {
+        !(self.enable && self.tick())
+    }
+
     fn tick(&mut self) -> bool {
         self.current = self.current.wrapping_add(1);
         self.current == 0
@@ -197,7 +201,25 @@ impl Pwm {
         self.envelope.dac_enabled()
     }
 
-    fn tick(&mut self, div_apu_mod: Option<u8>) -> u8 {
+    fn on_div_apu(&mut self, div_apu_mod: u8) {
+        if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
+            self.envelope.tick();
+        }
+
+        if self.sweep.enabled && div_apu_mod % 4 == 0 && self.sweep.timer > 0 {
+            let (enabled, shadow_period) = self.sweep.tick(self.shadow_period);
+            self.enabled &= enabled;
+
+            if !self.enabled {
+                self.envelope.volume = 0;
+            }
+
+            self.shadow_period = shadow_period;
+            self.period = shadow_period;
+        }
+    }
+
+    fn tick(&mut self) -> u8 {
         const DUTY: u32 = u32::from_be_bytes([
             0b1111_1110_u8,
             0b0111_1110_u8,
@@ -239,30 +261,6 @@ impl Pwm {
 
         if !self.enabled {
             return 0;
-        }
-
-        // only tick envelope and length if the channel is running.
-        if let Some(div_apu_mod) = div_apu_mod {
-            if self.length.enable && div_apu_mod.is_multiple_of(2) && self.length.tick() {
-                self.envelope.volume = 0;
-                self.enabled = false;
-            }
-
-            if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
-                self.envelope.tick();
-            }
-
-            if self.sweep.enabled && div_apu_mod % 4 == 0 && self.sweep.timer > 0 {
-                let (enabled, shadow_period) = self.sweep.tick(self.shadow_period);
-                self.enabled &= enabled;
-
-                if !self.enabled {
-                    self.envelope.volume = 0;
-                }
-
-                self.shadow_period = shadow_period;
-                self.period = shadow_period;
-            }
         }
 
         let digital = ((DUTY >> (8 * self.wave_duty + self.sample)) & 1) as u8;
@@ -320,11 +318,8 @@ impl Wave {
         // sample is *not* cleared.
     }
 
-    fn on_div_apu(&mut self, div_apu_mod: u8) {
-        if self.length.enable && div_apu_mod.is_multiple_of(2) && self.length.tick() {
-            self.enabled = false;
-        }
-    }
+    #[inline(always)]
+    fn on_div_apu(&mut self, _div_apu_mod: u8) {}
 
     fn tick(&mut self) -> u8 {
         let dot = self.dot % 4;
@@ -425,11 +420,7 @@ impl Noise {
     }
 
     fn on_div_apu(&mut self, div_apu_mod: u8) {
-        if self.length.enable && div_apu_mod.is_multiple_of(2) && self.length.tick() {
-            self.enabled = false;
-        }
-
-        if self.envelope.sweep_pace != 0 && div_apu_mod.is_multiple_of(8) {
+        if div_apu_mod.is_multiple_of(8) && self.envelope.sweep_pace != 0 {
             self.envelope.tick();
         }
     }
@@ -535,7 +526,7 @@ impl<S: ApuSampler> Lazy<S> {
             self.apu.tick_many(banked_cycles - 1);
         }
 
-        self.apu.tick(div_apu);
+        self.apu.tick_div_apu();
     }
 
     #[cold]
@@ -820,8 +811,8 @@ impl<S: ApuSampler> Apu<S> {
 
         if !self.any_dac_enabled() {
             for _ in 0..ticks {
-                let _ = self.pwm1.tick(None);
-                let _ = self.pwm2.tick(None);
+                let _ = self.pwm1.tick();
+                let _ = self.pwm2.tick();
                 let _ = self.wave.tick();
                 let _ = self.noise.tick();
                 self.sampler.push_samples([0.0; 2]);
@@ -841,8 +832,8 @@ impl<S: ApuSampler> Apu<S> {
 
         for _ in 0..ticks {
             let sample = [
-                self.pwm1.tick(None),
-                self.pwm2.tick(None),
+                self.pwm1.tick(),
+                self.pwm2.tick(),
                 self.wave.tick(),
                 self.noise.tick(),
             ];
@@ -856,22 +847,33 @@ impl<S: ApuSampler> Apu<S> {
         }
     }
 
-    pub fn tick(&mut self, div_apu: bool) {
+    fn on_div_apu(&mut self) {
         // 512 hz timer.
-        if div_apu {
-            self.div_apu_mod = (self.div_apu_mod + 1) % 8;
+        self.div_apu_mod = (self.div_apu_mod + 1) % 8;
+        let div_apu_mod = self.div_apu_mod;
+
+        if !div_apu_mod.is_multiple_of(2) {
+            return;
         }
 
-        let div_apu_mod = div_apu.then_some(self.div_apu_mod);
+        self.pwm1.enabled &= self.pwm1.length.div_apu_tick();
+        self.pwm2.enabled &= self.pwm2.length.div_apu_tick();
+        self.wave.enabled &= self.wave.length.div_apu_tick();
+        self.noise.enabled &= self.noise.length.div_apu_tick();
 
-        if let Some(div_apu_mod) = div_apu_mod {
-            self.wave.on_div_apu(div_apu_mod);
-            self.noise.on_div_apu(div_apu_mod);
-        }
+        self.pwm1.on_div_apu(div_apu_mod);
+        self.pwm2.on_div_apu(div_apu_mod);
+        self.wave.on_div_apu(div_apu_mod);
+        self.noise.on_div_apu(div_apu_mod);
+    }
+
+    pub fn tick_div_apu(&mut self) {
+        // 512 hz timer.
+        self.on_div_apu();
 
         let sample = [
-            self.pwm1.tick(div_apu_mod),
-            self.pwm2.tick(div_apu_mod),
+            self.pwm1.tick(),
+            self.pwm2.tick(),
             self.wave.tick(),
             self.noise.tick(),
         ];
