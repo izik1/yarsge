@@ -184,6 +184,10 @@ impl Pwm {
         self.envelope.dac_enabled()
     }
 
+    fn output_disabled(&mut self) -> f32 {
+        self.dac.tick(self.dac_enabled(), 0)
+    }
+
     fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
         const DUTY: u32 = u32::from_be_bytes([
             0b1111_1110_u8,
@@ -212,7 +216,7 @@ impl Pwm {
 
             // fixme: sweep the volume by 1 if it's time.
 
-            return self.dac.tick(self.dac_enabled(), 0);
+            return self.output_disabled();
         }
 
         if dot == 0 {
@@ -224,10 +228,12 @@ impl Pwm {
             self.sample = (self.sample + 1) % 8;
         }
 
+        if !self.enabled {
+            return self.output_disabled();
+        }
+
         // only tick envelope and length if the channel is running.
-        if let Some(div_apu_mod) = div_apu_mod
-            && self.enabled
-        {
+        if let Some(div_apu_mod) = div_apu_mod {
             if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
                 self.envelope.volume = 0;
                 self.enabled = false;
@@ -589,29 +595,27 @@ impl<S: ApuSampler> Apu<S> {
             self.div_apu_mod = (self.div_apu_mod + 1) % 8;
         }
 
-        let sample1 = {
-            let sample = self.pwm1.tick(div_apu.then_some(self.div_apu_mod));
-            [self.panning_cvt[0] * sample, self.panning_cvt[1] * sample]
-        };
+        let div_apu_mod = div_apu.then_some(self.div_apu_mod);
 
-        let sample2 = {
-            let sample = self.pwm2.tick(div_apu.then_some(self.div_apu_mod));
-            [self.panning_cvt[2] * sample, self.panning_cvt[3] * sample]
-        };
-
-        let sample4 = {
-            let sample = self.noise.tick(div_apu.then_some(self.div_apu_mod));
-            [self.panning_cvt[6] * sample, self.panning_cvt[7] * sample]
-        };
+        let sample = [
+            self.pwm1.tick(div_apu_mod),
+            self.pwm2.tick(div_apu_mod),
+            0.0,
+            self.noise.tick(div_apu_mod),
+        ];
 
         if !self.any_dac_enabled() {
             return self.sampler.push_samples([0.0; 2]);
         }
 
-        let sample = [
-            sample1[0] + sample2[0] + sample4[0],
-            sample1[1] + sample2[1] + sample4[1],
-        ];
+        // self.panning_cvt[xj * 2 + i] * sample[j]
+        let sample: [f32; 2] = array::from_fn(|i| {
+            sample
+                .into_iter()
+                .enumerate()
+                .map(|(j, sample)| self.panning_cvt[j * 2 + i] * sample)
+                .sum()
+        });
 
         let sample: [_; 2] = {
             let clamp = |vol| match vol {
@@ -623,7 +627,7 @@ impl<S: ApuSampler> Apu<S> {
             let volume = [clamp(self.left_volume), clamp(self.right_volume)];
 
             // adjust sample volume by like, -20dB pls and ty (this isn't part of the emulation, it's just to prevent everything from blowing my ears out).
-            array::from_fn(|idx| f32::from(volume[idx]) / 8.0 * sample[idx] * 0.1)
+            array::from_fn(|idx| f32::from(volume[idx]) * const { 1.0 / 8.0 * 0.1 } * sample[idx])
         };
 
         let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
