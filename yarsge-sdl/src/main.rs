@@ -1,5 +1,4 @@
 use core::fmt;
-use std::cmp;
 use std::ops::ControlFlow;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -8,14 +7,14 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use clap::Parser;
 use rgb::RGB8;
-use sdl3::audio::{AudioDevice, AudioSpec, AudioStreamOwner};
 use sdl3::render::Canvas;
 use sdl3::video::Window;
 use sdl3::{AudioSubsystem, EventPump, Sdl, VideoSubsystem};
-use sdl3::{event::Event, keyboard::Keycode, pixels::Color};
-use yarsge_core::emu::apu::ApuSampler;
-use yarsge_core::util::FloatExt as _;
+use sdl3::{keyboard::Keycode, pixels::Color};
 use yarsge_core::{Keys, emu};
+use yarsge_sdl::audio::{AudioSystem, FilteredSampler, audio_init};
+use yarsge_sdl::input::poll_inputs;
+use yarsge_sdl::{Interval, make_period_tys, report_statistics};
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -95,13 +94,6 @@ impl fmt::Display for Palette {
     }
 }
 
-#[derive(clap::ValueEnum, Clone, Copy, Debug)]
-enum AudioSystem {
-    Mute,
-    NearestNeighbor,
-    Mean,
-}
-
 #[derive(Parser, Debug)]
 #[clap(about = "Emulates GameBoy games.", author)]
 struct Opt {
@@ -109,7 +101,7 @@ struct Opt {
         short = 's',
         long = "scale",
         help = "Screen scale size factor",
-        default_value = "1"
+        default_value_t = 1
     )]
     scale: u32,
 
@@ -131,48 +123,6 @@ struct Opt {
         conflicts_with = "audio_system"
     )]
     no_time_control: bool,
-}
-
-fn lookup_key(map: &[(Keycode, Keys)], code: Keycode) -> Option<Keys> {
-    map.iter().find_map(|map| (map.0 == code).then_some(map.1))
-}
-
-fn poll_inputs(
-    event_pump: &mut EventPump,
-    keymap: &[(Keycode, Keys)],
-    key_state: &mut Keys,
-) -> ControlFlow<()> {
-    for event in event_pump.poll_iter() {
-        match event {
-            Event::Quit { .. }
-            | Event::KeyDown {
-                keycode: Some(Keycode::Escape),
-                ..
-            } => return ControlFlow::Break(()),
-
-            Event::KeyDown {
-                keycode: Some(code),
-                ..
-            } => {
-                if let Some(key) = lookup_key(keymap, code) {
-                    key_state.insert(key);
-                }
-            }
-
-            Event::KeyUp {
-                keycode: Some(code),
-                ..
-            } => {
-                if let Some(key) = lookup_key(keymap, code) {
-                    key_state.remove(key);
-                }
-            }
-
-            _ => {}
-        }
-    }
-
-    ControlFlow::Continue(())
 }
 
 fn microsleep(start: Instant, time: Duration) {
@@ -296,254 +246,38 @@ fn sdl_init(scale: u32) -> SdlContext {
     }
 }
 
-#[inline(never)]
-fn audio_init(
-    audio_subsystem: &AudioSubsystem,
-    time_control_enabled: bool,
-    audio_system: AudioSystem,
-) -> Option<(AudioStreamOwner, FilteredSampler)> {
-    if !time_control_enabled {
-        return None;
-    }
-
-    // simplify 48000Hz / 4MiHz, we get 375/2^15, but we technically use a slightly slower CPU frequency (fixme: do actual math to compute this).
-    let (expand, decimate) = (35763, 3125000);
-    let filter = match audio_system {
-        AudioSystem::Mute => return None,
-        AudioSystem::NearestNeighbor => {
-            AudioFilter::NearestNeighbor(NearestNeighborFilter::new(expand, decimate))
-        }
-        AudioSystem::Mean => AudioFilter::Mean(MeanFilter::new(expand, decimate)),
-    };
-
-    let sampler = FilteredSampler::new(filter);
-
-    let device = AudioDevice::open_playback(
-        audio_subsystem,
-        None,
-        &AudioSpec::new(
-            Some(48000),
-            Some(2),
-            Some(sdl3::audio::AudioFormat::f32_sys()),
-        ),
-    )
-    .unwrap();
-    let stream = device.open_device_stream(None).unwrap();
-
-    // arbitrarily put 0.03 seconds of audio to try to prevent pops?
-    stream.put_data_f32(&[0.0; 480 * 2 * 3]).unwrap();
-
-    Some((stream, sampler))
+make_period_tys! {
+    struct InputPoll(Duration::from_micros(500));
+    struct Display(Duration::from_micros(500));
+    struct AudioSink(Duration::from_millis(3));
 }
 
-struct FilteredSampler {
-    samples: Vec<[f32; 2]>,
-    filter: AudioFilter,
+struct Intervals {
+    input_poll: Interval<InputPoll>,
+    display: Interval<Display>,
+    audio_sink: Option<Interval<AudioSink>>,
 }
 
-impl FilteredSampler {
-    const fn mute() -> Self {
+impl Intervals {
+    fn new(now: Instant, poll_audio: bool) -> Self {
         Self {
-            samples: Vec::new(),
-            filter: AudioFilter::Mute,
+            input_poll: Interval::at(now + InputPoll::PERIOD),
+            display: Interval::at(now),
+            audio_sink: poll_audio.then(|| Interval::at(now + AudioSink::PERIOD)),
         }
     }
 
-    fn new(filter: AudioFilter) -> Self {
-        Self {
-            // arbitrarily assume that we probably won't use more than 128 samples (~3ms)
-            samples: Vec::with_capacity(128),
-            filter,
-        }
-    }
-}
-
-impl ApuSampler for FilteredSampler {
-    fn push_samples(&mut self, samples: [f32; 2]) {
-        if let Some(sample) = self.filter.filter(samples) {
-            self.samples.push(sample);
-        }
-    }
-}
-
-// Technically this should have a more precise name, but w/e.
-enum AudioFilter {
-    // Deny all samples (different from no filter, which would just do nothing).
-    Mute,
-    NearestNeighbor(NearestNeighborFilter),
-    Mean(MeanFilter),
-}
-
-impl AudioFilter {
-    fn filter(&mut self, sample: [f32; 2]) -> Option<[f32; 2]> {
-        match self {
-            AudioFilter::Mute => None,
-            AudioFilter::NearestNeighbor(it) => it.filter(sample),
-            AudioFilter::Mean(it) => it.filter(sample),
-        }
-    }
-}
-
-// this sampler isn't the best but having any is good.
-struct NearestNeighborFilter {
-    phase: u32,
-    expansion_factor: u32,
-    decimation_factor: u32,
-}
-
-impl NearestNeighborFilter {
-    fn new(expansion_factor: u32, decimation_factor: u32) -> Self {
-        // sure, we could support net expansion, but, meh.
-        assert!(expansion_factor <= decimation_factor);
-        // set the phase such that the first sample will be taken.
-        let initial_phase = decimation_factor.checked_sub(expansion_factor).expect("`NearestNeighborFilter` only supports decimation, not expansion (expansion <= decimation)");
-
-        Self {
-            phase: initial_phase,
-            expansion_factor,
-            decimation_factor,
-        }
-    }
-
-    fn filter(&mut self, sample: [f32; 2]) -> Option<[f32; 2]> {
-        self.phase += self.expansion_factor;
-        self.phase = self.phase.checked_sub(self.decimation_factor)?;
-
-        Some(sample)
-    }
-}
-
-// Theoretically an improvement of `NearestNeighbor` on account of
-struct MeanFilter {
-    sample: [f32; 2],
-    phase: u32,
-    expansion_factor: u32,
-    decimation_factor: u32,
-    mean_recip_divisor: f32,
-}
-
-impl MeanFilter {
-    fn next_samples(expansion_factor: u32, decimation_factor: u32, phase: u32) -> u8 {
-        (decimation_factor - phase).div_ceil(expansion_factor) as u8
-    }
-
-    fn new(expansion_factor: u32, decimation_factor: u32) -> Self {
-        // sure, we could support net expansion, but, meh.
-        assert!(expansion_factor <= decimation_factor);
-        // set the phase such that the first sample will be taken.
-        let _ = decimation_factor.checked_sub(expansion_factor).expect(
-            "`MeanFilter` only supports decimation, not expansion (expansion <= decimation)",
-        );
-
-        Self {
-            sample: [0.0; 2],
-            phase: 0,
-            expansion_factor,
-            decimation_factor,
-            mean_recip_divisor: f32::from(Self::next_samples(
-                expansion_factor,
-                decimation_factor,
-                0,
-            ))
-            .recip(),
-        }
-    }
-
-    fn filter(&mut self, sample: [f32; 2]) -> Option<[f32; 2]> {
-        self.sample = {
-            let [bl, br] = self.sample;
-            let [sl, sr] = sample;
-            [
-                sl.mul_add_fast(self.mean_recip_divisor, bl),
-                sr.mul_add_fast(self.mean_recip_divisor, br),
-            ]
-        };
-
-        self.phase += self.expansion_factor;
-        self.phase = self.phase.checked_sub(self.decimation_factor)?;
-
-        self.mean_recip_divisor = f32::from(Self::next_samples(
-            self.expansion_factor,
-            self.decimation_factor,
-            self.phase,
-        ))
-        .recip();
-
-        Some(std::mem::take(&mut self.sample))
-    }
-}
-
-struct Statistics {
-    next_report: Instant,
-    total_microsleep_time: Duration,
-    total_emulated_time: Duration,
-    subframe: u64,
-    display_frame: u64,
-}
-
-impl Statistics {
-    const PERIOD: Duration = Duration::from_secs(1);
-
-    fn new(start: Instant) -> Self {
-        Self {
-            next_report: start + Self::PERIOD,
-            total_microsleep_time: Duration::ZERO,
-            total_emulated_time: Duration::ZERO,
-            subframe: 0,
-            display_frame: 0,
-        }
-    }
-}
-
-#[cold]
-#[inline(never)]
-fn report_statistics(
-    stats: &mut Statistics,
-    audio_bytes_ahead: Option<i32>,
-    current_frame: Instant,
-    start: Instant,
-) {
-    // if we've lapsed, just reset the clock
-    if stats.next_report + Duration::from_secs(1) < current_frame {
-        stats.next_report = current_frame + Duration::from_secs(1);
-    } else {
-        stats.next_report += Duration::from_secs(1);
-    }
-
-    let elapsed = start.elapsed();
-
-    // should be very close to 1 unless `no-time-control` is set`
-    log::debug!(
-        target: "statistics",
-        "micro_sleep_factor: {:.3}, emu time factor: {:.6}",
-        stats.total_microsleep_time.as_secs_f64() / elapsed.as_secs_f64(),
-        stats.total_emulated_time.as_secs_f64() / elapsed.as_secs_f64(),
-    );
-    log::debug!(
-        target: "statistics",
-        "UPS: {:.2}, FPS: {:.2}",
-        (stats.subframe as f64) / elapsed.as_secs_f64(),
-        (stats.display_frame as f64) / elapsed.as_secs_f64(),
-    );
-
-    if let Some(audio_bytes_ahead) = audio_bytes_ahead {
-        let bytes = audio_bytes_ahead as u32;
-        log::debug!(
-            target: "statistics",
-            "Audio buffer (bytes: {bytes}, samples: {samples}, duration: {duration:.03}s)",
-            // 2 channels (f32) * 4 bytes per float.
-            samples = bytes / 8,
-            duration = f64::from(bytes / 8) * const { 48000.0f64.recip() },
-        );
+    fn next(&self) -> Instant {
+        [self.input_poll.next, self.display.next]
+            .into_iter()
+            .chain(self.audio_sink.as_ref().map(|it| it.next))
+            .min()
+            .expect("`Intervals` should have at least one interval")
     }
 }
 
 #[inline(never)]
 fn run(opt: &Opt) -> anyhow::Result<()> {
-    const INPUT_POLL_PERIOD: Duration = Duration::from_micros(500);
-    const DISPLAY_PERIOD: Duration = Duration::from_micros(500);
-    const AUDIO_SINK_PERIOD: Duration = Duration::from_millis(3);
-
     let SdlContext {
         sdl: _sdl,
         video_subsystem: _video_subsystem,
@@ -592,11 +326,9 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let start = Instant::now();
     let mut last_subframe = start;
 
-    let mut next_display_frame = start;
-    let mut next_poll_inputs = start + INPUT_POLL_PERIOD;
-    let mut next_audio_sink = stream.is_some().then(|| start + AUDIO_SINK_PERIOD);
+    let mut intervals = Intervals::new(start, stream.is_some());
 
-    let mut stats = Statistics::new(start);
+    let mut stats = yarsge_sdl::Statistics::new(start);
 
     if let Some(stream) = &stream {
         stream.resume().unwrap();
@@ -608,17 +340,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         let current_frame = std::time::Instant::now();
 
         let current_frame = {
-            // fixme: technically we should also consider framerate report timing, but, eh.
-            let time_until_display = next_display_frame.saturating_duration_since(current_frame);
-            let micro_sleep_time = cmp::min(
-                next_poll_inputs.saturating_duration_since(current_frame),
-                next_audio_sink.map_or(time_until_display, |it| {
-                    cmp::min(
-                        it.saturating_duration_since(current_frame),
-                        time_until_display,
-                    )
-                }),
-            );
+            let micro_sleep_time = intervals.next().saturating_duration_since(current_frame);
 
             // assume we can run at 4x speed.
             // in practice this should work with up to _28x_ speed according to my own CPU.
@@ -652,16 +374,10 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
         last_subframe = current_frame;
 
-        if let Some(elapsed) = current_frame.checked_duration_since(next_poll_inputs) {
-            next_poll_inputs = if elapsed > INPUT_POLL_PERIOD {
-                if elapsed > Duration::from_millis(10) {
-                    log::warn!("input unresponsive! (time since last poll: {elapsed:.3?})");
-                }
-
-                current_frame + INPUT_POLL_PERIOD
-            } else {
-                next_poll_inputs + INPUT_POLL_PERIOD
-            };
+        if let Some(elapsed) = intervals.input_poll.tick(current_frame) {
+            if elapsed > Duration::from_millis(10) {
+                log::warn!("input unresponsive! (time since last poll: {elapsed:.3?})");
+            }
 
             match poll_inputs(&mut event_pump, &keymap, gb.keys_mut()) {
                 ControlFlow::Continue(()) => {}
@@ -670,28 +386,14 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         }
 
         if let Some(stream) = &stream
-            && let Some(next) = next_audio_sink
-            && let Some(elapsed) = current_frame.checked_duration_since(next)
+            && let Some(audio_sink) = intervals.audio_sink.as_mut()
+            && let Some(_) = audio_sink.tick(current_frame)
         {
-            next_audio_sink = Some(if elapsed > AUDIO_SINK_PERIOD {
-                current_frame + AUDIO_SINK_PERIOD
-            } else {
-                next + AUDIO_SINK_PERIOD
-            });
-
-            let samples = gb.sampler_mut().samples.drain(..);
-            let samples = samples.as_slice().as_flattened();
-            stream.put_data_f32(samples).unwrap();
+            gb.sampler_mut().push_to_stream(stream)
         }
 
-        let Some(elapsed) = current_frame.checked_duration_since(next_display_frame) else {
+        let Some(_) = intervals.display.tick(current_frame) else {
             continue;
-        };
-
-        next_display_frame = if elapsed > DISPLAY_PERIOD {
-            current_frame + DISPLAY_PERIOD
-        } else {
-            next_display_frame + DISPLAY_PERIOD
         };
 
         stats.display_frame += 1;
