@@ -12,6 +12,10 @@ struct Dac {
 }
 
 impl Dac {
+    const fn new() -> Self {
+        Self { capacitance: 0.0 }
+    }
+
     fn tick(&mut self, enabled: bool, digital: u8) -> f32 {
         self.capacitance = if enabled {
             (15.0 - f32::from(digital)).mul_add_fast(const { 7.5f32.recip() }, -1.0)
@@ -155,7 +159,6 @@ struct Pwm {
     shadow_period: u16,
     period_div: u16,
     trigger: bool,
-    dac: Dac,
     dot: u8,
     sample: u8,
     enabled: bool,
@@ -165,7 +168,6 @@ impl Pwm {
     const fn new() -> Self {
         Self {
             wave_duty: 0,
-            dac: Dac { capacitance: 0.0 },
             length: LengthTimer::new(),
             envelope: Envelope::new(),
             sweep: Sweep::new(),
@@ -184,11 +186,7 @@ impl Pwm {
         self.envelope.dac_enabled()
     }
 
-    fn output_disabled(&mut self) -> f32 {
-        self.dac.tick(self.dac_enabled(), 0)
-    }
-
-    fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
+    fn tick(&mut self, div_apu_mod: Option<u8>) -> u8 {
         const DUTY: u32 = u32::from_be_bytes([
             0b1111_1110_u8,
             0b0111_1110_u8,
@@ -216,7 +214,7 @@ impl Pwm {
 
             // fixme: sweep the volume by 1 if it's time.
 
-            return self.output_disabled();
+            return 0;
         }
 
         if dot == 0 {
@@ -229,7 +227,7 @@ impl Pwm {
         }
 
         if !self.enabled {
-            return self.output_disabled();
+            return 0;
         }
 
         // only tick envelope and length if the channel is running.
@@ -258,13 +256,11 @@ impl Pwm {
 
         let digital = ((DUTY >> (8 * self.wave_duty + self.sample)) & 1) as u8;
 
-        self.dac
-            .tick(self.dac_enabled(), digital * self.envelope.volume)
+        digital * self.envelope.volume
     }
 }
 
 struct Wave {
-    dac: Dac,
     dac_enabled: bool,
     length: LengthTimer,
     // u2
@@ -284,7 +280,6 @@ struct Wave {
 impl Wave {
     const fn new() -> Self {
         Self {
-            dac: Dac { capacitance: 0.0 },
             dac_enabled: false,
             length: LengthTimer::new(),
             volume: 0,
@@ -314,7 +309,7 @@ impl Wave {
         // sample is *not* cleared.
     }
 
-    fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
+    fn tick(&mut self, div_apu_mod: Option<u8>) -> u8 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
@@ -323,7 +318,7 @@ impl Wave {
         }
 
         if !self.enabled {
-            return self.dac.tick(self.dac_enabled(), 0);
+            return 0;
         }
 
         if self.dot % 2 == 0 {
@@ -350,12 +345,12 @@ impl Wave {
         }
 
         if !self.enabled || self.volume == 0 {
-            return self.dac.tick(self.dac_enabled(), 0);
+            return 0;
         }
 
         let digital = self.sample >> (self.volume - 1);
 
-        self.dac.tick(self.dac_enabled(), digital)
+        digital
     }
 }
 
@@ -391,7 +386,6 @@ impl Lsfr {
 }
 
 struct Noise {
-    dac: Dac,
     length: LengthTimer,
     envelope: Envelope,
     lsfr: Lsfr,
@@ -406,7 +400,6 @@ struct Noise {
 impl Noise {
     const fn new() -> Self {
         Self {
-            dac: Dac { capacitance: 0.0 },
             length: LengthTimer::new(),
             envelope: Envelope::new(),
             trigger: false,
@@ -424,7 +417,7 @@ impl Noise {
         self.envelope.dac_enabled()
     }
 
-    fn tick(&mut self, div_apu_mod: Option<u8>) -> f32 {
+    fn tick(&mut self, div_apu_mod: Option<u8>) -> u8 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
@@ -437,7 +430,7 @@ impl Noise {
         }
 
         if !self.enabled {
-            return self.dac.tick(self.dac_enabled(), 0);
+            return 0;
         }
 
         // lsfr ticks are a bit weird
@@ -471,8 +464,7 @@ impl Noise {
 
         let digital = self.lsfr.current() as u8;
 
-        self.dac
-            .tick(self.dac_enabled(), digital * self.envelope.volume)
+        digital * self.envelope.volume
     }
 }
 
@@ -598,6 +590,7 @@ pub struct Apu<S> {
     noise: Noise,
     div_apu_mod: u8,
     hpf: [Capacitor; 2],
+    dacs: [Dac; 4],
     enabled: bool,
     panning_cvt: [f32; 8],
 }
@@ -617,6 +610,7 @@ impl<S: ApuSampler> Apu<S> {
             noise: Noise::new(),
             div_apu_mod: 0,
             hpf: [const { Capacitor(0.0) }; 2],
+            dacs: [const { Dac::new() }; 4],
             panning_cvt: [0.0; 8],
         }
     }
@@ -819,6 +813,16 @@ impl<S: ApuSampler> Apu<S> {
         if !self.any_dac_enabled() {
             return self.sampler.push_samples([0.0; 2]);
         }
+
+        let dac_enabled = [
+            self.pwm1.dac_enabled(),
+            self.pwm2.dac_enabled(),
+            self.wave.dac_enabled(),
+            self.noise.dac_enabled(),
+        ];
+
+        let sample: [_; 4] =
+            array::from_fn(|idx| self.dacs[idx].tick(dac_enabled[idx], sample[idx]));
 
         // self.panning_cvt[xj * 2 + i] * sample[j]
         let sample: [f32; 2] = array::from_fn(|i| {
