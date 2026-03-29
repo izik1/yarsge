@@ -804,12 +804,12 @@ impl<S: ApuSampler> Apu<S> {
     }
 
     fn pan(sample: &[f32; 4], panning_cvt: &[f32; 8]) -> [f32; 2] {
+        let pan = panning_cvt;
         array::from_fn(|i| {
-            sample
-                .iter()
-                .enumerate()
-                .map(|(j, sample)| panning_cvt[j * 2 + i] * sample)
-                .sum()
+            let a = pan[i].mul_add_fast(sample[0], pan[2 + i] * sample[1]);
+            let b = pan[4 + i].mul_add_fast(sample[2], pan[6 + i] * sample[3]);
+
+            a + b
         })
     }
 
