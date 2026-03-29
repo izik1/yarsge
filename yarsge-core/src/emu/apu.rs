@@ -21,7 +21,7 @@ impl Dac {
             (15.0 - f32::from(digital)).mul_add_fast(const { 7.5f32.recip() }, -1.0)
         } else {
             // I assume this is how this one works, but I don't actually have numbers.
-            self.capacitance * 0.999958
+            self.capacitance * 0.999_958
         };
 
         self.capacitance
@@ -144,16 +144,15 @@ impl Sweep {
     }
 
     fn tick(&mut self, shadow_period: u16) -> (bool, u16) {
-        self.timer = self.timer - 1;
+        self.timer -= 1;
 
         if self.timer != 0 {
             return (true, shadow_period);
         }
 
         self.timer = self.pace;
-        let shadow_period = match self.calc_period(shadow_period) {
-            Some(it) => it,
-            None => return (false, shadow_period),
+        let Some(shadow_period) = self.calc_period(shadow_period) else {
+            return (false, shadow_period);
         };
 
         // we calculate again here just to see if we stop, for some reason.
@@ -244,7 +243,7 @@ impl Pwm {
 
         // only tick envelope and length if the channel is running.
         if let Some(div_apu_mod) = div_apu_mod {
-            if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
+            if self.length.enable && div_apu_mod.is_multiple_of(2) && self.length.tick() {
                 self.envelope.volume = 0;
                 self.enabled = false;
             }
@@ -322,7 +321,7 @@ impl Wave {
     }
 
     fn on_div_apu(&mut self, div_apu_mod: u8) {
-        if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
+        if self.length.enable && div_apu_mod.is_multiple_of(2) && self.length.tick() {
             self.enabled = false;
         }
     }
@@ -339,14 +338,14 @@ impl Wave {
             return 0;
         }
 
-        if self.dot % 2 == 0 {
+        if self.dot.is_multiple_of(2) {
             self.period_div = (self.period_div + 1) % 2048;
 
             if self.period_div == 0 {
                 self.period_div = self.period;
                 self.sample_idx = (self.sample_idx + 1) % 32;
                 self.sample = self.pattern_ram[(self.sample_idx / 2) as usize];
-                if self.sample_idx % 2 == 0 {
+                if self.sample_idx.is_multiple_of(2) {
                     self.sample >>= 4;
                 } else {
                     self.sample &= 0xf;
@@ -358,9 +357,7 @@ impl Wave {
             return 0;
         }
 
-        let digital = self.sample >> (self.volume - 1);
-
-        digital
+        self.sample >> (self.volume - 1)
     }
 }
 
@@ -428,11 +425,11 @@ impl Noise {
     }
 
     fn on_div_apu(&mut self, div_apu_mod: u8) {
-        if self.length.enable && div_apu_mod % 2 == 0 && self.length.tick() {
+        if self.length.enable && div_apu_mod.is_multiple_of(2) && self.length.tick() {
             self.enabled = false;
         }
 
-        if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
+        if self.envelope.sweep_pace != 0 && div_apu_mod.is_multiple_of(8) {
             self.envelope.tick();
         }
     }
@@ -470,7 +467,7 @@ impl Noise {
             self.clock = u16::from(base) << self.clock_shift;
         }
 
-        let digital = self.lsfr.current() as u8;
+        let digital = u8::from(self.lsfr.current());
 
         digital * self.envelope.volume
     }
@@ -508,7 +505,7 @@ struct Capacitor(f32);
 impl Capacitor {
     fn sample(&mut self, sample: f32) -> f32 {
         let out = sample - self.0;
-        self.0 = out.mul_add_fast(0.999958, -sample);
+        self.0 = out.mul_add_fast(0.999_958, -sample);
         out
     }
 }
@@ -693,7 +690,7 @@ impl<S: ApuSampler> Apu<S> {
 
             0x22 => {
                 self.noise.clock_divider = val & 0x07;
-                self.noise.lsfr.short = !(val & 0x08 == 0x08);
+                self.noise.lsfr.short = val & 0x08 != 0x08;
                 self.noise.clock_shift = val >> 4;
             }
 
@@ -714,14 +711,14 @@ impl<S: ApuSampler> Apu<S> {
                 if self.panning != new {
                     self.panning = SoundPanning::from_bits_retain(val);
                     self.panning_cvt = [
-                        self.panning.contains(SoundPanning::CH1_LEFT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH1_RIGHT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH2_LEFT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH2_RIGHT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH3_LEFT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH3_RIGHT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH4_LEFT) as u8 as f32,
-                        self.panning.contains(SoundPanning::CH4_RIGHT) as u8 as f32,
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH1_LEFT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH1_RIGHT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH2_LEFT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH2_RIGHT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH3_LEFT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH3_RIGHT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH4_LEFT))),
+                        f32::from(u8::from(self.panning.contains(SoundPanning::CH4_RIGHT))),
                     ];
                 }
             }
@@ -754,7 +751,7 @@ impl<S: ApuSampler> Apu<S> {
 
             0x17 => self.pwm2.envelope.read(),
 
-            0x21 => self.pwm2.envelope.read(),
+            0x21 => self.noise.envelope.read(),
 
             0x24 => self.read_volume_vin_pan(),
 
@@ -809,7 +806,7 @@ impl<S: ApuSampler> Apu<S> {
     fn pan(sample: &[f32; 4], panning_cvt: &[f32; 8]) -> [f32; 2] {
         array::from_fn(|i| {
             sample
-                .into_iter()
+                .iter()
                 .enumerate()
                 .map(|(j, sample)| panning_cvt[j * 2 + i] * sample)
                 .sum()

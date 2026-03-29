@@ -217,7 +217,7 @@ pub fn halt<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
         return Status::InterruptDispatch;
     }
 
-    return Status::Running;
+    Status::Running
 }
 
 // Mnemonic: STOP
@@ -622,7 +622,7 @@ pub fn sbc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
 
     let (result, carry_out) = a.borrowing_sub(value, carry_in);
 
-    cpu.regs.a = result as u8;
+    cpu.regs.a = result;
 
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.insert(CpuFlags::N);

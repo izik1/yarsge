@@ -319,7 +319,7 @@ fn audio_init(
     let sampler = FilteredSampler::new(filter);
 
     let device = AudioDevice::open_playback(
-        &audio_subsystem,
+        audio_subsystem,
         None,
         &AudioSpec::new(
             Some(48000),

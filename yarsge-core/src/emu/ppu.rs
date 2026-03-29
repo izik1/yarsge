@@ -194,9 +194,9 @@ fn interleave(hi: u8, lo: u8) -> u16 {
 
     let res = (hi << 16) | lo;
 
-    let res = (res | (res << 4)) & 0x0f0f0f0f;
-    let res = (res | (res << 2)) & 0x33333333;
-    let res = (res | (res << 1)) & 0x55555555;
+    let res = (res | (res << 4)) & 0x0f0f_0f0f;
+    let res = (res | (res << 2)) & 0x3333_3333;
+    let res = (res | (res << 1)) & 0x5555_5555;
 
     let res = res | ((res >> 16) << 1);
     res as u16
