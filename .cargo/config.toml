@@ -1,2 +1,2 @@
-[target.'cfg(target-arch = x86-64)']
-rustflags = ["target-cpu=x86-64-v3"]
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-Ctarget-cpu=x86-64-v3"]
