@@ -181,7 +181,8 @@ struct Pwm {
     trigger: bool,
     ever_triggered: bool,
     dot: u8,
-    sample: u8,
+    sample_idx: u8,
+    sample: bool,
     enabled: bool,
 }
 
@@ -198,7 +199,8 @@ impl Pwm {
             trigger: false,
             ever_triggered: false,
             dot: 0,
-            sample: 0,
+            sample_idx: 0,
+            sample: false,
             enabled: false,
         }
     }
@@ -226,7 +228,7 @@ impl Pwm {
         }
     }
 
-    fn tick(&mut self) -> u8 {
+    fn next_sample(wave_duty: u8, sample_idx: u8) -> bool {
         const DUTY: u32 = u32::from_be_bytes([
             0b1111_1110_u8,
             0b0111_1110_u8,
@@ -235,6 +237,10 @@ impl Pwm {
         ])
         .reverse_bits();
 
+        ((DUTY >> (8 * wave_duty + sample_idx)) & 1) != 0
+    }
+
+    fn tick(&mut self) -> u8 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
@@ -250,6 +256,12 @@ impl Pwm {
             self.sweep.enabled = self.sweep.pace != 0 || self.sweep.timer != 0;
             self.enabled = true;
 
+            if !self.ever_triggered {
+                self.sample = false;
+            } else {
+                self.sample = Self::next_sample(self.wave_duty, self.sample_idx);
+            }
+
             if self.sweep.timer != 0 {
                 self.enabled &= self.sweep.calc_period(self.shadow_period).is_some();
             }
@@ -257,28 +269,24 @@ impl Pwm {
             // fixme: sweep the volume by 1 if it's time.
         }
 
-        if !self.ever_triggered {
-            self.ever_triggered |= trigger;
-
+        if !self.ever_triggered && !self.enabled {
             return 0;
         }
 
         if dot == 0 {
             self.period_div = (self.period_div + 1) % 2048;
-        }
-
-        if self.period_div == 0 {
-            self.period_div = self.period;
-            self.sample = (self.sample + 1) % 8;
+            if self.period_div == 0 {
+                self.period_div = self.period;
+                self.sample_idx = (self.sample_idx + 1) % 8;
+                self.sample = Self::next_sample(self.wave_duty, self.sample_idx);
+            }
         }
 
         if !self.enabled {
             return 0;
         }
 
-        let digital = ((DUTY >> (8 * self.wave_duty + self.sample)) & 1) as u8;
-
-        digital * self.envelope.volume
+        u8::from(self.sample) * self.envelope.volume
     }
 }
 
