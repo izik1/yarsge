@@ -447,6 +447,11 @@ impl Noise {
         }
     }
 
+    fn calc_clock(shift: u8, divider: u8) -> u16 {
+        let base = if divider == 0 { 8 } else { 16 * divider };
+        u16::from(base) << shift
+    }
+
     fn tick(&mut self) -> u8 {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
@@ -457,6 +462,7 @@ impl Noise {
             self.envelope.trigger();
             self.lsfr.trigger();
             self.enabled = true;
+            self.clock = Self::calc_clock(self.clock_shift, self.clock_divider);
         }
 
         if !self.enabled {
@@ -472,12 +478,7 @@ impl Noise {
 
         if self.clock == 0 && self.clock_shift < 14 {
             self.lsfr.tick();
-            let base = if self.clock_divider == 0 {
-                8
-            } else {
-                16 * self.clock_divider
-            };
-            self.clock = u16::from(base) << self.clock_shift;
+            self.clock = Self::calc_clock(self.clock_shift, self.clock_divider);
         }
 
         let digital = u8::from(self.lsfr.current());
@@ -795,7 +796,7 @@ impl<S: ApuSampler> Apu<S> {
 
             0x22 => {
                 self.noise.clock_divider = val & 0x07;
-                self.noise.lsfr.short = val & 0x08 != 0x08;
+                self.noise.lsfr.short = val & 0x08 == 0x08;
                 self.noise.clock_shift = val >> 4;
             }
 
