@@ -37,7 +37,12 @@
               buildInputs = buildInputs ++ (with pkgs;
                 # Tools you need for development go here.
                 [
-                  rust-bin.stable.latest.default
+                  (rust-bin.stable.latest.default.override {
+                    extensions = [
+                      "rust-src"
+                      "rust-analyzer"
+                    ];
+                  })
                   nixpkgs-fmt
                   cargo-watch
                   cargo-outdated
@@ -46,7 +51,6 @@
                   samply
                   perf
                 ]);
-              RUST_SRC_PATH = "${pkgs.rust-bin.stable.latest.rust-src}/lib/rustlib/src/rust/library";
             };
         }
       );
