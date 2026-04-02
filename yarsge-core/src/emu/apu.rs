@@ -256,11 +256,11 @@ impl Pwm {
             self.sweep.enabled = self.sweep.pace != 0 || self.sweep.timer != 0;
             self.enabled = true;
 
-            if !self.ever_triggered {
-                self.sample = false;
+            self.sample = if self.ever_triggered {
+                Self::next_sample(self.wave_duty, self.sample_idx)
             } else {
-                self.sample = Self::next_sample(self.wave_duty, self.sample_idx);
-            }
+                false
+            };
 
             if self.sweep.timer != 0 {
                 self.enabled &= self.sweep.calc_period(self.shadow_period).is_some();
@@ -519,7 +519,7 @@ impl Capacitor {
         let out = sample - self.0;
         // the simple version of this is self.0 = sample - (out * 0.999_958)
         self.0 = out.mul_add_fast(-0.999_958, sample);
-        out as f32
+        out
     }
 }
 
@@ -712,7 +712,7 @@ impl<S: ApuSampler> Apu<S> {
             }
 
             ..0x10 | 0x40.. => {
-                log::error!("BUG: invalid APU write (0xff{addr:02x} -> {val:#02x})")
+                log::error!("BUG: invalid APU write (0xff{addr:02x} -> {val:#02x})");
             }
 
             // all other writes are disabled
@@ -885,7 +885,7 @@ impl<S: ApuSampler> Apu<S> {
     }
 
     fn calc_dac_enabled(&self) -> u8 {
-        (u8::from(self.pwm1.dac_enabled()) << 0)
+        u8::from(self.pwm1.dac_enabled())
             | (u8::from(self.pwm2.dac_enabled()) << 1)
             | (u8::from(self.wave.dac_enabled()) << 2)
             | (u8::from(self.noise.dac_enabled()) << 3)

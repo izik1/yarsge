@@ -107,7 +107,7 @@ impl Lazy {
         const CLAMP_TICKS: u32 = 1 << 16;
         const { assert!(CLAMP_TICKS.is_power_of_two()) };
 
-        self.banked_cycles = (self.banked_cycles & CLAMP_TICKS - 1) | CLAMP_TICKS;
+        self.banked_cycles = (self.banked_cycles & (CLAMP_TICKS - 1)) | CLAMP_TICKS;
     }
 
     #[cold]
