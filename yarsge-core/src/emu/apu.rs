@@ -5,6 +5,11 @@ use crate::util::FloatExt as _;
 
 pub trait ApuSampler {
     fn push_samples(&mut self, samples: [f32; 2]);
+    fn push_mute(&mut self, samples: usize) {
+        for _ in 0..samples {
+            self.push_samples([0.0; 2]);
+        }
+    }
 }
 
 struct Dac {
@@ -174,6 +179,7 @@ struct Pwm {
     shadow_period: u16,
     period_div: u16,
     trigger: bool,
+    ever_triggered: bool,
     dot: u8,
     sample: u8,
     enabled: bool,
@@ -190,6 +196,7 @@ impl Pwm {
             shadow_period: 0,
             period_div: 0,
             trigger: false,
+            ever_triggered: false,
             dot: 0,
             sample: 0,
             enabled: false,
@@ -231,7 +238,9 @@ impl Pwm {
         let dot = self.dot % 4;
         self.dot = (dot + 1) % 4;
 
-        if dot == 0 && self.trigger {
+        let trigger = self.trigger;
+
+        if dot == 0 && trigger {
             self.trigger = false;
             self.length.trigger::<192>();
             self.shadow_period = self.period;
@@ -246,6 +255,10 @@ impl Pwm {
             }
 
             // fixme: sweep the volume by 1 if it's time.
+        }
+
+        if !self.ever_triggered {
+            self.ever_triggered |= trigger;
 
             return 0;
         }
@@ -496,8 +509,9 @@ struct Capacitor(f32);
 impl Capacitor {
     fn sample(&mut self, sample: f32) -> f32 {
         let out = sample - self.0;
-        self.0 = out.mul_add_fast(0.999_958, -sample);
-        out
+        // the simple version of this is self.0 = sample - (out * 0.999_958)
+        self.0 = out.mul_add_fast(-0.999_958, sample);
+        out as f32
     }
 }
 
@@ -516,9 +530,14 @@ impl<S: ApuSampler> Lazy<S> {
         }
     }
 
-    fn force(&mut self, div_apu: bool) {
+    fn force<const DIV_APU: bool>(&mut self) {
         let banked_cycles = std::mem::take(&mut self.banked_cycles);
-        if !div_apu {
+
+        if !self.apu.enabled {
+            return self.apu.tick_disabled(banked_cycles, DIV_APU);
+        }
+
+        if !DIV_APU {
             return self.apu.tick_many(banked_cycles);
         }
 
@@ -531,8 +550,8 @@ impl<S: ApuSampler> Lazy<S> {
 
     #[cold]
     #[inline(never)]
-    fn tick_force(&mut self, div_apu: bool) {
-        self.force(div_apu);
+    fn tick_force<const DIV_APU: bool>(&mut self) {
+        self.force::<DIV_APU>();
     }
 
     pub fn tick(&mut self, div: u8) {
@@ -541,7 +560,7 @@ impl<S: ApuSampler> Lazy<S> {
         // - the audio sink is `mute`
         // - div keeps getting reset
         // but the APU isn't free to emulate so let's cap out the ticks at some point.
-        const MAX_TICKS: u32 = 1 << (22 - 5);
+        const MAX_TICKS: u32 = 1 << (22 - 4);
 
         // fixme: how to lazy div_apu?
 
@@ -549,27 +568,42 @@ impl<S: ApuSampler> Lazy<S> {
 
         let div_apu = self.div_apu.tick(div & 0b0001_0000 > 0);
 
-        if div_apu || self.banked_cycles >= MAX_TICKS {
-            self.tick_force(div_apu);
+        if div_apu {
+            return self.tick_force::<true>();
+        }
+
+        if self.banked_cycles >= MAX_TICKS {
+            return self.tick_force::<false>();
         }
     }
 
     pub fn write_reg(&mut self, addr: u8, val: u8) {
-        // fixme: this is way too conservative.
-        self.force(false);
+        const AMC_ADDR: u8 = 0x26;
+
+        // fixme: this is way too conservative (for enabled APU).
+        // writes to AMC are the only times we ever might need to do a `force` while disabled, nothing visible is ticking otherwise.
+        if self.apu.enabled || addr == AMC_ADDR {
+            self.force::<false>();
+        }
+
+        if !self.apu.enabled {
+            self.apu.write_disabled(addr, val);
+            return;
+        }
+
         self.apu.write_reg(addr, val);
     }
 
     #[must_use]
     pub fn read_reg(&mut self, addr: u8) -> u8 {
         // fixme: this is way too conservative.
-        self.force(false);
+        self.force::<false>();
         self.apu.read_reg(addr)
     }
 
     #[must_use]
     pub(crate) fn sampler_mut(&mut self) -> &mut S {
-        self.force(false);
+        self.force::<false>();
         &mut self.apu.sampler
     }
 }
@@ -589,6 +623,7 @@ pub struct Apu<S> {
     dacs: [Dac; 4],
     enabled: bool,
     panning_cvt: [f32; 8],
+    dac_enabled: u8,
 }
 
 impl<S: ApuSampler> Apu<S> {
@@ -608,6 +643,72 @@ impl<S: ApuSampler> Apu<S> {
             hpf: [const { Capacitor(0.0) }; 2],
             dacs: [const { Dac::new() }; 4],
             panning_cvt: [0.0; 8],
+            dac_enabled: 0,
+        }
+    }
+
+    #[inline(never)]
+    #[cold]
+    fn clear(&mut self) {
+        // innaccuracies around initial length timers around here.
+        self.panning = SoundPanning::empty();
+        self.vin_panning = VinPanning::empty();
+        self.left_volume = 0;
+        self.right_volume = 0;
+        self.pwm1 = Pwm::new();
+        self.pwm2 = Pwm::new();
+        self.wave = Wave {
+            pattern_ram: self.wave.pattern_ram,
+            ..Wave::new()
+        };
+        self.noise = Noise::new();
+
+        // just so that we know that the APU mod isn't reset, for whatever reason
+        #[allow(clippy::unnecessary_operation, unused)]
+        {
+            self.div_apu_mod = self.div_apu_mod;
+        }
+
+        self.hpf = [const { Capacitor(0.0) }; 2];
+        self.dacs = [const { Dac::new() }; 4];
+        self.panning_cvt = [0.0; 8];
+        self.dac_enabled = 0;
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn write_disabled(&mut self, addr: u8, val: u8) {
+        match addr {
+            0x11 => {
+                self.pwm1.wave_duty = val >> 6;
+                self.pwm1.length.initial = val & 0x3f;
+            }
+
+            0x16 => {
+                self.pwm2.wave_duty = val >> 6;
+                self.pwm2.length.initial = val & 0x3f;
+            }
+
+            0x1b => {
+                self.wave.length.initial = val;
+            }
+
+            0x26 => {
+                self.enabled = val & 0x80 == 0x80;
+            }
+
+            0x30..0x40 => {
+                // fixme: more precise timings.
+                // self.wave can never be enabeld because the entire APU is disabled.
+                self.wave.pattern_ram[(addr - 0x30) as usize] = val;
+            }
+
+            ..0x10 | 0x40.. => {
+                log::error!("BUG: invalid APU write (0xff{addr:02x} -> {val:#02x})")
+            }
+
+            // all other writes are disabled
+            0x10 | _ => {}
         }
     }
 
@@ -622,12 +723,13 @@ impl<S: ApuSampler> Apu<S> {
             }
             0x12 => {
                 self.pwm1.envelope.write(val);
+                self.dac_enabled = self.calc_dac_enabled();
             }
             0x13 => {
                 self.pwm1.period = (self.pwm1.period & 0x300) | u16::from(val);
             }
             0x14 => {
-                self.pwm1.trigger = val & 0x80 == 0x80;
+                self.pwm1.trigger = val & 0x80 == 0x80 && self.pwm1.dac_enabled();
                 self.pwm1.length.enable = val & 0x40 == 0x40;
                 self.pwm1.period = (self.pwm1.period & 0x0ff) | (u16::from(val & 0x7) << 8);
             }
@@ -638,12 +740,13 @@ impl<S: ApuSampler> Apu<S> {
             }
             0x17 => {
                 self.pwm2.envelope.write(val);
+                self.dac_enabled = self.calc_dac_enabled();
             }
             0x18 => {
                 self.pwm2.period = (self.pwm2.period & 0x300) | u16::from(val);
             }
             0x19 => {
-                self.pwm2.trigger = val & 0x80 == 0x80;
+                self.pwm2.trigger = val & 0x80 == 0x80 && self.pwm2.dac_enabled();
                 self.pwm2.length.enable = val & 0x40 == 0x40;
                 self.pwm2.period = (self.pwm2.period & 0x0ff) | (u16::from(val & 0x7) << 8);
             }
@@ -651,6 +754,7 @@ impl<S: ApuSampler> Apu<S> {
             0x1a => {
                 self.wave.dac_enabled = val & 0x80 == 0x80;
                 self.wave.enabled &= self.wave.dac_enabled;
+                self.dac_enabled = self.calc_dac_enabled();
             }
 
             0x1b => {
@@ -666,7 +770,7 @@ impl<S: ApuSampler> Apu<S> {
             }
 
             0x1e => {
-                self.wave.trigger = val & 0x80 == 0x80;
+                self.wave.trigger = val & 0x80 == 0x80 && self.wave.dac_enabled();
                 self.wave.length.enable = val & 0x40 == 0x40;
                 self.wave.period = (self.wave.period & 0x0ff) | (u16::from(val & 0x7) << 8);
             }
@@ -677,6 +781,7 @@ impl<S: ApuSampler> Apu<S> {
 
             0x21 => {
                 self.noise.envelope.write(val);
+                self.dac_enabled = self.calc_dac_enabled();
             }
 
             0x22 => {
@@ -686,7 +791,7 @@ impl<S: ApuSampler> Apu<S> {
             }
 
             0x23 => {
-                self.noise.trigger = val & 0x80 == 0x80;
+                self.noise.trigger = val & 0x80 == 0x80 && self.noise.dac_enabled();
                 self.noise.length.enable = val & 0x40 == 0x40;
             }
 
@@ -715,6 +820,10 @@ impl<S: ApuSampler> Apu<S> {
             }
             0x26 => {
                 self.enabled = val & 0x80 == 0x80;
+
+                if !self.enabled {
+                    self.clear();
+                }
             }
 
             // nothing here (but it's a valid range, not a bug)
@@ -739,13 +848,9 @@ impl<S: ApuSampler> Apu<S> {
     pub fn read_reg(&self, addr: u8) -> u8 {
         match addr {
             0x12 => self.pwm1.envelope.read(),
-
             0x17 => self.pwm2.envelope.read(),
-
             0x21 => self.noise.envelope.read(),
-
             0x24 => self.read_volume_vin_pan(),
-
             0x25 => self.panning.bits(),
             0x26 => {
                 let mut amc = AudioMasterControl::empty();
@@ -771,11 +876,11 @@ impl<S: ApuSampler> Apu<S> {
         }
     }
 
-    fn any_dac_enabled(&self) -> bool {
-        self.pwm1.dac_enabled()
-            || self.pwm2.dac_enabled()
-            || self.wave.dac_enabled()
-            || self.noise.dac_enabled()
+    fn calc_dac_enabled(&self) -> u8 {
+        (u8::from(self.pwm1.dac_enabled()) << 0)
+            | (u8::from(self.pwm2.dac_enabled()) << 1)
+            | (u8::from(self.wave.dac_enabled()) << 2)
+            | (u8::from(self.noise.dac_enabled()) << 3)
     }
 
     fn calc_volume(&self) -> [f32; 2] {
@@ -790,8 +895,8 @@ impl<S: ApuSampler> Apu<S> {
         volume.map(|it| f32::from(it) * const { 1.0 / 8.0 * 0.1 })
     }
 
-    fn calc_dac(sample: [u8; 4], dacs: &mut [Dac; 4], dac_enabled: [bool; 4]) -> [f32; 4] {
-        array::from_fn(|idx| dacs[idx].tick(dac_enabled[idx], sample[idx]))
+    fn calc_dac(sample: [u8; 4], dacs: &mut [Dac; 4], dac_enabled: u8) -> [f32; 4] {
+        array::from_fn(|idx| dacs[idx].tick(dac_enabled & (1 << idx) != 0, sample[idx]))
     }
 
     fn pan(sample: &[f32; 4], panning_cvt: &[f32; 8]) -> [f32; 2] {
@@ -804,29 +909,31 @@ impl<S: ApuSampler> Apu<S> {
         })
     }
 
+    #[cold]
+    fn tick_disabled(&mut self, ticks: u32, div_apu: bool) {
+        if div_apu {
+            let _ = self.apu_mod_tick();
+        }
+
+        self.sampler.push_mute(ticks as usize);
+    }
+
     pub fn tick_many(&mut self, ticks: u32) {
         // never DIV APU here.
 
         // fixme: proper implementation (we have some more things to change about the APU first)
-
-        if !self.any_dac_enabled() {
+        if self.dac_enabled == 0 {
             for _ in 0..ticks {
                 let _ = self.pwm1.tick();
                 let _ = self.pwm2.tick();
                 let _ = self.wave.tick();
                 let _ = self.noise.tick();
-                self.sampler.push_samples([0.0; 2]);
             }
+
+            self.sampler.push_mute(ticks as usize);
 
             return;
         }
-
-        let dac_enabled = [
-            self.pwm1.dac_enabled(),
-            self.pwm2.dac_enabled(),
-            self.wave.dac_enabled(),
-            self.noise.dac_enabled(),
-        ];
 
         let volume = self.calc_volume();
 
@@ -838,7 +945,7 @@ impl<S: ApuSampler> Apu<S> {
                 self.noise.tick(),
             ];
 
-            let sample = Self::calc_dac(sample, &mut self.dacs, dac_enabled);
+            let sample = Self::calc_dac(sample, &mut self.dacs, self.dac_enabled);
             let sample = Self::pan(&sample, &self.panning_cvt);
             let sample: [_; 2] = array::from_fn(|idx| volume[idx] * sample[idx]);
             let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
@@ -847,11 +954,14 @@ impl<S: ApuSampler> Apu<S> {
         }
     }
 
-    fn on_div_apu(&mut self) {
+    fn apu_mod_tick(&mut self) -> u8 {
         // 512 hz timer.
         self.div_apu_mod = (self.div_apu_mod + 1) % 8;
-        let div_apu_mod = self.div_apu_mod;
+        self.div_apu_mod
+    }
 
+    fn on_div_apu(&mut self) {
+        let div_apu_mod = self.apu_mod_tick();
         if !div_apu_mod.is_multiple_of(2) {
             return;
         }
@@ -878,20 +988,13 @@ impl<S: ApuSampler> Apu<S> {
             self.noise.tick(),
         ];
 
-        if !self.any_dac_enabled() {
+        if self.dac_enabled == 0 {
             return self.sampler.push_samples([0.0; 2]);
         }
 
-        let dac_enabled = [
-            self.pwm1.dac_enabled(),
-            self.pwm2.dac_enabled(),
-            self.wave.dac_enabled(),
-            self.noise.dac_enabled(),
-        ];
-
         let volume = self.calc_volume();
 
-        let sample = Self::calc_dac(sample, &mut self.dacs, dac_enabled);
+        let sample = Self::calc_dac(sample, &mut self.dacs, self.dac_enabled);
         let sample = Self::pan(&sample, &self.panning_cvt);
         let sample: [_; 2] = array::from_fn(|idx| volume[idx] * sample[idx]);
         let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));

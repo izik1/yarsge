@@ -1,3 +1,5 @@
+use std::iter;
+
 use sdl3::AudioSubsystem;
 use sdl3::audio::{AudioDevice, AudioSpec, AudioStream, AudioStreamOwner};
 use yarsge_core::emu::apu::ApuSampler;
@@ -82,6 +84,22 @@ impl ApuSampler for FilteredSampler {
     fn push_samples(&mut self, samples: [f32; 2]) {
         if let Some(sample) = self.filter.filter(samples) {
             self.samples.push(sample);
+        }
+    }
+
+    fn push_mute(&mut self, samples: usize) {
+        match &mut self.filter {
+            AudioFilter::Mute => {}
+            AudioFilter::NearestNeighbor(nn) => {
+                self.samples.extend(
+                    iter::repeat_n([0.0; 2], samples).filter_map(|sample| nn.filter(sample)),
+                );
+            }
+            AudioFilter::Mean(mean) => {
+                self.samples.extend(
+                    iter::repeat_n([0.0; 2], samples).filter_map(|sample| mean.filter(sample)),
+                );
+            }
         }
     }
 }
