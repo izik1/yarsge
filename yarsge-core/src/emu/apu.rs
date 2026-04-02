@@ -397,10 +397,11 @@ impl Lsfr {
     }
 
     fn tick(&mut self) {
-        let bit = u16::from((self.register & 1) == ((self.register >> 1) & 1));
+        let shifted = self.register >> 1;
+        let bit = u16::from((self.register & 1) == (shifted & 1));
         let bit = 0_u16.wrapping_sub(bit);
         let mask = 0x8000 | (u16::from(self.short) << 7);
-        self.register = (self.register & !mask) | (bit & mask);
+        self.register = (shifted & !mask) | (bit & mask);
     }
 
     fn current(&self) -> bool {
