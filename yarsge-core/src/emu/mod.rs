@@ -75,13 +75,17 @@ impl SubAssign for TCycle {
 pub struct GameBoy<S: ApuSampler> {
     hw: Hardware<S>,
     cpu: Cpu,
-    bank_ps: u64,
+    bank_ys: u128,
 }
 
 // const DMG_NOMINAL_CLOCK_FREQ: u64 = 4_194_304;
 // const DMG_PHI_FREQ: u64 = DMG_NOMINAL_CLOCK_FREQ / 4;
 // try to stay in the range such that 1/PS_PER_CLOCK = [4,194,304 Hz - 70ppm : 4,194,304 (Hz) - 50ppm]
-const PS_PER_CLOCK: u64 = 238_420;
+// ^ sadly this runs into huge problems with audio frequency, best to just run at nominal.
+// this is `1/2^22 * 10^x` where x is an integer and the whole expression is an integer, `x` ended up being 22, 10^-24 seconds is 1 ys, so, 10^-22 s = 100ys
+const YOCTOS_PER_CLOCK: u128 = 238_418_579_101_562_500;
+const YOCTOS_PER_NANO: u128 = 1_000_000_000_000_000;
+const NANOS_PER_MILLI: u128 = 1_000_000;
 
 impl<S: ApuSampler> GameBoy<S> {
     #[must_use]
@@ -89,7 +93,7 @@ impl<S: ApuSampler> GameBoy<S> {
         Some(Self {
             hw: Hardware::new(memory::Memory::new_detect(game_rom, boot_rom)?, apu_sampler),
             cpu: Cpu::new(),
-            bank_ps: 0,
+            bank_ys: 0,
         })
     }
 
@@ -106,22 +110,23 @@ impl<S: ApuSampler> GameBoy<S> {
     }
 
     pub fn run(&mut self, elapsed: Duration) {
-        self.bank_ps += u64::try_from(elapsed.as_nanos())
-            .ok()
-            .and_then(|it| it.checked_mul(1000))
-            .unwrap_or(u64::MAX);
+        self.bank_ys += elapsed
+            .as_nanos()
+            .checked_mul(YOCTOS_PER_NANO)
+            .unwrap_or(u128::MAX);
 
-        // limit bank time to 10ms (so that if we start lagging we reach slowdown sooner than stuttering)
-        // fixme: make this dynamic so that it's 10ms of _real time_, predicted based on how long the emulator runs.
-        self.bank_ps = cmp::min(self.bank_ps, 10_000_000_000);
+        // limit bank time to 50ms (so that if we start lagging we reach slowdown sooner than stuttering)
+        // fixme: make this dynamic so that it's 50ms of _real time_, predicted based on how long the emulator runs.
+        self.bank_ys = cmp::min(self.bank_ys, YOCTOS_PER_NANO * NANOS_PER_MILLI * 50);
 
         // truncates
-        let bankable_clocks: u64 = self.bank_ps / PS_PER_CLOCK;
+        let bankable_clocks = self.bank_ys / YOCTOS_PER_CLOCK;
 
+        // this cast isn't gonna overflow or go negative because it's still at most 50ms of clocks
         self.hw.cycle_counter += TCycle(bankable_clocks as isize);
 
         // any leftovers remains in the bank.
-        self.bank_ps -= bankable_clocks * PS_PER_CLOCK;
+        self.bank_ys -= bankable_clocks * YOCTOS_PER_CLOCK;
 
         if self.hw.cycle_counter > TCycle(0) {
             self.hw.tick_pad();

@@ -23,7 +23,7 @@ pub fn audio_init(
     }
 
     // simplify 48000Hz / 4MiHz, we get 375/2^15, but we technically use a slightly slower CPU frequency (fixme: do actual math to compute this).
-    let (expand, decimate) = (35763, 3125000);
+    let (expand, decimate) = (375, 32768);
     let filter = match audio_system {
         AudioSystem::Mute => return None,
         AudioSystem::NearestNeighbor => {
