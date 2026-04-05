@@ -368,9 +368,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
         };
 
         let delta_time: Duration = current_frame.duration_since(last_subframe);
-        gb.run(delta_time);
-
-        stats.total_emulated_time += delta_time;
+        gb.run(delta_time, &mut stats.total_emulated_time);
 
         last_subframe = current_frame;
 
@@ -381,7 +379,9 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
 
             match poll_inputs(&mut event_pump, &keymap, gb.keys_mut()) {
                 ControlFlow::Continue(()) => {}
-                ControlFlow::Break(()) => break 'running Ok(()),
+                ControlFlow::Break(()) => {
+                    break 'running Ok(());
+                }
             }
         }
 

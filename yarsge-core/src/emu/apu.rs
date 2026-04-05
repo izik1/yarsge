@@ -514,14 +514,15 @@ bitflags::bitflags! {
     }
 }
 
-struct Capacitor(f32);
+struct Capacitor(f64);
 
 impl Capacitor {
     fn sample(&mut self, sample: f32) -> f32 {
+        let sample = f64::from(sample);
         let out = sample - self.0;
         // the simple version of this is self.0 = sample - (out * 0.999_958)
         self.0 = out.mul_add_fast(-0.999_958, sample);
-        out
+        out as f32
     }
 }
 

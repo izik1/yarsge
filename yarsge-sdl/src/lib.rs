@@ -1,6 +1,8 @@
 pub mod audio;
 pub mod input;
 
+mod complex;
+
 use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 

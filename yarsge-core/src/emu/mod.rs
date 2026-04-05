@@ -109,15 +109,24 @@ impl<S: ApuSampler> GameBoy<S> {
         &mut self.hw.pad.keys
     }
 
-    pub fn run(&mut self, elapsed: Duration) {
-        self.bank_ys += elapsed
+    pub fn run(&mut self, elapsed: Duration, total_emulated_time: &mut Duration) {
+        let old_bank = self.bank_ys;
+        self.bank_ys = elapsed
             .as_nanos()
             .checked_mul(YOCTOS_PER_NANO)
+            .and_then(|it| old_bank.checked_add(it))
             .unwrap_or(u128::MAX);
+
+        if self.bank_ys == u128::MAX {
+            log::warn!("potential loss in emulated time accuracy");
+        }
 
         // limit bank time to 50ms (so that if we start lagging we reach slowdown sooner than stuttering)
         // fixme: make this dynamic so that it's 50ms of _real time_, predicted based on how long the emulator runs.
         self.bank_ys = cmp::min(self.bank_ys, YOCTOS_PER_NANO * NANOS_PER_MILLI * 50);
+
+        *total_emulated_time +=
+            Duration::from_nanos_u128((self.bank_ys - old_bank) / YOCTOS_PER_NANO);
 
         // truncates
         let bankable_clocks = self.bank_ys / YOCTOS_PER_CLOCK;
@@ -154,8 +163,7 @@ impl<S: ApuSampler> GameBoy<S> {
                 return;
             }
 
-            *total_emulated_time += remaining * 4;
-            self.run(remaining * 4);
+            self.run(remaining * 4, total_emulated_time);
         }
     }
 

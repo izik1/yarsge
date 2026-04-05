@@ -83,4 +83,18 @@ pub mod util {
             }
         }
     }
+
+    impl FloatExt for f64 {
+        fn mul_add_fast(self, y: Self, z: Self) -> Self {
+            #[cfg(all(target_arch = "x86_64", target_feature = "fma"))]
+            {
+                self.mul_add(y, z)
+            }
+
+            #[cfg(not(all(target_arch = "x86_64", target_feature = "fma")))]
+            {
+                self * y + z
+            }
+        }
+    }
 }
