@@ -6,3 +6,13 @@ version.workspace = true
 
 [dependencies]
 yarsge-math.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.8.2", features = ["html_reports"] }
+
+[lib]
+bench = false
+
+[[bench]]
+harness = false
+name = "bench-dsp"
