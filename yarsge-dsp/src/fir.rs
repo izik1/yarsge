@@ -53,6 +53,8 @@ impl Fir {
 
         let n_delay = taps.len() / expansion_factor.get();
 
+        let taps = transpose_taps(taps, n_delay);
+
         let delay = vec![[0.0; 2]; n_delay].into();
 
         Self {
@@ -66,6 +68,11 @@ impl Fir {
     }
 
     pub fn filter(&mut self, x: &[[f32; 2]], y: &mut Vec<[f32; 2]>) {
+        debug_assert_eq!(
+            self.taps.len(),
+            self.expansion_factor.get() * self.delay.len()
+        );
+
         if x.is_empty() {
             return;
         }
@@ -110,17 +117,16 @@ impl Fir {
                 self.leftover = 0;
             }
 
+            debug_assert!(self.tap_idx < self.expansion_factor.get());
             let mut acc = [0.0; 2];
-            let mut tap_idx = self.tap_idx;
+            let taps = &self.taps[self.expansion_factor.get() * self.tap_idx..][..self.delay.len()];
 
             let delay = self.delay.split();
 
             // does doing this out of order even matter?
-            for delay in delay.1.iter().chain(delay.0) {
-                acc[0] = delay[0].mul_add_fast(self.taps[tap_idx], acc[0]);
-                acc[1] = delay[1].mul_add_fast(self.taps[tap_idx], acc[1]);
-
-                tap_idx += self.expansion_factor.get();
+            for (delay, &tap) in delay.1.iter().chain(delay.0).zip(taps) {
+                acc[0] = delay[0].mul_add_fast(tap, acc[0]);
+                acc[1] = delay[1].mul_add_fast(tap, acc[1]);
             }
 
             unsafe {
@@ -182,6 +188,32 @@ fn quantize_taps(taps: Vec<f64>, total: f64) -> Vec<f64> {
     let sum = taps.iter().fold(0.0, |acc, &x| acc + x);
 
     taps.into_iter().map(|t| t * (total / sum)).collect()
+}
+
+fn transpose_taps(taps: Vec<f64>, n_delay: usize) -> Vec<f64> {
+    let other_dim = taps.len() / n_delay;
+    assert!(other_dim > 0 && n_delay > 0);
+    assert_eq!(taps.len() % n_delay, 0);
+
+    let mut output = Vec::with_capacity(taps.len());
+
+    {
+        let output = &mut output.spare_capacity_mut()[..taps.len()];
+        for (idx, output) in output.iter_mut().enumerate() {
+            let x = idx / other_dim;
+            let y = idx % other_dim;
+            *output = MaybeUninit::new(taps[y * other_dim + x]);
+        }
+    }
+
+    // Safety:
+    // - output has capacity >= `taps.len()`, it was created with that capacity and no capacity decreasing operations have been taken.
+    // - all elements of output up to this point are initialized (we go through each element of the output array trivially, since we simply iterate through it)
+    unsafe {
+        output.set_len(taps.len());
+    }
+
+    output
 }
 
 #[cfg(test)]

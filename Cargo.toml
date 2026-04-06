@@ -21,6 +21,13 @@ path = "yarsge-dsp"
 [profile.dev.package.yarsge-core]
 opt-level = 1
 
+[profile.dev.package.yarsge-math]
+opt-level = 1
+
+[profile.dev.package.yarsge-dsp]
+opt-level = 1
+
+
 [profile.profile]
 debug = "full"
 inherits = "release"

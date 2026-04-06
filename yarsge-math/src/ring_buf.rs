@@ -31,8 +31,19 @@ impl<T> RingBuf<T> {
     }
 
     #[must_use]
+    #[inline]
+    pub const fn len(&self) -> usize {
+        self.ring.len()
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        debug_assert!(!self.ring.is_empty());
+        false
+    }
+
+    #[must_use]
     pub const fn split(&self) -> (&'_ [T], &'_ [T]) {
-        debug_assert!(self.idx < self.ring.len());
+        debug_assert!(self.idx < self.len());
 
         // Safety: `self.idx` is always in bounds (`self.idx < self.ring.len()`), this requires `0 <= mid <= len()`.
         unsafe { self.ring.split_at_unchecked(self.idx + 1) }
