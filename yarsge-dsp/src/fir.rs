@@ -2,7 +2,7 @@ use std::cmp;
 use std::mem::MaybeUninit;
 use std::num::NonZero;
 
-use yarsge_math::{Complex, RingBuf, SparseVec};
+use yarsge_math::{Complex, FloatExt as _, RingBuf, SparseVec};
 
 use crate::fourier::irdft_sparse;
 use crate::window;
@@ -89,20 +89,26 @@ impl Fir {
 
             if until_expand <= until_decimate {
                 self.leftover += until_expand;
-                let Some(x) = x.next() else {
-                    self.tap_idx = self.expansion_factor.get() - 1;
-                    break 'outputs;
-                };
+                let until_decimate = self.decimation_factor.get() - self.leftover;
 
-                self.tap_idx = 0;
+                let ticks = (until_decimate / self.expansion_factor) + 1;
 
-                self.delay.push(x.map(f64::from));
+                for t in 0..ticks {
+                    let Some(x) = x.next() else {
+                        self.tap_idx = self.expansion_factor.get() - 1;
 
-                continue;
+                        // use this specific ordering so that we don't do integer overflow or underflow.
+                        self.leftover = self.leftover + self.expansion_factor.get() * t - 1;
+
+                        break 'outputs;
+                    };
+
+                    self.delay.push(x.map(f64::from));
+                }
+
+                self.tap_idx = until_decimate - (ticks - 1) * self.expansion_factor.get();
+                self.leftover = 0;
             }
-
-            self.tap_idx += until_decimate;
-            self.leftover = 0;
 
             let mut acc = [0.0; 2];
             let mut tap_idx = self.tap_idx;
@@ -111,8 +117,9 @@ impl Fir {
 
             // does doing this out of order even matter?
             for delay in delay.1.iter().chain(delay.0) {
-                acc[0] += delay[0] * self.taps[tap_idx];
-                acc[1] += delay[1] * self.taps[tap_idx];
+                acc[0] = delay[0].mul_add_fast(self.taps[tap_idx], acc[0]);
+                acc[1] = delay[1].mul_add_fast(self.taps[tap_idx], acc[1]);
+
                 tap_idx += self.expansion_factor.get();
             }
 

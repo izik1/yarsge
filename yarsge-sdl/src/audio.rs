@@ -249,7 +249,7 @@ impl FirFilter {
     }
 
     fn filter_into(&mut self, out: &mut Vec<[f32; 2]>) {
-        self.fir.filter(&self.buf[..], out);
+        self.fir.filter(self.buf.as_slice(), out);
         self.buf.clear();
     }
 }
