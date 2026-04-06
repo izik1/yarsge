@@ -10,21 +10,17 @@ pub struct Complex {
 
 impl fmt::Debug for Complex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let complex = fmt::from_fn(|f| {
-            write!(
-                f,
-                r#""{} {} {}i""#,
-                self.re,
-                if self.im.is_sign_positive() || self.im == 0.0 {
-                    "+"
-                } else {
-                    "-"
-                },
-                self.im.abs()
-            )
-        });
-
-        f.debug_tuple("Complex").field(&complex).finish()
+        write!(
+            f,
+            r#"({} {} {}i)"#,
+            self.re,
+            if self.im.is_sign_positive() || self.im == 0.0 {
+                "+"
+            } else {
+                "-"
+            },
+            self.im.abs()
+        )
     }
 }
 
@@ -40,10 +36,16 @@ impl Complex {
         Self { re: cos, im: sin }
     }
 
+    #[inline(always)]
+    #[must_use]
+    pub fn abs(self) -> f64 {
+        f64::hypot(self.re, self.im)
+    }
+
     #[inline]
     #[must_use]
     pub fn to_polar(self) -> (f64, f64) {
-        (f64::hypot(self.re, self.im), f64::atan2(self.im, self.re))
+        (self.abs(), f64::atan2(self.im, self.re))
     }
 
     #[inline]
@@ -109,6 +111,28 @@ impl std::ops::Add for Complex {
         Self {
             re: self.re + other.re,
             im: self.im + other.im,
+        }
+    }
+}
+
+impl std::ops::Sub for Complex {
+    type Output = Self;
+    #[inline]
+    fn sub(self, other: Self) -> Self::Output {
+        Self {
+            re: self.re - other.re,
+            im: self.im - other.im,
+        }
+    }
+}
+
+impl std::ops::Neg for Complex {
+    type Output = Self;
+
+    fn neg(self) -> Self::Output {
+        Self {
+            re: -self.re,
+            im: -self.im,
         }
     }
 }

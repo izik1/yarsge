@@ -60,7 +60,7 @@ fn irdft_sparse_pad(xc: &mut SparseVec<Complex>) {
     xc.zeros += added_zeros;
 
     {
-        let tmp = if xc.zeros == 0 {
+        let tmp: &mut Vec<Complex> = if xc.zeros == 0 {
             &mut xc.pre
         } else {
             &mut xc.post
@@ -89,16 +89,85 @@ pub fn irdft_sparse(mut xc: SparseVec<Complex>) -> impl IntoIterator<Item = f64>
 
 #[cfg(test)]
 mod tests {
-    use std::iter;
+    use core::fmt;
+    use std::{cmp, iter};
 
     use yarsge_math::{Complex, SparseVec};
 
     use crate::fourier::{dft_sparse, idft_sparse, irdft_sparse, irdft_sparse_pad};
 
+    fn complex_mse(h: &[Complex], e: &[Complex]) -> f64 {
+        let len = cmp::min(h.len(), e.len()) as f64;
+        let total = h
+            .iter()
+            .zip(e)
+            .map(|(h, e)| (*e - *h).abs().powi(2))
+            .sum::<f64>();
+
+        total / len
+    }
+
+    macro_rules! assert_complex_mse {
+        ($left:expr, $right:expr $(,)?) => {
+            match (&$left, &$right) {
+                (left_val, right_val) => {
+                    assert_eq!(left_val.len(), right_val.len());
+                    let mse = complex_mse(left_val, right_val);
+                    assert!(
+                        mse < 1e-28,
+                        "{}",
+                        fmt::from_fn(|f| assert_approx_eq_failed(f, mse, left_val, right_val))
+                    );
+                }
+            }
+        };
+    }
+
+    fn mse(h: &[f64], e: &[f64]) -> f64 {
+        let len = cmp::min(h.len(), e.len()) as f64;
+        let total = h
+            .iter()
+            .zip(e)
+            .map(|(h, e)| (*e - *h).abs().powi(2))
+            .sum::<f64>();
+
+        total / len
+    }
+
+    macro_rules! assert_mse {
+        ($left:expr, $right:expr $(,)?) => {
+            match (&$left, &$right) {
+                (left_val, right_val) => {
+                    assert_eq!(left_val.len(), right_val.len());
+                    let mse = mse(left_val, right_val);
+                    assert!(
+                        mse < 1e-28,
+                        "{}",
+                        fmt::from_fn(|f| assert_approx_eq_failed(f, mse, left_val, right_val))
+                    );
+                }
+            }
+        };
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn assert_approx_eq_failed(
+        f: &mut fmt::Formatter<'_>,
+        mse: f64,
+        left: &dyn fmt::Debug,
+        right: &dyn fmt::Debug,
+    ) -> fmt::Result {
+        writeln!(f, "assertion `left` ~= `right` failed")?;
+        writeln!(f, "left: {left:#?}")?;
+        writeln!(f, "right: {right:#?}")?;
+        writeln!(f, "mse: {mse}")
+    }
+
     // https://docs.rs/sdr/0.7.0/src/sdr/fir.rs.html#800
     #[test]
     fn dft_1() {
-        let x = vec![
+        let x: Vec<Complex> = vec![
             Complex { re: 1.0, im: 1.0 },
             Complex { re: 0.0, im: 0.0 },
             Complex { re: 0.0, im: 0.0 },
@@ -111,8 +180,8 @@ mod tests {
         });
 
         assert_eq!(
-            y.into_iter().collect::<Vec<_>>(),
-            vec![
+            &y.into_iter().collect::<Vec<_>>(),
+            &[
                 Complex { re: 1.0, im: 1.0 },
                 Complex { re: 1.0, im: 1.0 },
                 Complex { re: 1.0, im: 1.0 },
@@ -123,12 +192,7 @@ mod tests {
 
     #[test]
     fn dft_2() {
-        let x = vec![
-            Complex { re: 0.0, im: 1.0 },
-            Complex { re: 0.0, im: -1.0 },
-            Complex { re: 0.0, im: 1.0 },
-            Complex { re: 0.0, im: -1.0 },
-        ];
+        let x = vec![Complex::I, -Complex::I, Complex::I, -Complex::I];
         let y = dft_sparse(SparseVec {
             pre: x,
             zeros: 0,
@@ -137,14 +201,14 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 0.0).abs() < 1e-8);
-        assert!((y[1].re - 0.0).abs() < 1e-8);
-        assert!((y[2].re - 0.0).abs() < 1e-8);
-        assert!((y[3].re - 0.0).abs() < 1e-8);
-        assert!((y[0].im - 0.0).abs() < 1e-8);
-        assert!((y[1].im - 0.0).abs() < 1e-8);
-        assert!((y[2].im - 4.0).abs() < 1e-8);
-        assert!((y[3].im - 0.0).abs() < 1e-8);
+        let expected = [
+            Complex::ZERO,
+            Complex::ZERO,
+            Complex { re: 0.0, im: 4.0 },
+            Complex::ZERO,
+        ];
+
+        assert_complex_mse!(expected, y);
     }
 
     #[test]
@@ -167,22 +231,19 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 0.0).abs() < 1e-7);
-        assert!((y[0].im - 8.0).abs() < 1e-7);
-        assert!((y[1].re - 0.0).abs() < 1e-7);
-        assert!((y[1].im - 0.0).abs() < 1e-7);
-        assert!((y[2].re - 8.0).abs() < 1e-7);
-        assert!((y[2].im - 0.0).abs() < 1e-7);
-        assert!((y[3].re - 0.0).abs() < 1e-7);
-        assert!((y[3].im - 0.0).abs() < 1e-7);
-        assert!((y[4].re - 0.0).abs() < 1e-7);
-        assert!((y[4].im - 0.0).abs() < 1e-7);
-        assert!((y[5].re - 0.0).abs() < 1e-7);
-        assert!((y[5].im - 0.0).abs() < 1e-7);
-        assert!((y[6].re - 8.0).abs() < 1e-7);
-        assert!((y[6].im - 0.0).abs() < 1e-7);
-        assert!((y[7].re - 0.0).abs() < 1e-7);
-        assert!((y[7].im - 0.0).abs() < 1e-7);
+        assert_complex_mse!(
+            y,
+            [
+                Complex { re: 0.0, im: 8.0 },
+                Complex { re: 0.0, im: 0.0 },
+                Complex { re: 8.0, im: 0.0 },
+                Complex { re: 0.0, im: 0.0 },
+                Complex { re: 0.0, im: 0.0 },
+                Complex { re: 0.0, im: 0.0 },
+                Complex { re: 8.0, im: 0.0 },
+                Complex { re: 0.0, im: 0.0 },
+            ]
+        );
     }
 
     #[test]
@@ -201,23 +262,24 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 0.0).abs() < 1e-8);
-        assert!((y[0].im - 0.0).abs() < 1e-8);
-        assert!((y[1].re - -1.0).abs() < 1e-8);
-        assert!((y[1].im - -1.0).abs() < 1e-8);
-        assert!((y[2].re - 6.0).abs() < 1e-8);
-        assert!((y[2].im - 0.0).abs() < 1e-8);
-        assert!((y[3].re - -1.0).abs() < 1e-8);
-        assert!((y[3].im - 1.0).abs() < 1e-8);
+        assert_complex_mse!(
+            y,
+            [
+                Complex::ZERO,
+                Complex { re: -1.0, im: -1.0 },
+                Complex { re: 6.0, im: 0.0 },
+                Complex { re: -1.0, im: 1.0 },
+            ]
+        );
     }
 
     #[test]
     fn dft_5() {
         let x = vec![
             Complex { re: 1.0, im: 1.0 },
-            Complex { re: 0.0, im: 0.0 },
+            Complex::ZERO,
             Complex { re: 1.0, im: 1.0 },
-            Complex { re: 0.0, im: 0.0 },
+            Complex::ZERO,
         ];
         let y = dft_sparse(SparseVec {
             pre: x,
@@ -227,14 +289,14 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 2.0).abs() < 1e-8);
-        assert!((y[0].im - 2.0).abs() < 1e-8);
-        assert!((y[1].re - 0.0).abs() < 1e-8);
-        assert!((y[1].im - 0.0).abs() < 1e-8);
-        assert!((y[2].re - 2.0).abs() < 1e-8);
-        assert!((y[2].im - 2.0).abs() < 1e-8);
-        assert!((y[3].re - 0.0).abs() < 1e-8);
-        assert!((y[3].im - 0.0).abs() < 1e-8);
+        let expected = [
+            Complex { re: 2.0, im: 2.0 },
+            Complex::ZERO,
+            Complex { re: 2.0, im: 2.0 },
+            Complex::ZERO,
+        ];
+
+        assert_complex_mse!(y, expected);
 
         let y2 = dft_sparse(SparseVec {
             pre: vec![Complex { re: 1.0, im: 1.0 }],
@@ -264,14 +326,14 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 1.0).abs() < 1e-8);
-        assert!((y[1].re - 0.0).abs() < 1e-8);
-        assert!((y[2].re - 0.0).abs() < 1e-8);
-        assert!((y[3].re - 0.0).abs() < 1e-8);
-        assert!((y[0].im - 1.0).abs() < 1e-8);
-        assert!((y[1].im - 0.0).abs() < 1e-8);
-        assert!((y[2].im - 0.0).abs() < 1e-8);
-        assert!((y[3].im - 0.0).abs() < 1e-8);
+        let expected = [
+            Complex { re: 1.0, im: 1.0 },
+            Complex::ZERO,
+            Complex::ZERO,
+            Complex::ZERO,
+        ];
+
+        assert_complex_mse!(y, expected);
     }
 
     #[test]
@@ -291,14 +353,7 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 0.0).abs() < 1e-8);
-        assert!((y[1].re - 0.0).abs() < 1e-8);
-        assert!((y[2].re - 0.0).abs() < 1e-8);
-        assert!((y[3].re - 0.0).abs() < 1e-8);
-        assert!((y[0].im - 1.0).abs() < 1e-8);
-        assert!((y[1].im - -1.0).abs() < 1e-8);
-        assert!((y[2].im - 1.0).abs() < 1e-8);
-        assert!((y[3].im - -1.0).abs() < 1e-8);
+        assert_complex_mse!(y, [Complex::I, -Complex::I, Complex::I, -Complex::I]);
 
         let y2 = idft_sparse(SparseVec {
             pre: vec![],
@@ -328,14 +383,15 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0].re - 1.0).abs() < 1e-8);
-        assert!((y[1].re - -1.0).abs() < 1e-8);
-        assert!((y[2].re - 2.0).abs() < 1e-8);
-        assert!((y[3].re - -2.0).abs() < 1e-8);
-        assert!((y[0].im - 0.0).abs() < 1e-8);
-        assert!((y[1].im - 0.0).abs() < 1e-8);
-        assert!((y[2].im - 0.0).abs() < 1e-8);
-        assert!((y[3].im - 0.0).abs() < 1e-8);
+        assert_complex_mse!(
+            y,
+            [
+                Complex { re: 1.0, im: 0.0 },
+                Complex { re: -1.0, im: 0.0 },
+                Complex { re: 2.0, im: 0.0 },
+                Complex { re: -2.0, im: 0.0 },
+            ]
+        );
     }
 
     #[test]
@@ -354,10 +410,7 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0] - 1.0).abs() < 1e-8);
-        assert!((y[1] - 0.0).abs() < 1e-8);
-        assert!((y[2] - 0.0).abs() < 1e-8);
-        assert!((y[3] - 0.0).abs() < 1e-8);
+        assert_mse!(y, [1.0, 0.0, 0.0, 0.0]);
     }
 
     #[test]
@@ -376,16 +429,13 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0] - 1.0).abs() < 1e-8);
-        assert!((y[1] - -1.0).abs() < 1e-8);
-        assert!((y[2] - 2.0).abs() < 1e-8);
-        assert!((y[3] - -2.0).abs() < 1e-8);
+        assert_mse!(y, [1.0, -1.0, 2.0, -2.0]);
     }
 
     #[test]
     fn test_irdft_3() {
         let x = vec![
-            Complex { re: 1.0, im: 0.0 },
+            Complex::ONE,
             Complex {
                 re: 0.19509032201612833,
                 im: 0.9807852804032304,
@@ -406,21 +456,25 @@ mod tests {
         .into_iter()
         .collect::<Vec<_>>();
 
-        assert!((y[0] - 0.09929861743087548).abs() < 1e-8);
-        assert!((y[1] - 0.03574621740468193).abs() < 1e-8);
-        assert!((y[2] - -0.020738854791726727).abs() < 1e-8);
-        assert!((y[3] - -0.05896903786590271).abs() < 1e-8);
-        assert!((y[4] - -0.07137237519757898).abs() < 1e-8);
-        assert!((y[5] - -0.05549223371126744).abs() < 1e-8);
-        assert!((y[6] - -0.014473870185486475).abs() < 1e-8);
-        assert!((y[7] - 0.04355852542626773).abs() < 1e-8);
-        assert!((y[8] - 0.10711092545246059).abs() < 1e-8);
-        assert!((y[9] - 0.16359599764886953).abs() < 1e-8);
-        assert!((y[10] - 0.2018261807230456).abs() < 1e-8);
-        assert!((y[11] - 0.21422951805472182).abs() < 1e-8);
-        assert!((y[12] - 0.19834937656841023).abs() < 1e-8);
-        assert!((y[13] - 0.15733101304262898).abs() < 1e-8);
-        assert_eq!(y.len(), 14);
+        assert_mse!(
+            y,
+            [
+                0.09929861743087548,
+                0.03574621740468193,
+                -0.020738854791726727,
+                -0.05896903786590271,
+                -0.07137237519757898,
+                -0.05549223371126744,
+                -0.014473870185486475,
+                0.04355852542626773,
+                0.10711092545246059,
+                0.16359599764886953,
+                0.2018261807230456,
+                0.21422951805472182,
+                0.19834937656841023,
+                0.15733101304262898,
+            ]
+        );
 
         let y2 = irdft_sparse(SparseVec {
             pre: vec![
