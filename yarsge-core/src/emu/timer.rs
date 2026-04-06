@@ -584,6 +584,6 @@ mod tests {
 
         // but writing to TIMA should work again
         timer.write_reg(Timer::ADDR_TIMA, TIMA_WRITE);
-        assert_eq!(timer.tima, TIMA_WRITE)
+        assert_eq!(timer.tima, TIMA_WRITE);
     }
 }

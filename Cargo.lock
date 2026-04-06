@@ -451,7 +451,19 @@ dependencies = [
  "arrayvec",
  "bitflags",
  "log",
+ "yarsge-math",
 ]
+
+[[package]]
+name = "yarsge-dsp"
+version = "0.1.0"
+dependencies = [
+ "yarsge-math",
+]
+
+[[package]]
+name = "yarsge-math"
+version = "0.1.0"
 
 [[package]]
 name = "yarsge-sdl"
@@ -465,4 +477,6 @@ dependencies = [
  "rgb",
  "sdl3",
  "yarsge-core",
+ "yarsge-dsp",
+ "yarsge-math",
 ]

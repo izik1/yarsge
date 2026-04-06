@@ -1,0 +1,8 @@
+[package]
+authors.workspace = true
+edition.workspace = true
+name = "yarsge-dsp"
+version.workspace = true
+
+[dependencies]
+yarsge-math.workspace = true

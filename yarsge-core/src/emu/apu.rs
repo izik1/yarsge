@@ -1,7 +1,7 @@
 use std::{array, cmp};
 
 use crate::FallingEdge;
-use crate::util::FloatExt as _;
+use yarsge_math::FloatExt as _;
 
 pub trait ApuSampler {
     fn push_samples(&mut self, samples: [f32; 2]);

@@ -1,6 +1,6 @@
 use core::fmt;
 
-use yarsge_core::util::FloatExt as _;
+use crate::util::FloatExt as _;
 
 #[derive(Copy, Clone, PartialEq)]
 pub struct Complex {
@@ -10,21 +10,21 @@ pub struct Complex {
 
 impl fmt::Debug for Complex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Complex")
-            .field(&fmt::from_fn(|f| {
-                write!(
-                    f,
-                    r#""{} {} {}i""#,
-                    self.re,
-                    if self.im.is_sign_positive() || self.im == 0.0 {
-                        "+"
-                    } else {
-                        "-"
-                    },
-                    self.im.abs()
-                )
-            }))
-            .finish()
+        let complex = fmt::from_fn(|f| {
+            write!(
+                f,
+                r#""{} {} {}i""#,
+                self.re,
+                if self.im.is_sign_positive() || self.im == 0.0 {
+                    "+"
+                } else {
+                    "-"
+                },
+                self.im.abs()
+            )
+        });
+
+        f.debug_tuple("Complex").field(&complex).finish()
     }
 }
 
@@ -33,19 +33,27 @@ impl Complex {
     pub const ONE: Self = Self { re: 1.0, im: 0.0 };
     pub const I: Self = Self { re: 0.0, im: 1.0 };
 
+    #[inline]
+    #[must_use]
     pub fn cis(theta: f64) -> Self {
         let (sin, cos) = theta.sin_cos();
         Self { re: cos, im: sin }
     }
 
+    #[inline]
+    #[must_use]
     pub fn to_polar(self) -> (f64, f64) {
         (f64::hypot(self.re, self.im), f64::atan2(self.im, self.re))
     }
 
+    #[inline]
+    #[must_use]
     pub fn from_polar(r: f64, p: f64) -> Self {
         Self::cis(p).scale(r)
     }
 
+    #[inline]
+    #[must_use]
     pub fn conj(self) -> Self {
         Self {
             re: self.re,
@@ -53,6 +61,8 @@ impl Complex {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn scale(self, t: f64) -> Self {
         Self {
             re: self.re * t,
@@ -60,6 +70,8 @@ impl Complex {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn unscale(self, t: f64) -> Self {
         Self {
             re: self.re / t,
@@ -67,6 +79,8 @@ impl Complex {
         }
     }
 
+    #[inline]
+    #[must_use]
     pub fn mul_add(self, x: Complex, y: Complex) -> Self {
         Self {
             re: self
@@ -79,6 +93,7 @@ impl Complex {
 
 impl std::ops::Mul for Complex {
     type Output = Self;
+    #[inline]
     fn mul(self, other: Self) -> Self::Output {
         Self {
             re: self.re.mul_add_fast(other.re, -(self.im * other.im)),
@@ -89,6 +104,7 @@ impl std::ops::Mul for Complex {
 
 impl std::ops::Add for Complex {
     type Output = Self;
+    #[inline]
     fn add(self, other: Self) -> Self::Output {
         Self {
             re: self.re + other.re,
