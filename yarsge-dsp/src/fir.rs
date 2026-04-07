@@ -118,16 +118,8 @@ impl Fir {
             }
 
             debug_assert!(self.tap_idx < self.expansion_factor.get());
-            let mut acc = [0.0; 2];
             let taps = &self.taps[self.expansion_factor.get() * self.tap_idx..][..self.delay.len()];
-
-            let delay = self.delay.split();
-
-            // does doing this out of order even matter?
-            for (delay, &tap) in delay.1.iter().chain(delay.0).zip(taps) {
-                acc[0] = delay[0].mul_add_fast(tap, acc[0]);
-                acc[1] = delay[1].mul_add_fast(tap, acc[1]);
-            }
+            let acc = accumulate(&self.delay, taps);
 
             unsafe {
                 *yp.get_unchecked_mut(yidx) =
@@ -144,6 +136,33 @@ impl Fir {
         // yidx `<=` y.capacity() because otherwise the indexing would've failed.
         unsafe { y.set_len(y_init + yidx) };
     }
+}
+
+fn accumulate(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
+    // unfortunately `chain` is really unamenable to autovectorization :/
+    let delay = delay.split();
+
+    let taps = taps.split_at(delay.1.len());
+
+    let acc = delay
+        .1
+        .iter()
+        .zip(taps.0)
+        .fold([0.0; 2], |dest, (delay, &tap)| {
+            [
+                delay[0].mul_add_fast(tap, dest[0]),
+                delay[1].mul_add_fast(tap, dest[1]),
+            ]
+        });
+
+    let acc = delay.0.iter().zip(taps.1).fold(acc, |dest, (delay, &tap)| {
+        [
+            delay[0].mul_add_fast(tap, dest[0]),
+            delay[1].mul_add_fast(tap, dest[1]),
+        ]
+    });
+
+    acc
 }
 
 // https://github.com/scipy/scipy/blob/8c75ae75176236f233824e9a0483c26a69e6dfec/scipy/signal/_fir_filter_design.py#L577-L777
