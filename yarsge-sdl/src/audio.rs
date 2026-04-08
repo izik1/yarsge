@@ -25,8 +25,9 @@ pub fn audio_init(
         return None;
     }
 
-    // simplify 48000Hz / 4MiHz, we get 375/2^15, but we technically use a slightly slower CPU frequency (fixme: do actual math to compute this).
-    let (expand, decimate) = (375, 32768);
+    // simplify 48000Hz / 4MiHz, we get 375/2^15.
+    // The but the APU actually only outputs samples at 2MiHz, so, just divide that all by 2. Luckily we have a lot of factors of 2, so it doesn't really affect anything.
+    let (expand, decimate) = (375, 32768 / 2);
     let filter = match audio_system {
         AudioSystem::Mute => return None,
         AudioSystem::NearestNeighbor => {

@@ -1,7 +1,12 @@
+use std::num::NonZero;
 use std::{array, cmp};
 
 use crate::FallingEdge;
 use yarsge_math::FloatExt as _;
+
+// we've halved the sample rate, which this capacitor should be decaying twice as fast.
+// sadly `fNN::powi` isn't stable yet
+const CAPACITOR_ADJUST_FACTOR: f64 = 0.999_958 * 0.999_958;
 
 pub trait ApuSampler {
     fn push_samples(&mut self, samples: [f32; 2]);
@@ -26,7 +31,7 @@ impl Dac {
             (15.0 - f32::from(digital)).mul_add_fast(const { 7.5f32.recip() }, -1.0)
         } else {
             // I assume this is how this one works, but I don't actually have numbers.
-            self.capacitance * 0.999_958
+            self.capacitance * (CAPACITOR_ADJUST_FACTOR as f32)
         };
 
         self.capacitance
@@ -180,7 +185,6 @@ struct Pwm {
     period_div: u16,
     trigger: bool,
     ever_triggered: bool,
-    dot: u8,
     sample_idx: u8,
     sample: bool,
     enabled: bool,
@@ -198,7 +202,6 @@ impl Pwm {
             period_div: 0,
             trigger: false,
             ever_triggered: false,
-            dot: 0,
             sample_idx: 0,
             sample: false,
             enabled: false,
@@ -240,10 +243,7 @@ impl Pwm {
         ((DUTY >> (8 * wave_duty + sample_idx)) & 1) != 0
     }
 
-    fn tick(&mut self) -> u8 {
-        let dot = self.dot % 4;
-        self.dot = (dot + 1) % 4;
-
+    fn tick(&mut self, dot: u8) -> u8 {
         let trigger = self.trigger;
 
         if dot == 0 && trigger {
@@ -304,7 +304,6 @@ struct Wave {
     pattern_ram: [u8; 0x10],
     enabled: bool,
     trigger: bool,
-    dot: u8,
 }
 
 impl Wave {
@@ -320,7 +319,6 @@ impl Wave {
             pattern_ram: [0; 0x10],
             enabled: false,
             trigger: false,
-            dot: 0,
         }
     }
 
@@ -342,10 +340,7 @@ impl Wave {
     #[inline(always)]
     fn on_div_apu(&mut self, _div_apu_mod: u8) {}
 
-    fn tick(&mut self) -> u8 {
-        let dot = self.dot % 4;
-        self.dot = (dot + 1) % 4;
-
+    fn tick(&mut self, dot: u8) -> u8 {
         if dot == 0 && self.trigger {
             self.trigger();
         }
@@ -354,18 +349,16 @@ impl Wave {
             return 0;
         }
 
-        if self.dot.is_multiple_of(2) {
-            self.period_div = (self.period_div + 1) % 2048;
+        self.period_div = (self.period_div + 1) % 2048;
 
-            if self.period_div == 0 {
-                self.period_div = self.period;
-                self.sample_idx = (self.sample_idx + 1) % 32;
-                self.sample = self.pattern_ram[(self.sample_idx / 2) as usize];
-                if self.sample_idx.is_multiple_of(2) {
-                    self.sample >>= 4;
-                } else {
-                    self.sample &= 0xf;
-                }
+        if self.period_div == 0 {
+            self.period_div = self.period;
+            self.sample_idx = (self.sample_idx + 1) % 32;
+            self.sample = self.pattern_ram[(self.sample_idx / 2) as usize];
+            if self.sample_idx.is_multiple_of(2) {
+                self.sample >>= 4;
+            } else {
+                self.sample &= 0xf;
             }
         }
 
@@ -413,7 +406,6 @@ struct Noise {
     length: LengthTimer,
     envelope: Envelope,
     lsfr: Lsfr,
-    dot: u8,
     clock_shift: u8,
     clock_divider: u8,
     enabled: bool,
@@ -427,7 +419,6 @@ impl Noise {
             length: LengthTimer::new(),
             envelope: Envelope::new(),
             trigger: false,
-            dot: 0,
             enabled: false,
             lsfr: Lsfr::new(),
             clock_shift: 0,
@@ -448,14 +439,11 @@ impl Noise {
     }
 
     fn calc_clock(shift: u8, divider: u8) -> u16 {
-        let base = if divider == 0 { 8 } else { 16 * divider };
+        let base = (if divider == 0 { 8 } else { 16 * divider }) / 2;
         u16::from(base) << shift
     }
 
-    fn tick(&mut self) -> u8 {
-        let dot = self.dot % 4;
-        self.dot = (dot + 1) % 4;
-
+    fn tick(&mut self, dot: u8) -> u8 {
         if dot == 0 && self.trigger {
             self.trigger = false;
             self.length.trigger::<192>();
@@ -468,9 +456,6 @@ impl Noise {
         if !self.enabled {
             return 0;
         }
-
-        // lsfr ticks are a bit weird
-        // I assume they can happen on any dot, but nothing actually says anything about that.
 
         if self.clock > 0 {
             self.clock -= 1;
@@ -520,8 +505,8 @@ impl Capacitor {
     fn sample(&mut self, sample: f32) -> f32 {
         let sample = f64::from(sample);
         let out = sample - self.0;
-        // the simple version of this is self.0 = sample - (out * 0.999_958)
-        self.0 = out.mul_add_fast(-0.999_958, sample);
+        // the simple version of this is self.0 = sample - (out * CAPACITOR_ADJUST_FACTOR)
+        self.0 = out.mul_add_fast(-CAPACITOR_ADJUST_FACTOR, sample);
         out as f32
     }
 }
@@ -635,6 +620,7 @@ pub struct Apu<S> {
     enabled: bool,
     panning_cvt: [f32; 8],
     dac_enabled: u8,
+    dot: u8,
 }
 
 impl<S: ApuSampler> Apu<S> {
@@ -655,6 +641,7 @@ impl<S: ApuSampler> Apu<S> {
             dacs: [const { Dac::new() }; 4],
             panning_cvt: [0.0; 8],
             dac_enabled: 0,
+            dot: 0,
         }
     }
 
@@ -922,46 +909,74 @@ impl<S: ApuSampler> Apu<S> {
 
     #[cold]
     fn tick_disabled(&mut self, ticks: u32, div_apu: bool) {
+        let is_aligned = self.dot.is_multiple_of(2);
+        self.dot = ((u32::from(self.dot).wrapping_add(ticks)) as u8) % 4;
+
+        let Some(ticks) = NonZero::new(ticks.saturating_sub(!is_aligned as u32)) else {
+            return;
+        };
+
         if div_apu {
             let _ = self.apu_mod_tick();
         }
 
-        self.sampler.push_mute(ticks as usize);
+        self.sampler.push_mute(ticks.get().div_ceil(2) as usize);
     }
 
     pub fn tick_many(&mut self, ticks: u32) {
         // never DIV APU here.
 
+        // align `self.dot` to an even cycle if possible (that's when we output samples)
+        let is_aligned = self.dot.is_multiple_of(2);
+
+        let Some(ticks) = NonZero::new(ticks.saturating_sub(!is_aligned as u32)) else {
+            self.dot = (self.dot + (ticks as u8)) % 4;
+            return;
+        };
+
+        self.dot = (self.dot + (!is_aligned as u8)) % 4;
+
         // fixme: proper implementation (we have some more things to change about the APU first)
         if self.dac_enabled == 0 {
-            for _ in 0..ticks {
-                let _ = self.pwm1.tick();
-                let _ = self.pwm2.tick();
-                let _ = self.wave.tick();
-                let _ = self.noise.tick();
+            for _ in 0..ticks.get() {
+                let dot = self.dot;
+                self.dot = (self.dot + 1) % 4;
+
+                if dot.is_multiple_of(2) {
+                    let _ = self.pwm1.tick(dot);
+                    let _ = self.pwm2.tick(dot);
+                    let _ = self.wave.tick(dot);
+                    let _ = self.noise.tick(dot);
+                }
             }
 
-            self.sampler.push_mute(ticks as usize);
+            self.sampler
+                .push_mute(ticks.div_ceil(const { NonZero::new(2).unwrap() }).get() as usize);
 
             return;
         }
 
         let volume = self.calc_volume();
 
-        for _ in 0..ticks {
-            let sample = [
-                self.pwm1.tick(),
-                self.pwm2.tick(),
-                self.wave.tick(),
-                self.noise.tick(),
-            ];
+        for _ in 0..ticks.get() {
+            let dot = self.dot;
+            self.dot = (self.dot + 1) % 4;
 
-            let sample = Self::calc_dac(sample, &mut self.dacs, self.dac_enabled);
-            let sample = Self::pan(&sample, &self.panning_cvt);
-            let sample: [_; 2] = array::from_fn(|idx| volume[idx] * sample[idx]);
-            let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
+            if dot.is_multiple_of(2) {
+                let sample = [
+                    self.pwm1.tick(dot),
+                    self.pwm2.tick(dot),
+                    self.wave.tick(dot),
+                    self.noise.tick(dot),
+                ];
 
-            self.sampler.push_samples(sample);
+                let sample = Self::calc_dac(sample, &mut self.dacs, self.dac_enabled);
+                let sample = Self::pan(&sample, &self.panning_cvt);
+                let sample: [_; 2] = array::from_fn(|idx| volume[idx] * sample[idx]);
+                let sample = array::from_fn(|idx| self.hpf[idx].sample(sample[idx]));
+
+                self.sampler.push_samples(sample);
+            }
         }
     }
 
@@ -992,11 +1007,18 @@ impl<S: ApuSampler> Apu<S> {
         // 512 hz timer.
         self.on_div_apu();
 
+        let dot = self.dot;
+        self.dot = (self.dot + 1) % 4;
+
+        if !dot.is_multiple_of(2) {
+            return;
+        }
+
         let sample = [
-            self.pwm1.tick(),
-            self.pwm2.tick(),
-            self.wave.tick(),
-            self.noise.tick(),
+            self.pwm1.tick(dot),
+            self.pwm2.tick(dot),
+            self.wave.tick(dot),
+            self.noise.tick(dot),
         ];
 
         if self.dac_enabled == 0 {

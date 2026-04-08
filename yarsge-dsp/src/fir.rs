@@ -24,7 +24,7 @@ impl Fir {
         // sure, we could support net expansion, but, meh.
         assert!(expansion_factor <= decimation_factor);
 
-        // make sure to retain at least 1 bucket (sadly our factors are uh, very big, so this filter won't be able to do enough)
+        // make sure to retain at least 1 bucket (our factors can be very big)
         let pre_len = cmp::max(GAINS / cmp::max(decimation_factor, expansion_factor), 1);
 
         let gains = SparseVec {
@@ -51,7 +51,7 @@ impl Fir {
             taps.resize(taps.len().next_multiple_of(expansion_factor.get()), 0.0);
         }
 
-        let n_delay = taps.len() / expansion_factor.get();
+        let n_delay = taps.len() / expansion_factor;
 
         let taps = transpose_taps(taps, n_delay);
 
