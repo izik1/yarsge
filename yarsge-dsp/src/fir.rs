@@ -118,7 +118,7 @@ impl Fir {
             }
 
             debug_assert!(self.tap_idx < self.expansion_factor.get());
-            let taps = &self.taps[self.expansion_factor.get() * self.tap_idx..][..self.delay.len()];
+            let taps = &self.taps[self.delay.len() * self.tap_idx..][..self.delay.len()];
             let acc = accumulate(&self.delay, taps);
 
             unsafe {
@@ -209,7 +209,7 @@ fn quantize_taps(taps: Vec<f64>, total: f64) -> Vec<f64> {
     taps.into_iter().map(|t| t * (total / sum)).collect()
 }
 
-fn transpose_taps(taps: Vec<f64>, n_delay: usize) -> Vec<f64> {
+fn transpose_taps<T: Copy>(taps: Vec<T>, n_delay: usize) -> Vec<T> {
     let other_dim = taps.len() / n_delay;
     assert!(other_dim > 0 && n_delay > 0);
     assert_eq!(taps.len() % n_delay, 0);
@@ -218,9 +218,10 @@ fn transpose_taps(taps: Vec<f64>, n_delay: usize) -> Vec<f64> {
 
     {
         let output = &mut output.spare_capacity_mut()[..taps.len()];
+
         for (idx, output) in output.iter_mut().enumerate() {
-            let x = idx / other_dim;
-            let y = idx % other_dim;
+            let y = idx % n_delay;
+            let x = idx / n_delay;
             *output = MaybeUninit::new(taps[y * other_dim + x]);
         }
     }
@@ -243,5 +244,26 @@ mod tests {
     fn quantize_taps_simple() {
         let taps = vec![0.5, 1.0, 0.5];
         assert_eq!(quantize_taps(taps, 1.0), vec![0.25, 0.5, 0.25]);
+    }
+
+    #[test]
+    fn transpose_taps_square() {
+        let taps = super::transpose_taps(vec![0_u8, 1, 2, 3], 2);
+
+        assert_eq!(taps, &[0, 2, 1, 3])
+    }
+
+    #[test]
+    fn transpose_taps_rectangle_a() {
+        let taps = super::transpose_taps(vec![0_u8, 1, 2, 3, 4, 5], 3);
+
+        assert_eq!(taps, &[0, 2, 4, 1, 3, 5])
+    }
+
+    #[test]
+    fn transpose_taps_rectangle_b() {
+        let taps = super::transpose_taps(vec![0_u8, 1, 2, 3, 4, 5], 2);
+
+        assert_eq!(taps, &[0, 3, 1, 4, 2, 5])
     }
 }
