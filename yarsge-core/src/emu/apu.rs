@@ -662,9 +662,10 @@ impl<S: ApuSampler> Apu<S> {
         self.noise = Noise::new();
 
         // just so that we know that the APU mod isn't reset, for whatever reason
-        #[allow(clippy::unnecessary_operation, unused)]
+        #[allow(clippy::unnecessary_operation, unused, clippy::self_assignment)]
         {
             self.div_apu_mod = self.div_apu_mod;
+            self.dot = self.dot;
         }
 
         self.hpf = [const { Capacitor(0.0) }; 2];

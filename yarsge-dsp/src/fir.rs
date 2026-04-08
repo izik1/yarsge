@@ -155,14 +155,12 @@ fn accumulate(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
             ]
         });
 
-    let acc = delay.0.iter().zip(taps.1).fold(acc, |dest, (delay, &tap)| {
+    delay.0.iter().zip(taps.1).fold(acc, |dest, (delay, &tap)| {
         [
             delay[0].mul_add_fast(tap, dest[0]),
             delay[1].mul_add_fast(tap, dest[1]),
         ]
-    });
-
-    acc
+    })
 }
 
 // https://github.com/scipy/scipy/blob/8c75ae75176236f233824e9a0483c26a69e6dfec/scipy/signal/_fir_filter_design.py#L577-L777
@@ -190,7 +188,6 @@ fn firwin2_sparse_gains(n_taps: NonZero<usize>, gains: SparseVec<f64>) -> Vec<f6
             .into_iter()
             .enumerate()
             .map(|(idx, r)| {
-                let r = r;
                 let p = pre * (gains_pre_len + gains.zeros + idx) as f64 / n_gains as f64;
                 Complex::from_polar(r, p)
             })

@@ -12,7 +12,7 @@ impl fmt::Debug for Complex {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            r#"({} {} {}i)"#,
+            "({} {} {}i)",
             self.re,
             if self.im.is_sign_positive() || self.im == 0.0 {
                 "+"

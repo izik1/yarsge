@@ -3,8 +3,6 @@ use yarsge_math::{Complex, SparseVec};
 pub fn dft_sparse(x: SparseVec<Complex>) -> impl IntoIterator<Item = Complex> {
     let big_n = x.len();
     (0..big_n).map(move |k| {
-        if k % 100 == 0 {}
-
         let pre_sum = x
             .pre
             .iter()

@@ -36,6 +36,7 @@ impl<T> RingBuf<T> {
         self.ring.len()
     }
 
+    #[must_use]
     pub const fn is_empty(&self) -> bool {
         debug_assert!(!self.ring.is_empty());
         false
