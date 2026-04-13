@@ -1,6 +1,7 @@
 use std::cmp;
 
 use arrayvec::ArrayVec;
+use yarsge_math::bmi;
 
 use crate::RisingEdge;
 use crate::emu::InterruptFlags;
@@ -184,22 +185,6 @@ impl SpriteFifo {
             color: (value as u8) & 0b11,
         }
     }
-}
-
-// https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
-// because we're interleaving bytes we can do `hi` and `lo` at the same time.
-fn interleave(hi: u8, lo: u8) -> u16 {
-    let hi = u32::from(hi);
-    let lo = u32::from(lo);
-
-    let res = (hi << 16) | lo;
-
-    let res = (res | (res << 4)) & 0x0f0f_0f0f;
-    let res = (res | (res << 2)) & 0x3333_3333;
-    let res = (res | (res << 1)) & 0x5555_5555;
-
-    let res = res | ((res >> 16) << 1);
-    res as u16
 }
 
 const fn get_map_base(lcdc: Lcdc, window: bool) -> usize {
@@ -437,7 +422,7 @@ impl PixelFetcher {
                     };
 
                     sprite_fifo.push8(
-                        interleave(tile_high, tile_low),
+                        bmi::interleave(tile_high, tile_low),
                         sprite.flags.contains(SpriteFlags::BG_OVER_SPRITE),
                         sprite.flags.contains(SpriteFlags::PALETTE),
                     );
@@ -446,7 +431,7 @@ impl PixelFetcher {
                     return;
                 }
 
-                self.st = if bg_fifo.push8(interleave(tile_high, tile_low)) {
+                self.st = if bg_fifo.push8(bmi::interleave(tile_high, tile_low)) {
                     if self.first {
                         self.first = false;
                     } else {
@@ -970,32 +955,5 @@ impl Ppu {
 impl Default for Ppu {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[cfg(test)]
-mod test {
-    #[test]
-    fn interleave_compare() {
-        fn interleave(hi: u8, lo: u8) -> u16 {
-            let mut res = 0;
-            let mut hi = u16::from(hi.reverse_bits());
-            let mut lo = u16::from(lo.reverse_bits());
-
-            for _ in 0..8 {
-                res <<= 2;
-                res |= ((hi & 1) << 1) | (lo & 1);
-                hi >>= 1;
-                lo >>= 1;
-            }
-
-            res
-        }
-
-        for hi in 0..=u8::MAX {
-            for lo in 0..=u8::MAX {
-                assert_eq!(super::interleave(hi, lo), interleave(hi, lo));
-            }
-        }
     }
 }
