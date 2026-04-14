@@ -135,6 +135,14 @@ impl<S: ApuSampler> Hardware<S> {
         #[allow(clippy::match_same_arms)]
         match addr {
             0x00 => self.pad.selected(),
+            0x01 => {
+                log::warn!("read stub (SB)");
+                0x00
+            }
+            0x02 => {
+                log::warn!("read stub (SC)");
+                0x7e
+            }
             0x04..0x08 => self.timer.read_reg(addr),
             0x08..0x0f => 0xff, // Empty range.
             0x0f => self.reg_if.bits() | 0xe0,

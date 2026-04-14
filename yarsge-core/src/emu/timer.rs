@@ -77,7 +77,7 @@ impl Lazy {
                 self.force();
 
                 self.cycles_to_next_interrupt = self.timer.next_interrupt();
-                assert_eq!(
+                debug_assert_eq!(
                     self.cycles_to_next_interrupt,
                     self.timer.next_interrupt_count()
                 );

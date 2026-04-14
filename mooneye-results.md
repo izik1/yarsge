@@ -20,14 +20,14 @@
 | acceptance/call_cc_timing2.gb                  | ✔️ | 3/5/8/13/21/34    |
 | acceptance/call_timing.gb                      | ✔️ | 3/5/8/13/21/34    |
 | acceptance/call_timing2.gb                     | ✔️ | 3/5/8/13/21/34    |
-| acceptance/di_timing-GS.gb                     | ❌    | 66/66/66/66/66/66 |
+| acceptance/di_timing-GS.gb                     | ✔️ | 3/5/8/13/21/34    |
 | acceptance/div_timing.gb                       | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ei_sequence.gb                      | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ei_timing.gb                        | ✔️ | 3/5/8/13/21/34    |
 | acceptance/halt_ime0_ei.gb                     | ✔️ | 3/5/8/13/21/34    |
 | acceptance/halt_ime0_nointr_timing.gb          | ✔️ | 3/5/8/13/21/34    |
 | acceptance/halt_ime1_timing.gb                 | ✔️ | 3/5/8/13/21/34    |
-| acceptance/halt_ime1_timing2-GS.gb             | ❌    | 66/66/66/66/66/66 |
+| acceptance/halt_ime1_timing2-GS.gb             | ✔️ | 3/5/8/13/21/34    |
 | acceptance/if_ie_registers.gb                  | ✔️ | 3/5/8/13/21/34    |
 | acceptance/instr/daa.gb                        | ✔️ | 3/5/8/13/21/34    |
 | acceptance/interrupts/ie_push.gb               | ✔️ | 3/5/8/13/21/34    |
@@ -43,8 +43,8 @@
 | acceptance/oam_dma_timing.gb                   | ✔️ | 3/5/8/13/21/34    |
 | acceptance/pop_timing.gb                       | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ppu/hblank_ly_scx_timing-GS.gb      | ❌    | 66/66/66/66/66/66 |
-| acceptance/ppu/intr_1_2_timing-GS.gb           | ❌    | 66/66/66/66/66/66 |
-| acceptance/ppu/intr_2_0_timing.gb              | ❌    | 66/66/66/66/66/66 |
+| acceptance/ppu/intr_1_2_timing-GS.gb           | ✔️ | 3/5/8/13/21/34    |
+| acceptance/ppu/intr_2_0_timing.gb              | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ppu/intr_2_mode0_timing.gb          | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/intr_2_mode0_timing_sprites.gb  | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/intr_2_mode3_timing.gb          | ❌    | 66/66/66/66/66/66 |

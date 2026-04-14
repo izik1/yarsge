@@ -476,6 +476,7 @@ enum WindowState {
 
 enum PpuState {
     Disabled,
+    PowerOn,
     OamScan,
     Draw {
         px_fetcher: PixelFetcher,
@@ -677,7 +678,13 @@ impl Ppu {
         irq |= self.ly_cp();
 
         match &mut self.state {
-            PpuState::Disabled => unreachable!(),
+            st @ PpuState::Disabled => {
+                *st = PpuState::PowerOn;
+            }
+            st @ PpuState::PowerOn => {
+                *st = PpuState::OamScan;
+                self.cycle_mod = 0;
+            }
             PpuState::OamScan => match cycle {
                 0 => self.stat_mode = 0,
                 1..3 => {}
@@ -934,10 +941,6 @@ impl Ppu {
         if !self.lcdc.contains(Lcdc::LCD_ENABLE) {
             self.disable();
             return reg_if;
-        }
-
-        if matches!(self.state, PpuState::Disabled) {
-            self.state = PpuState::OamScan;
         }
 
         let cycle = {
