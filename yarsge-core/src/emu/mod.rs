@@ -72,7 +72,7 @@ impl SubAssign for TCycle {
     }
 }
 
-pub struct GameBoy<S: ApuSampler> {
+pub struct GameBoy<S: ApuSampler, const BREAK_ON_LD_B_B: bool = false> {
     hw: Hardware<S>,
     cpu: Cpu,
     bank_ys: u128,
@@ -87,7 +87,7 @@ const YOCTOS_PER_CLOCK: u128 = 238_418_579_101_562_500;
 const YOCTOS_PER_NANO: u128 = 1_000_000_000_000_000;
 const NANOS_PER_MILLI: u128 = 1_000_000;
 
-impl<S: ApuSampler> GameBoy<S> {
+impl<S: ApuSampler> GameBoy<S, false> {
     #[must_use]
     pub fn new(boot_rom: Box<[u8]>, game_rom: Box<[u8]>, apu_sampler: S) -> Option<Self> {
         Some(Self {
@@ -96,7 +96,24 @@ impl<S: ApuSampler> GameBoy<S> {
             bank_ys: 0,
         })
     }
+}
 
+impl<S: ApuSampler> GameBoy<S, true> {
+    #[must_use]
+    pub fn new_break_on_ld_b_b(
+        boot_rom: Box<[u8]>,
+        game_rom: Box<[u8]>,
+        apu_sampler: S,
+    ) -> Option<Self> {
+        Some(Self {
+            hw: Hardware::new(memory::Memory::new_detect(game_rom, boot_rom)?, apu_sampler),
+            cpu: Cpu::new(),
+            bank_ys: 0,
+        })
+    }
+}
+
+impl<S: ApuSampler, const BREAK_ON_LD_B_B: bool> GameBoy<S, BREAK_ON_LD_B_B> {
     #[must_use]
     #[inline]
     pub fn display(&self) -> impl IntoIterator<Item = DisplayPixel> {
@@ -109,7 +126,11 @@ impl<S: ApuSampler> GameBoy<S> {
         &mut self.hw.pad.keys
     }
 
-    pub fn run(&mut self, elapsed: Duration, total_emulated_time: &mut Duration) {
+    pub fn read_registers(&self) -> registers::Registers {
+        self.cpu.regs.clone()
+    }
+
+    pub fn run(&mut self, elapsed: Duration, total_emulated_time: &mut Duration) -> bool {
         let old_bank = self.bank_ys;
         self.bank_ys = elapsed
             .as_nanos()
@@ -143,7 +164,13 @@ impl<S: ApuSampler> GameBoy<S> {
 
         while self.hw.cycle_counter > TCycle(0) {
             self.cpu.run(&mut self.hw);
+
+            if BREAK_ON_LD_B_B && self.cpu.regs.ir == 0x40 {
+                return true;
+            }
         }
+
+        false
     }
 
     pub fn run_host_time(
@@ -151,19 +178,21 @@ impl<S: ApuSampler> GameBoy<S> {
         start: Instant,
         duration: Duration,
         total_emulated_time: &mut Duration,
-    ) {
+    ) -> bool {
         if duration == Duration::ZERO {
-            return;
+            return false;
         }
 
         loop {
             let remaining = duration.saturating_sub(start.elapsed());
 
             if remaining == Duration::ZERO {
-                return;
+                return false;
             }
 
-            self.run(remaining * 4, total_emulated_time);
+            if self.run(remaining * 4, total_emulated_time) {
+                return true;
+            }
         }
     }
 

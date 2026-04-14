@@ -45,6 +45,7 @@ pub enum R16 {
     SP,
 }
 
+#[derive(Clone)]
 pub struct Registers {
     pub pc: Wrapping<u16>,
     pub a: u8,

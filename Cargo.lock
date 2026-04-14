@@ -871,6 +871,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "yarsge-headless"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "log",
+ "yarsge-core",
+]
+
+[[package]]
 name = "yarsge-math"
 version = "0.1.0"
 
