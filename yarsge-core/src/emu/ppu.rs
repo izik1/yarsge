@@ -537,6 +537,7 @@ pub struct Ppu {
     // visible value for `stat`'s lower two bits.
     stat_mode: u8,
     cycle_mod: u16,
+    line_mod: u16,
     visible_ly: u8,
     state: PpuState,
     pirq: RisingEdge,
@@ -565,6 +566,7 @@ impl Ppu {
             stat_upper: StatUpper::empty(),
             stat_mode: 0,
             cycle_mod: 0,
+            line_mod: 0,
             visible_ly: 0,
             pirq: RisingEdge::new(false),
             state: PpuState::Disabled,
@@ -657,6 +659,7 @@ impl Ppu {
             self.reach_wy = false;
             self.pirq = RisingEdge::new(false);
             self.cycle_mod = 0;
+            self.line_mod = 0;
             self.stat_mode = 0;
         }
     }
@@ -684,6 +687,7 @@ impl Ppu {
             st @ PpuState::PowerOn => {
                 *st = PpuState::OamScan;
                 self.cycle_mod = 0;
+                self.line_mod += 8;
             }
             PpuState::OamScan => match cycle {
                 0 => self.stat_mode = 0,
@@ -729,7 +733,7 @@ impl Ppu {
 
                     self.state = PpuState::draw(sprites, self.scx, self.reach_wy);
                 }
-                _ => unreachable!(),
+                _ => unreachable!("oam-scan on cycle {cycle}"),
             },
             PpuState::Draw {
                 px_fetcher,
@@ -884,7 +888,7 @@ impl Ppu {
             PpuState::HBlank => {
                 self.stat_mode = 0;
 
-                if cycle == 455 {
+                if self.line_mod == 455 {
                     self.ly += 1;
                     self.visible_ly = self.ly;
 
@@ -909,7 +913,7 @@ impl Ppu {
                         self.visible_ly = 0;
                     }
                 }
-                455 => {
+                _ if self.line_mod == 455 => {
                     self.ly += 1;
                     if self.ly == 154 {
                         self.ly = 0;
@@ -945,7 +949,13 @@ impl Ppu {
 
         let cycle = {
             let old = self.cycle_mod;
-            self.cycle_mod = (old + 1) % 456;
+            self.line_mod = (self.line_mod + 1) % 456;
+            if self.line_mod == 455 {
+                self.cycle_mod = 0;
+            } else {
+                self.cycle_mod = old + 1;
+            }
+
             old
         };
 

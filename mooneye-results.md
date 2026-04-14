@@ -45,10 +45,10 @@
 | acceptance/ppu/hblank_ly_scx_timing-GS.gb      | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/intr_1_2_timing-GS.gb           | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ppu/intr_2_0_timing.gb              | ✔️ | 3/5/8/13/21/34    |
-| acceptance/ppu/intr_2_mode0_timing.gb          | ❌    | 66/66/66/66/66/66 |
+| acceptance/ppu/intr_2_mode0_timing.gb          | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ppu/intr_2_mode0_timing_sprites.gb  | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/intr_2_mode3_timing.gb          | ❌    | 66/66/66/66/66/66 |
-| acceptance/ppu/intr_2_oam_ok_timing.gb         | ❌    | 66/66/66/66/66/66 |
+| acceptance/ppu/intr_2_oam_ok_timing.gb         | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ppu/lcdon_timing-GS.gb              | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/lcdon_write_timing-GS.gb        | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/stat_irq_blocking.gb            | ✔️ | 3/5/8/13/21/34    |
