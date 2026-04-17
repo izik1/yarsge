@@ -2,6 +2,8 @@ use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use std::num::NonZero;
 use std::time::Duration;
 use yarsge_dsp::Fir;
+use yarsge_dsp::fourier::irdft_sparse;
+use yarsge_math::{Complex, SparseVec};
 
 fn sine(amp: f64, freq: f64, time: f64) -> f32 {
     // assume phase = 0, not much use for it.
@@ -45,6 +47,71 @@ fn criterion_benchmark(c: &mut Criterion) {
             },
         );
     }
+    drop(g);
+
+    let mut g = c.benchmark_group("fourier");
+    g.measurement_time(Duration::from_secs(10));
+    g.sample_size(250);
+    for prefix_size in [1, 10, 100] {
+        for zeros in [1000, 10_000, 100_000] {
+            let input = firwin_pre(
+                NonZero::new(prefix_size + zeros).unwrap(),
+                SparseVec {
+                    pre: vec![1.0; prefix_size],
+                    zeros,
+                    post: Vec::new(),
+                },
+            );
+
+            g.bench_with_input(
+                BenchmarkId::new("irdft_sparse", format!("{prefix_size}x+{zeros}z")),
+                &input,
+                |bench, input| {
+                    bench.iter_batched(
+                        || input.clone(),
+                        |input| {
+                            let res: Vec<_> = irdft_sparse(input).into_iter().collect();
+                            res
+                        },
+                        criterion::BatchSize::LargeInput,
+                    );
+                },
+            );
+        }
+    }
+}
+
+fn firwin_pre(n_taps: NonZero<usize>, gains: SparseVec<f64>) -> SparseVec<Complex> {
+    let n_taps = n_taps.get();
+    let n_gains = gains.len();
+
+    let pre = (n_taps as f64 - 1.0) * -std::f64::consts::FRAC_PI_2;
+
+    let gains_pre_len = gains.pre.len();
+    let gainsc = SparseVec {
+        pre: gains
+            .pre
+            .into_iter()
+            .enumerate()
+            .map(|(idx, r)| {
+                let r = r;
+                let p = pre * (idx as f64) / (n_gains as f64);
+                Complex::from_polar(r, p)
+            })
+            .collect(),
+        zeros: gains.zeros,
+        post: gains
+            .post
+            .into_iter()
+            .enumerate()
+            .map(|(idx, r)| {
+                let p = pre * (gains_pre_len + gains.zeros + idx) as f64 / n_gains as f64;
+                Complex::from_polar(r, p)
+            })
+            .collect(),
+    };
+
+    gainsc
 }
 
 criterion_group!(benches, criterion_benchmark);

@@ -1,4 +1,4 @@
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SparseVec<T> {
     pub pre: Vec<T>,
     pub zeros: usize,
