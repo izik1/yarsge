@@ -2,6 +2,16 @@ use yarsge_math::{Complex, SparseVec};
 
 pub fn dft_sparse(x: SparseVec<Complex>) -> impl IntoIterator<Item = Complex> {
     let big_n = x.len();
+    let pre_n = x.pre.len() + x.zeros;
+    let f_init = std::f64::consts::TAU / (big_n as f64);
+
+    let f: Vec<_> = (0..big_n)
+        .map(|k| {
+            let f = f_init * (k as f64);
+            Complex::cis(f).conj()
+        })
+        .collect();
+
     (0..big_n).map(move |k| {
         let pre_sum = x
             .pre
@@ -9,25 +19,15 @@ pub fn dft_sparse(x: SparseVec<Complex>) -> impl IntoIterator<Item = Complex> {
             .copied()
             .enumerate()
             .fold(Complex::ZERO, |out, (n, x)| {
-                let f = std::f64::consts::TAU * (k as f64) * (n as f64) / (big_n as f64);
-                out + x * Complex {
-                    re: f.cos(),
-                    im: -f.sin(),
-                }
+                x.mul_add(f[(k * n) % big_n], out)
             });
-
-        let pre_n = x.pre.len() + x.zeros;
 
         x.post
             .iter()
             .copied()
             .enumerate()
             .fold(pre_sum, |out, (n, x)| {
-                let f = std::f64::consts::TAU * (k as f64) * ((pre_n + n) as f64) / (big_n as f64);
-                out + x * Complex {
-                    re: f.cos(),
-                    im: -f.sin(),
-                }
+                x.mul_add(f[(k * (pre_n + n)) % big_n], out)
             })
     })
 }
@@ -112,7 +112,7 @@ mod tests {
                     assert_eq!(left_val.len(), right_val.len());
                     let mse = complex_mse(left_val, right_val);
                     assert!(
-                        mse < 1e-28,
+                        mse < 1e-29,
                         "{}",
                         fmt::from_fn(|f| assert_approx_eq_failed(f, mse, left_val, right_val))
                     );
@@ -139,7 +139,7 @@ mod tests {
                     assert_eq!(left_val.len(), right_val.len());
                     let mse = mse(left_val, right_val);
                     assert!(
-                        mse < 1e-28,
+                        mse < 1e-31,
                         "{}",
                         fmt::from_fn(|f| assert_approx_eq_failed(f, mse, left_val, right_val))
                     );

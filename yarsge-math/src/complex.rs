@@ -87,7 +87,7 @@ impl Complex {
         Self {
             re: self
                 .re
-                .mul_add_fast(x.re, -self.im.mul_add_fast(x.im, y.re)),
+                .mul_add_fast(x.re, self.im.mul_add_fast(-x.im, y.re)),
             im: self.re.mul_add_fast(x.im, self.im.mul_add_fast(x.re, y.im)),
         }
     }
