@@ -262,6 +262,8 @@ impl Pwm {
                 false
             };
 
+            self.ever_triggered = true;
+
             if self.sweep.timer != 0 {
                 self.enabled &= self.sweep.calc_period(self.shadow_period).is_some();
             }
