@@ -88,7 +88,7 @@ impl Fir {
 
         let mut x = x.iter().copied();
 
-        let gain = (self.expansion_factor.get() as f64).recip();
+        let gain = self.expansion_factor.get() as f64;
 
         'outputs: loop {
             let until_expand = self.expansion_factor.get() - self.tap_idx;
@@ -123,7 +123,7 @@ impl Fir {
 
             unsafe {
                 *yp.get_unchecked_mut(yidx) =
-                    MaybeUninit::new([(acc[0] / gain) as f32, (acc[1] / gain) as f32])
+                    MaybeUninit::new([(acc[0] * gain) as f32, (acc[1] * gain) as f32])
             };
             yidx += 1;
         }
@@ -138,29 +138,25 @@ impl Fir {
     }
 }
 
+fn accumulate_partial(acc: [f64; 2], delay: &[[f64; 2]], taps: &[f64]) -> [f64; 2] {
+    delay.iter().zip(taps).fold(acc, |dest, (delay, &tap)| {
+        [
+            delay[0].mul_add_fast(tap, dest[0]),
+            delay[1].mul_add_fast(tap, dest[1]),
+        ]
+    })
+}
+
+// Safety: delay.len() == taps.len()
+// As a side-effect, this also means `taps.is_empty()` must be false.
 fn accumulate(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
     // unfortunately `chain` is really unamenable to autovectorization :/
     let delay = delay.split();
 
     let taps = taps.split_at(delay.1.len());
 
-    let acc = delay
-        .1
-        .iter()
-        .zip(taps.0)
-        .fold([0.0; 2], |dest, (delay, &tap)| {
-            [
-                delay[0].mul_add_fast(tap, dest[0]),
-                delay[1].mul_add_fast(tap, dest[1]),
-            ]
-        });
-
-    delay.0.iter().zip(taps.1).fold(acc, |dest, (delay, &tap)| {
-        [
-            delay[0].mul_add_fast(tap, dest[0]),
-            delay[1].mul_add_fast(tap, dest[1]),
-        ]
-    })
+    let acc = accumulate_partial([0.0; 2], delay.1, taps.0);
+    accumulate_partial(acc, delay.0, taps.1)
 }
 
 // https://github.com/scipy/scipy/blob/8c75ae75176236f233824e9a0483c26a69e6dfec/scipy/signal/_fir_filter_design.py#L577-L777
