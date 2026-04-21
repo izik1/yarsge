@@ -139,28 +139,111 @@ impl Fir {
     }
 }
 
-#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
-type Accumulator = core::arch::x86_64::__m256d;
+// Safety: delay.len() == taps.len()
+// As a side-effect, this also means `taps.is_empty()` must be false.
+#[cfg(all(target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f,avx,avx512vl")]
+#[cfg_attr(
+    not(all(
+        target_feature = "avx512f",
+        target_feature = "avx",
+        target_feature = "avx512vl"
+    ),),
+    allow(dead_code)
+)]
+fn accumulate_avx512(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
+    // probably not the best code in existence, but it does what it needs to for now.
+    use std::arch::x86_64 as arch;
+
+    #[target_feature(enable = "avx512f,avx,avx512vl")]
+    fn accumulate_partial_avx512(
+        acc: arch::__m512d,
+        delay: &[[f64; 2]],
+        taps: &[f64],
+    ) -> arch::__m512d {
+        use core::slice;
+
+        let (delay, delay_rem) = delay.as_chunks::<4>();
+        // delay needs to be flattened, unfortunately, I don't know how to do that other than...
+        let delay =
+            unsafe { slice::from_raw_parts(delay.as_ptr().cast::<[f64; 8]>(), delay.len()) };
+        let (taps, taps_rem) = taps.as_chunks::<4>();
+
+        let acc = delay.iter().zip(taps).fold(acc, |dest, (delay, tap)| {
+            let delay = unsafe { arch::_mm512_loadu_pd(delay.as_ptr()) };
+            let tap = unsafe { arch::_mm256_loadu_pd(tap.as_ptr()) };
+            let tap = arch::_mm512_broadcast_f64x4(tap);
+            arch::_mm512_fmadd_pd(delay, tap, dest)
+        });
+
+        let delay = unsafe {
+            arch::_mm512_maskz_loadu_pd(
+                (1 << taps_rem.len()) - 1,
+                delay_rem.as_flattened().as_ptr(),
+            )
+        };
+
+        let tap =
+            unsafe { arch::_mm256_maskz_loadu_pd((1 << taps_rem.len()) - 1, taps_rem.as_ptr()) };
+        let tap = arch::_mm512_broadcast_f64x4(tap);
+        arch::_mm512_fmadd_pd(delay, tap, acc)
+    }
+
+    let delay = delay.split();
+
+    let taps = taps.split_at(delay.1.len());
+
+    let acc = arch::_mm512_setzero_pd();
+
+    let acc = accumulate_partial_avx512(acc, delay.1, taps.0);
+    let acc = accumulate_partial_avx512(acc, delay.0, taps.1);
+
+    let acc = {
+        let a = arch::_mm512_extractf64x4_pd::<0>(acc);
+        let b = arch::_mm512_extractf64x4_pd::<1>(acc);
+        arch::_mm256_add_pd(a, b)
+    };
+
+    let acc = {
+        let acc_a = arch::_mm256_extractf128_pd::<0>(acc);
+        let acc_b = arch::_mm256_extractf128_pd::<1>(acc);
+        arch::_mm_add_pd(acc_a, acc_b)
+    };
+
+    let mut out = [0.0; 2];
+    unsafe { arch::_mm_storeu_pd(out.as_mut_ptr(), acc) };
+    out
+}
 
 // Safety: delay.len() == taps.len()
 // As a side-effect, this also means `taps.is_empty()` must be false.
-#[cfg(all(
-    target_arch = "x86_64",
-    target_feature = "sse2",
-    target_feature = "avx2",
-    target_feature = "fma",
-))]
-#[target_feature(enable = "avx2")]
-#[target_feature(enable = "sse2")]
-#[target_feature(enable = "fma")]
+#[cfg(all(target_arch = "x86_64"))]
+#[target_feature(enable = "avx2,fma,sse2")]
+#[cfg_attr(
+    any(
+        not(all(
+            target_feature = "sse2",
+            target_feature = "avx2",
+            target_feature = "fma",
+        )),
+        all(
+            target_feature = "avx512f",
+            target_feature = "avx",
+            target_feature = "avx512vl"
+        )
+    ),
+    allow(dead_code)
+)]
 fn accumulate_avx2(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
     // probably not the best avx2 code in existence, but it does what it needs to for now.
     use std::arch::x86_64 as arch;
 
-    #[target_feature(enable = "avx2")]
-    #[target_feature(enable = "sse2")]
-    #[target_feature(enable = "fma")]
-    fn accumulate_partial_avx2(acc: Accumulator, delay: &[[f64; 2]], taps: &[f64]) -> Accumulator {
+    #[target_feature(enable = "avx2,fma,sse2")]
+    fn accumulate_partial_avx2(
+        acc: arch::__m256d,
+        delay: &[[f64; 2]],
+        taps: &[f64],
+    ) -> arch::__m256d {
         use core::slice;
 
         let (delay, delay_rem) = delay.as_chunks::<2>();
@@ -207,7 +290,9 @@ fn accumulate_avx2(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
 // As a side-effect, this also means `taps.is_empty()` must be false.
 fn accumulate(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
     cfg_select! {
-            // Safety: sse2, avx2, and fma are all present on the target.
+        //  Safety: avx512f, avx512vl, and avx are all present on the target.
+        all(target_arch = "x86_64", target_feature = "avx512f", target_feature = "avx512vl", target_feature = "avx") => unsafe { accumulate_avx512(delay, taps) },
+        // Safety: sse2, avx2, and fma are all present on the target.
         all(target_arch = "x86_64", target_feature = "sse2", target_feature = "avx2", target_feature = "fma") => unsafe { accumulate_avx2(delay, taps) },
         _ => {
              fn accumulate_partial(acc: [f64; 2], delay: &[[f64; 2]], taps: &[f64]) -> [f64; 2] {
