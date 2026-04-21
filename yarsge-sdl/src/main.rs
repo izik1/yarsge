@@ -114,7 +114,7 @@ struct Opt {
     #[clap(short = 'p', long, default_value_t = Palette::DEFAULT)]
     palette: Palette,
 
-    #[clap(long, value_enum, default_value_t = AudioSystem::Mean)]
+    #[clap(long, value_enum, default_value_t = AudioSystem::Fir)]
     audio_system: AudioSystem,
 
     #[clap(
