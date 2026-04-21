@@ -2,7 +2,7 @@ use std::cmp;
 use std::mem::MaybeUninit;
 use std::num::NonZero;
 
-use yarsge_math::{Complex, FloatExt as _, RingBuf, SparseVec};
+use yarsge_math::{Complex, RingBuf, SparseVec};
 
 use crate::fourier::irdft_sparse;
 use crate::window;
@@ -139,25 +139,95 @@ impl Fir {
     }
 }
 
-fn accumulate_partial(acc: [f64; 2], delay: &[[f64; 2]], taps: &[f64]) -> [f64; 2] {
-    delay.iter().zip(taps).fold(acc, |dest, (delay, &tap)| {
-        [
-            delay[0].mul_add_fast(tap, dest[0]),
-            delay[1].mul_add_fast(tap, dest[1]),
-        ]
-    })
+#[cfg(all(target_arch = "x86_64", target_feature = "avx2"))]
+type Accumulator = core::arch::x86_64::__m256d;
+
+// Safety: delay.len() == taps.len()
+// As a side-effect, this also means `taps.is_empty()` must be false.
+#[cfg(all(
+    target_arch = "x86_64",
+    target_feature = "sse2",
+    target_feature = "avx2",
+    target_feature = "fma",
+))]
+#[target_feature(enable = "avx2")]
+#[target_feature(enable = "sse2")]
+#[target_feature(enable = "fma")]
+fn accumulate_avx2(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
+    // probably not the best avx2 code in existence, but it does what it needs to for now.
+    use std::arch::x86_64 as arch;
+
+    #[target_feature(enable = "avx2")]
+    #[target_feature(enable = "sse2")]
+    #[target_feature(enable = "fma")]
+    fn accumulate_partial_avx2(acc: Accumulator, delay: &[[f64; 2]], taps: &[f64]) -> Accumulator {
+        use core::slice;
+
+        let (delay, delay_rem) = delay.as_chunks::<2>();
+        // delay needs to be flattened, unfortunately, I don't know how to do that other than...
+        let delay =
+            unsafe { slice::from_raw_parts(delay.as_ptr().cast::<[f64; 4]>(), delay.len()) };
+        let (taps, taps_rem) = taps.as_chunks::<2>();
+
+        let acc = delay.iter().zip(taps).fold(acc, |dest, (delay, tap)| {
+            let delay = unsafe { arch::_mm256_loadu_pd(delay.as_ptr()) };
+            let tap = unsafe { arch::_mm_loadu_pd(tap.as_ptr()) };
+            let tap = arch::_mm256_broadcast_pd(&tap);
+            arch::_mm256_fmadd_pd(delay, tap, dest)
+        });
+
+        let ([delay], [tap]) = (delay_rem, taps_rem) else {
+            return acc;
+        };
+
+        let delay = unsafe { arch::_mm_loadu_pd(delay.as_ptr()) };
+        let delay = arch::_mm256_zextpd128_pd256(delay);
+        let tap = arch::_mm256_broadcast_sd(tap);
+        arch::_mm256_fmadd_pd(delay, tap, acc)
+    }
+
+    let delay = delay.split();
+
+    let taps = taps.split_at(delay.1.len());
+
+    let acc = arch::_mm256_setzero_pd();
+
+    let acc = accumulate_partial_avx2(acc, delay.1, taps.0);
+    let acc = accumulate_partial_avx2(acc, delay.0, taps.1);
+    let acc_a = arch::_mm256_extractf128_pd::<0>(acc);
+    let acc_b = arch::_mm256_extractf128_pd::<1>(acc);
+    let acc = arch::_mm_add_pd(acc_a, acc_b);
+
+    let mut out = [0.0; 2];
+    unsafe { arch::_mm_storeu_pd(out.as_mut_ptr(), acc) };
+    out
 }
 
 // Safety: delay.len() == taps.len()
 // As a side-effect, this also means `taps.is_empty()` must be false.
 fn accumulate(delay: &RingBuf<[f64; 2]>, taps: &[f64]) -> [f64; 2] {
-    // unfortunately `chain` is really unamenable to autovectorization :/
-    let delay = delay.split();
+    cfg_select! {
+            // Safety: sse2, avx2, and fma are all present on the target.
+        all(target_arch = "x86_64", target_feature = "sse2", target_feature = "avx2", target_feature = "fma") => unsafe { accumulate_avx2(delay, taps) },
+        _ => {
+             fn accumulate_partial(acc: [f64; 2], delay: &[[f64; 2]], taps: &[f64]) -> [f64; 2] {
+                use yarsge_math::FloatExt as _;
+                 delay.iter().zip(taps).fold(acc, |dest, (delay, &tap)| {
+                     [
+                         delay[0].mul_add_fast(tap, dest[0]),
+                         delay[1].mul_add_fast(tap, dest[1]),
+                     ]
+                 })
+             }
 
-    let taps = taps.split_at(delay.1.len());
+            // unfortunately `chain` is really unamenable to autovectorization :/
+            let delay = delay.split();
 
-    let acc = accumulate_partial([0.0; 2], delay.1, taps.0);
-    accumulate_partial(acc, delay.0, taps.1)
+            let taps = taps.split_at(delay.1.len());
+            let acc = accumulate_partial([0.0; 2], delay.1, taps.0);
+            accumulate_partial(acc, delay.0, taps.1)
+        }
+    }
 }
 
 // https://github.com/scipy/scipy/blob/8c75ae75176236f233824e9a0483c26a69e6dfec/scipy/signal/_fir_filter_design.py#L577-L777
