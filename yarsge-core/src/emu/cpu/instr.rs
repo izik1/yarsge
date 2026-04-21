@@ -494,7 +494,7 @@ pub fn daa<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
         cpu.regs.f |= CpuFlags::C;
     }
 
-    cpu.regs.a = res as u8;
+    cpu.regs.a = res.cast_unsigned() as u8;
 
     cpu.regs.f.set(CpuFlags::Z, cpu.regs.a == 0);
 
@@ -627,7 +627,7 @@ pub fn sbc<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx, register: MathReg) -> Stat
     cpu.regs.f.set(CpuFlags::Z, result == 0);
     cpu.regs.f.insert(CpuFlags::N);
 
-    let half_carry = (a & 0xf) < ((value & 0xf) + (carry_in as u8));
+    let half_carry = (a & 0xf) < ((value & 0xf) + u8::from(carry_in));
     cpu.regs.f.set(CpuFlags::H, half_carry);
 
     cpu.regs.f.set(CpuFlags::C, carry_out);
@@ -1020,17 +1020,17 @@ pub fn add_sp_r8<Ctx: CpuBus>(cpu: &mut Cpu, ctx: &mut Ctx) -> Status {
     ctx.tick_cycle();
     ctx.tick_cycle();
 
-    cpu.regs.f = CpuFlags::empty();
-    cpu.regs.f.set(
-        CpuFlags::H,
-        ((cpu.regs.sp.0 & 0x0f) + (r8 as u16 & 0x0f)) > 0x0f,
-    );
-    cpu.regs.f.set(
-        CpuFlags::C,
-        ((cpu.regs.sp.0 & 0xff) + (r8 as u16 & 0xff)) > 0xff,
-    );
+    let r8 = i16::from(r8).cast_unsigned();
 
-    cpu.regs.sp += i16::from(r8).cast_unsigned();
+    cpu.regs.f = CpuFlags::empty();
+    cpu.regs
+        .f
+        .set(CpuFlags::H, ((cpu.regs.sp.0 & 0x0f) + (r8 & 0x0f)) > 0x0f);
+    cpu.regs
+        .f
+        .set(CpuFlags::C, ((cpu.regs.sp.0 & 0xff) + (r8 & 0xff)) > 0xff);
+
+    cpu.regs.sp += r8;
 
     cpu.generic_fetch(ctx)
 }

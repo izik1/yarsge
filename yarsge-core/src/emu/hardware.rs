@@ -93,18 +93,19 @@ impl<S: ApuSampler> Hardware<S> {
 
     fn tick_n<const CYCLES: isize>(&mut self, bus: &mut ExternalBus) {
         const { assert!(CYCLES > 0) };
+        let cycles = const { CYCLES.cast_unsigned() as u32 };
 
-        for _ in 0..CYCLES {
+        for _ in 0..cycles {
             self.dma.tick(bus, &mut self.ppu, &mut self.memory);
 
             self.reg_if |= self.ppu.tick();
         }
 
-        for x in 0..CYCLES {
-            self.apu.tick(self.timer.lazy_div(x as u32));
+        for x in 0..cycles {
+            self.apu.tick(self.timer.lazy_div(x));
         }
 
-        self.reg_if |= self.timer.tick(CYCLES as u32);
+        self.reg_if |= self.timer.tick(cycles);
 
         self.cycle_counter -= TCycle(CYCLES);
     }

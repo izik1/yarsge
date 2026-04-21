@@ -16,6 +16,7 @@ pub enum AudioSystem {
 }
 
 #[inline(never)]
+#[must_use]
 pub fn audio_init(
     audio_subsystem: &AudioSubsystem,
     time_control_enabled: bool,
@@ -63,6 +64,7 @@ pub struct FilteredSampler {
 }
 
 impl FilteredSampler {
+    #[must_use]
     pub const fn mute() -> Self {
         Self {
             samples: Vec::new(),
@@ -70,6 +72,7 @@ impl FilteredSampler {
         }
     }
 
+    #[must_use]
     pub fn new(filter: AudioFilter) -> Self {
         Self {
             // arbitrarily assume that we probably won't use more than 128 samples (~3ms)
@@ -129,10 +132,10 @@ pub enum AudioFilter {
 impl AudioFilter {
     fn filter(&mut self, sample: [f32; 2]) -> Option<[f32; 2]> {
         match self {
-            AudioFilter::Mute => None,
-            AudioFilter::NearestNeighbor(it) => it.filter(sample),
-            AudioFilter::Mean(it) => it.filter(sample),
-            AudioFilter::Fir(it) => it.filter(sample),
+            Self::Mute => None,
+            Self::NearestNeighbor(it) => it.filter(sample),
+            Self::Mean(it) => it.filter(sample),
+            Self::Fir(it) => it.filter(sample),
         }
     }
 }
@@ -176,7 +179,7 @@ pub struct MeanFilter {
 }
 
 impl MeanFilter {
-    fn next_samples(expansion_factor: u32, decimation_factor: u32, phase: u32) -> u8 {
+    const fn next_samples(expansion_factor: u32, decimation_factor: u32, phase: u32) -> u8 {
         (decimation_factor - phase).div_ceil(expansion_factor) as u8
     }
 

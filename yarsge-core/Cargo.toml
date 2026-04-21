@@ -7,7 +7,7 @@ edition.workspace = true
 [dependencies]
 arrayvec = "0.7.6"
 bitflags = "2.10.0"
-log = "0.4.14"
+log.workspace = true
 yarsge-math.workspace = true
 
 [dev-dependencies]

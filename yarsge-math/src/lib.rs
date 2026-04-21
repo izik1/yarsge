@@ -1,11 +1,5 @@
 #![warn(clippy::pedantic)]
-#![allow(
-    clippy::verbose_bit_mask,
-    clippy::inline_always,
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
-)]
+#![allow(clippy::inline_always, clippy::cast_possible_truncation)]
 
 mod complex;
 mod ring_buf;
@@ -32,14 +26,9 @@ mod util {
     impl FloatExt for f32 {
         #[inline(always)]
         fn mul_add_fast(self, y: Self, z: Self) -> Self {
-            #[cfg(all(target_arch = "x86_64", target_feature = "fma"))]
-            {
-                self.mul_add(y, z)
-            }
-
-            #[cfg(not(all(target_arch = "x86_64", target_feature = "fma")))]
-            {
-                self * y + z
+            cfg_select! {
+                all(target_arch = "x86_64", target_feature = "fma") => self.mul_add(y, z),
+                _ => self * y + z,
             }
         }
     }
@@ -47,14 +36,9 @@ mod util {
     impl FloatExt for f64 {
         #[inline(always)]
         fn mul_add_fast(self, y: Self, z: Self) -> Self {
-            #[cfg(all(target_arch = "x86_64", target_feature = "fma"))]
-            {
-                self.mul_add(y, z)
-            }
-
-            #[cfg(not(all(target_arch = "x86_64", target_feature = "fma")))]
-            {
-                self * y + z
+            cfg_select! {
+                all(target_arch = "x86_64", target_feature = "fma") => self.mul_add(y, z),
+                _ => self * y + z,
             }
         }
     }
@@ -79,33 +63,26 @@ pub mod bmi {
     }
 
     #[inline]
+    #[must_use]
     pub fn interleave(hi: u8, lo: u8) -> u16 {
-        #[cfg(all(
-            any(target_arch = "x86", target_arch = "x86_64"),
-            target_feature = "bmi2"
-        ))]
-        {
+        cfg_select! {
             // Safety: requires BMI2, but BMI2 is right here
-            unsafe { interleave_bmi2(hi, lo) }
-        }
-        #[cfg(not(all(
-            any(target_arch = "x86", target_arch = "x86_64"),
-            target_feature = "bmi2"
-        )))]
-        {
-            // https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
-            // because we're interleaving bytes we can do `hi` and `lo` at the same time.
-            let hi = u32::from(hi);
-            let lo = u32::from(lo);
+            all(any(target_arch = "x86", target_arch = "x86_64"), target_feature = "bmi2") => unsafe { interleave_bmi2(hi, lo) },
+            _ => {
+                // https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN
+                // because we're interleaving bytes we can do `hi` and `lo` at the same time.
+                let hi = u32::from(hi);
+                let lo = u32::from(lo);
 
-            let res = (hi << 16) | lo;
+                let res = (hi << 16) | lo;
 
-            let res = (res | (res << 4)) & 0x0f0f_0f0f;
-            let res = (res | (res << 2)) & 0x3333_3333;
-            let res = (res | (res << 1)) & 0x5555_5555;
+                let res = (res | (res << 4)) & 0x0f0f_0f0f;
+                let res = (res | (res << 2)) & 0x3333_3333;
+                let res = (res | (res << 1)) & 0x5555_5555;
 
-            let res = res | ((res >> 16) << 1);
-            res as u16
+                let res = res | ((res >> 16) << 1);
+                res as u16
+            }
         }
     }
 

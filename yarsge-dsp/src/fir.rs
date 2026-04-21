@@ -20,6 +20,7 @@ pub struct Fir {
 const GAINS: usize = 1 << 18;
 
 impl Fir {
+    #[must_use]
     pub fn new(expansion_factor: NonZero<usize>, decimation_factor: NonZero<usize>) -> Self {
         // sure, we could support net expansion, but, meh.
         assert!(expansion_factor <= decimation_factor);
@@ -123,7 +124,7 @@ impl Fir {
 
             unsafe {
                 *yp.get_unchecked_mut(yidx) =
-                    MaybeUninit::new([(acc[0] * gain) as f32, (acc[1] * gain) as f32])
+                    MaybeUninit::new([(acc[0] * gain) as f32, (acc[1] * gain) as f32]);
             };
             yidx += 1;
         }
@@ -173,7 +174,6 @@ fn firwin2_sparse_gains(n_taps: NonZero<usize>, gains: SparseVec<f64>) -> Vec<f6
             .into_iter()
             .enumerate()
             .map(|(idx, r)| {
-                let r = r;
                 let p = pre * (idx as f64) / (n_gains as f64);
                 Complex::from_polar(r, p)
             })

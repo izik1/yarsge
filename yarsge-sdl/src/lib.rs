@@ -1,3 +1,5 @@
+#![warn(clippy::pedantic, clippy::nursery)]
+
 pub mod audio;
 pub mod input;
 
@@ -37,6 +39,7 @@ pub struct Statistics {
 impl Statistics {
     const PERIOD: Duration = Duration::from_secs(1);
 
+    #[must_use]
     pub fn new(start: Instant) -> Self {
         Self {
             next_report: start + Self::PERIOD,
@@ -55,6 +58,7 @@ pub struct Interval<P> {
 }
 
 impl<P> Interval<P> {
+    #[must_use]
     pub const fn at(start: Instant) -> Self {
         Self {
             next: start,
@@ -109,7 +113,7 @@ pub fn report_statistics(
     );
 
     if let Some(audio_bytes_ahead) = audio_bytes_ahead {
-        let bytes = audio_bytes_ahead as u32;
+        let bytes = audio_bytes_ahead.cast_unsigned();
         log::debug!(
             target: "statistics",
             "Audio buffer (bytes: {bytes}, samples: {samples}, duration: {duration:.03}s)",

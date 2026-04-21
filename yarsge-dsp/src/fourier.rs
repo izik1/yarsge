@@ -1,5 +1,6 @@
 use yarsge_math::{Complex, SparseVec};
 
+#[must_use]
 pub fn dft_sparse(x: SparseVec<Complex>) -> impl IntoIterator<Item = Complex> {
     let big_n = x.len();
     let pre_n = x.pre.len() + x.zeros;
@@ -32,6 +33,7 @@ pub fn dft_sparse(x: SparseVec<Complex>) -> impl IntoIterator<Item = Complex> {
     })
 }
 
+#[must_use]
 pub fn idft_sparse(mut x: SparseVec<Complex>) -> impl IntoIterator<Item = Complex> {
     let n = x.len();
 
@@ -79,6 +81,7 @@ fn irdft_sparse_pad(xc: &mut SparseVec<Complex>) {
     }
 }
 
+#[must_use]
 pub fn irdft_sparse(mut xc: SparseVec<Complex>) -> impl IntoIterator<Item = f64> {
     irdft_sparse_pad(&mut xc);
 

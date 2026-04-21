@@ -269,6 +269,10 @@ impl Mbc {
         }
     }
 
+    #[expect(
+        clippy::similar_names,
+        reason = "there isn't a better name for rom/ram"
+    )]
     const fn new_detect(cart_type: u8, banks_rom: u8, banks_ram: u8) -> Option<Self> {
         if !(banks_rom <= 8 && banks_ram <= 5) {
             return None;

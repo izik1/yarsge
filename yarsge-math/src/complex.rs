@@ -83,7 +83,7 @@ impl Complex {
 
     #[inline]
     #[must_use]
-    pub fn mul_add(self, x: Complex, y: Complex) -> Self {
+    pub fn mul_add(self, x: Self, y: Self) -> Self {
         Self {
             re: self
                 .re

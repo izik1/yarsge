@@ -1,3 +1,4 @@
+#[must_use]
 pub fn hann(len: usize) -> Vec<f64> {
     assert!(len >= 2);
 

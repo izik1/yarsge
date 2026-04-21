@@ -214,11 +214,11 @@ impl Pwm {
     }
 
     fn on_div_apu(&mut self, div_apu_mod: u8) {
-        if self.envelope.sweep_pace != 0 && div_apu_mod % 8 == 0 {
+        if self.envelope.sweep_pace != 0 && div_apu_mod.is_multiple_of(8) {
             self.envelope.tick();
         }
 
-        if self.sweep.enabled && div_apu_mod % 4 == 0 && self.sweep.timer > 0 {
+        if self.sweep.enabled && div_apu_mod.is_multiple_of(4) && self.sweep.timer > 0 {
             let (enabled, shadow_period) = self.sweep.tick(self.shadow_period);
             self.enabled &= enabled;
 
@@ -915,7 +915,7 @@ impl<S: ApuSampler> Apu<S> {
         let is_aligned = self.dot.is_multiple_of(2);
         self.dot = ((u32::from(self.dot).wrapping_add(ticks)) as u8) % 4;
 
-        let Some(ticks) = NonZero::new(ticks.saturating_sub(!is_aligned as u32)) else {
+        let Some(ticks) = NonZero::new(ticks.saturating_sub(u32::from(!is_aligned))) else {
             return;
         };
 
@@ -932,12 +932,12 @@ impl<S: ApuSampler> Apu<S> {
         // align `self.dot` to an even cycle if possible (that's when we output samples)
         let is_aligned = self.dot.is_multiple_of(2);
 
-        let Some(ticks) = NonZero::new(ticks.saturating_sub(!is_aligned as u32)) else {
+        let Some(ticks) = NonZero::new(ticks.saturating_sub(u32::from(!is_aligned))) else {
             self.dot = (self.dot + (ticks as u8)) % 4;
             return;
         };
 
-        self.dot = (self.dot + (!is_aligned as u8)) % 4;
+        self.dot = (self.dot + u8::from(!is_aligned)) % 4;
 
         // fixme: proper implementation (we have some more things to change about the APU first)
         if self.dac_enabled == 0 {
