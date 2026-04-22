@@ -165,10 +165,17 @@ impl SpriteFifo {
     // always succeeds a push ("overlapping" pixels just get skipped)
     fn push8(&mut self, hi: u8, lo: u8, bg_over_sprite: bool, palette: bool) {
         let mask = u8::MAX >> self.len;
-        self.hi |= hi & mask;
-        self.lo |= lo & mask;
-        self.bg_over_sprite |= (u8::from(bg_over_sprite) * u8::MAX) & mask;
-        self.palette |= (u8::from(palette) * u8::MAX) & mask;
+
+        let old = u32::from_ne_bytes([self.hi, self.lo, self.bg_over_sprite, self.palette]);
+        let new = u32::from_ne_bytes([
+            hi,
+            lo,
+            u8::from(bg_over_sprite) * u8::MAX,
+            u8::from(palette) * u8::MAX,
+        ]);
+        let mask = u32::from_ne_bytes([mask; 4]);
+
+        [self.hi, self.lo, self.bg_over_sprite, self.palette] = (old | (new & mask)).to_ne_bytes();
 
         self.len = 8;
     }
