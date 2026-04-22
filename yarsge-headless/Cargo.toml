@@ -9,6 +9,7 @@ yarsge-core.workspace = true
 anyhow = "1.0.28"
 env_logger.workspace = true
 log.workspace = true
+png = "0.18.1"
 
 [dependencies.clap]
 features = ["derive"]

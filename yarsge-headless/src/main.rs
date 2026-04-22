@@ -1,3 +1,5 @@
+use std::fs::File;
+use std::io::BufWriter;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -15,6 +17,9 @@ struct Opt {
 
     #[clap(help = "Path to the game rom")]
     game_rom: PathBuf,
+
+    #[clap(long)]
+    screenshot_path: Option<PathBuf>,
 }
 
 // pc = 16 bits
@@ -87,6 +92,30 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     ];
 
     println!("{b}/{c}/{d}/{e}/{h}/{l}");
+
+    if let Some(path) = opt.screenshot_path.as_deref() {
+        let file = BufWriter::new(File::create(path)?);
+        let mut encoder = png::Encoder::new(file, 160, 144);
+        encoder.set_color(png::ColorType::Indexed);
+        encoder.set_depth(png::BitDepth::Two);
+        encoder.set_palette(&[
+            0xff, 0xff, 0xff, 0xaa, 0xaa, 0xaa, 0x55, 0x55, 0x55, 0x00, 0x00, 0x00,
+        ]);
+
+        let mut writer = encoder.write_header()?;
+
+        let data: Vec<_> = gb.display().into_iter().map(|it| it as u8).collect();
+        let data: Vec<_> = data
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|[a, b, c, d]| (a << 6) | (b << 4) | (c << 2) | d)
+            .collect();
+
+        writer.write_image_data(&data)?;
+
+        writer.finish()?;
+    }
 
     Ok(())
 }
