@@ -147,7 +147,6 @@ struct SpriteFifo {
     lo: u8,
     bg_over_sprite: u8,
     palette: u8,
-    len: u8,
 }
 
 impl SpriteFifo {
@@ -157,32 +156,38 @@ impl SpriteFifo {
             lo: 0,
             bg_over_sprite: 0,
             palette: 0,
-
-            len: 0,
         }
     }
 
     // always succeeds a push ("overlapping" pixels just get skipped)
     fn push8(&mut self, hi: u8, lo: u8, bg_over_sprite: bool, palette: bool) {
-        let mask = u8::MAX >> self.len;
+        // Pixel overwrite table:
+        // `H/L` -> high/low priority (!bg_over_sprite)
+        // `O/T` -> opaque/transparent (`hi | lo`)
+        // |              | Existing Pixel HO | Existing Pixel LO | Existing Pixel LT | Existing Pixel HT |
+        // | New Pixel HO | Existing          | New               | New               | New               |
+        // | New Pixel LO | Existing          | Existing          | New               | New               |
+        // | New Pixel LT | Existing          | Existing          | Existing          | Existing          |
+        // | New Pixel HT | Existing          | Existing          | New               | Existing          |
+
+        // note: let's ignore high prority transparent new pixels and pretend they're low priority so we only overwrite with opaque pixels
+        // this is... fine? It shouldn't affect rendering or timing at all, the palette is unused in this case, and the bg over sprite bit only matters when the pixel isn't transparent.
+        let bg_over_sprite = 0u8.wrapping_sub(u8::from(bg_over_sprite));
+        let palette = 0u8.wrapping_sub(u8::from(palette));
+        let existing_opaque = self.hi | self.lo;
+        let new_opaque = hi | lo;
+
+        let mask = new_opaque & (!existing_opaque | (self.bg_over_sprite & !bg_over_sprite));
 
         let old = u32::from_ne_bytes([self.hi, self.lo, self.bg_over_sprite, self.palette]);
-        let new = u32::from_ne_bytes([
-            hi,
-            lo,
-            u8::from(bg_over_sprite) * u8::MAX,
-            u8::from(palette) * u8::MAX,
-        ]);
+        let new = u32::from_ne_bytes([hi, lo, bg_over_sprite, palette]);
         let mask = u32::from_ne_bytes([mask; 4]);
 
-        [self.hi, self.lo, self.bg_over_sprite, self.palette] = (old | (new & mask)).to_ne_bytes();
-
-        self.len = 8;
+        [self.hi, self.lo, self.bg_over_sprite, self.palette] =
+            ((old & !mask) | (new & mask)).to_ne_bytes();
     }
 
     fn pop(&mut self) -> SpritePixel {
-        self.len = self.len.saturating_sub(1);
-
         let value = ((self.hi >> 7) << 1) | (self.lo >> 7);
         let bg_over_sprite = self.bg_over_sprite >> 7 == 1;
         let palette = self.palette >> 7 == 1;
@@ -194,7 +199,7 @@ impl SpriteFifo {
         SpritePixel {
             bg_over_sprite,
             palette,
-            color: (value as u8) & 0b11,
+            color: value,
         }
     }
 }
@@ -810,11 +815,6 @@ impl Ppu {
                                 break 'b true;
                             }
 
-                            if sprite_fifo.len == 8 {
-                                sprites.pop();
-                                break 'b true;
-                            }
-
                             if px_fetcher.can_interrupt(bg_fifo) {
                                 px_fetcher.sprite = Some(sprite);
                                 px_fetcher.st = PixelFetcherState::GetTileD1;
@@ -826,6 +826,8 @@ impl Ppu {
                         true
                     };
 
+                    let has_sprite = px_fetcher.sprite.is_some();
+
                     px_fetcher.tick(
                         &self.vram,
                         bg_fifo,
@@ -836,6 +838,10 @@ impl Ppu {
                         self.ly,
                         self.window_ly,
                     );
+
+                    if has_sprite && px_fetcher.sprite.is_none() {
+                        sprites.pop();
+                    }
 
                     if allow_pop && let Some(px) = bg_fifo.pop() {
                         let px = if self.lcdc.contains(Lcdc::BG_WINDOW_ENABLE) {
