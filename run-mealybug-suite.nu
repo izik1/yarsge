@@ -24,5 +24,5 @@ def main [boot_rom: path, base_dir: path] {
 
     let files = $all | sort --natural | insert screenshot { $in.name | path relative-to $base_dir | path parse | update extension { "png" } | path join }
     
-    $files | each { run-file $boot_rom $in.name $"artifacts/mealybug/($in.screenshot)" }
+    $files | par-each { run-file $boot_rom $in.name $"artifacts/mealybug/($in.screenshot)" }
 }

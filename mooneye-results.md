@@ -53,7 +53,7 @@
 | acceptance/ppu/lcdon_write_timing-GS.gb        | ❌    | 66/66/66/66/66/66 |
 | acceptance/ppu/stat_irq_blocking.gb            | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ppu/stat_lyc_onoff.gb               | ❌    | 66/66/66/66/66/66 |
-| acceptance/ppu/vblank_stat_intr-GS.gb          | ❌    | 66/66/66/66/66/66 |
+| acceptance/ppu/vblank_stat_intr-GS.gb          | ✔️ | 3/5/8/13/21/34    |
 | acceptance/push_timing.gb                      | ✔️ | 3/5/8/13/21/34    |
 | acceptance/rapid_di_ei.gb                      | ✔️ | 3/5/8/13/21/34    |
 | acceptance/ret_cc_timing.gb                    | ✔️ | 3/5/8/13/21/34    |

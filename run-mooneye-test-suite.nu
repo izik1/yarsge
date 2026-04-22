@@ -24,5 +24,5 @@ def main [boot_rom: path, base_dir: path] {
 
     let files = $acceptance | append $emulator_only | sort --natural
 
-    $files | each { run-file $boot_rom $in | update file { $in | path relative-to $base_dir } } | to md --pretty
+    $files | par-each { run-file $boot_rom $in | update file { $in | path relative-to $base_dir } } | sort-by file --natural | to md --pretty
 }

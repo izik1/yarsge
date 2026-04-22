@@ -56,7 +56,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     let mut total_emulated_time = Duration::ZERO;
     let hit_breakpoint = gb.run_host_time(
         Instant::now(),
-        Duration::from_secs(5),
+        Duration::from_millis(1500),
         &mut total_emulated_time,
     );
 

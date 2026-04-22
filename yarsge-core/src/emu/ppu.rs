@@ -907,6 +907,11 @@ impl Ppu {
                         self.window_ly = 0;
                         self.reach_wy = false;
                         *reg_if |= InterruptFlags::VBLANK;
+                        if !self.pirq.get()
+                            && self.stat_upper.contains(StatUpper::MODE_2_INT_SELECT)
+                        {
+                            *reg_if |= InterruptFlags::STAT;
+                        }
                     }
 
                     if self.ly == 153 {
