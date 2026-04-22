@@ -542,6 +542,8 @@ pub struct Ppu {
     state: PpuState,
     pirq: RisingEdge,
     lyc: u8,
+    // LCD (not the PPU, the LCD itself) takes a frame to turn on (ish).
+    frame_fblank: bool,
 }
 
 impl Ppu {
@@ -570,6 +572,7 @@ impl Ppu {
             visible_ly: 0,
             pirq: RisingEdge::new(false),
             state: PpuState::Disabled,
+            frame_fblank: true,
         }
     }
 
@@ -661,6 +664,7 @@ impl Ppu {
             self.cycle_mod = 0;
             self.line_mod = 0;
             self.stat_mode = 0;
+            self.frame_fblank = true;
         }
     }
 
@@ -853,7 +857,7 @@ impl Ppu {
                             px
                         };
 
-                        if old_x < 160 {
+                        if old_x < 160 && !self.frame_fblank {
                             // bg has priority if:
                             // 1. the sprite pixel is transparent or
                             // 2. the bg isn't transparent but the sprite's `low_priority` (bg_over_sprite) bit is set.
@@ -906,6 +910,7 @@ impl Ppu {
                     if self.ly == 144 {
                         self.window_ly = 0;
                         self.reach_wy = false;
+                        self.frame_fblank = false;
                         *reg_if |= InterruptFlags::VBLANK;
                         if !self.pirq.get()
                             && self.stat_upper.contains(StatUpper::MODE_2_INT_SELECT)
