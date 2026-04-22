@@ -143,7 +143,8 @@ struct SpritePixel {
 }
 
 struct SpriteFifo {
-    raw: u16,
+    hi: u8,
+    lo: u8,
     bg_over_sprite: u8,
     palette: u8,
     len: u8,
@@ -152,7 +153,8 @@ struct SpriteFifo {
 impl SpriteFifo {
     const fn new() -> Self {
         Self {
-            raw: 0,
+            hi: 0,
+            lo: 0,
             bg_over_sprite: 0,
             palette: 0,
 
@@ -161,21 +163,24 @@ impl SpriteFifo {
     }
 
     // always succeeds a push ("overlapping" pixels just get skipped)
-    fn push8(&mut self, pxs: u16, bg_over_sprite: bool, palette: bool) {
-        self.raw |= pxs & (u16::MAX >> (self.len * 2));
-
-        self.bg_over_sprite |= u8::from(bg_over_sprite) * (u8::MAX >> self.len);
-        self.palette |= u8::from(palette) * (u8::MAX >> self.len);
+    fn push8(&mut self, hi: u8, lo: u8, bg_over_sprite: bool, palette: bool) {
+        let mask = u8::MAX >> self.len;
+        self.hi |= hi & mask;
+        self.lo |= lo & mask;
+        self.bg_over_sprite |= (u8::from(bg_over_sprite) * u8::MAX) & mask;
+        self.palette |= (u8::from(palette) * u8::MAX) & mask;
 
         self.len = 8;
     }
 
     fn pop(&mut self) -> SpritePixel {
         self.len = self.len.saturating_sub(1);
-        let value = self.raw >> 14;
+
+        let value = ((self.hi >> 7) << 1) | (self.lo >> 7);
         let bg_over_sprite = self.bg_over_sprite >> 7 == 1;
         let palette = self.palette >> 7 == 1;
-        self.raw <<= 2;
+        self.hi <<= 1;
+        self.lo <<= 1;
         self.bg_over_sprite <<= 1;
         self.palette <<= 1;
 
@@ -422,7 +427,8 @@ impl PixelFetcher {
                     };
 
                     sprite_fifo.push8(
-                        bmi::interleave(tile_high, tile_low),
+                        tile_high,
+                        tile_low,
                         sprite.flags.contains(SpriteFlags::BG_OVER_SPRITE),
                         sprite.flags.contains(SpriteFlags::PALETTE),
                     );
