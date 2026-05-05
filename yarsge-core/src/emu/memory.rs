@@ -11,6 +11,21 @@ pub struct Memory {
 
 impl Memory {
     #[must_use]
+    #[cfg_attr(not(test), expect(dead_code))]
+    pub(crate) fn new(game_rom: Box<[u8]>, boot_rom: Box<[u8]>, mbc: Mbc) -> Self {
+        assert!(game_rom.len() >= 0x150);
+        assert!(boot_rom.len() == 0x100);
+        Self {
+            wram: [0; 0x2000],
+            hram: [0; 0x007f],
+            game_rom,
+            boot_rom: Some(boot_rom),
+            cart_ram: mbc.make_ram(),
+            mbc,
+        }
+    }
+
+    #[must_use]
     pub fn new_detect(game_rom: Box<[u8]>, boot_rom: Box<[u8]>) -> Option<Self> {
         if game_rom.len() < 0x150 || boot_rom.len() != 0x100 {
             None
@@ -178,7 +193,7 @@ impl Memory {
 }
 
 #[derive(Debug)]
-struct Mbc1 {
+pub(crate) struct Mbc1 {
     banks_rom: u8,
     banks_ram: u8,
     ram_gate: bool,
@@ -216,7 +231,7 @@ impl Mbc1 {
 }
 
 #[derive(Debug)]
-struct Mbc5 {
+pub(crate) struct Mbc5 {
     banks_rom: u8,
     banks_ram: u8,
     ram_gate: bool,
@@ -253,7 +268,7 @@ impl Mbc5 {
 }
 
 #[derive(Debug)]
-enum Mbc {
+pub(crate) enum Mbc {
     Mbc0,
     Mbc1(Mbc1),
     Mbc5(Mbc5),

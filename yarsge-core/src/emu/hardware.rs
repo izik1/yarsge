@@ -50,7 +50,7 @@ pub(crate) trait CpuBus {
 #[non_exhaustive]
 pub struct Hardware<S> {
     ppu: Ppu,
-    timer: timer::Lazy,
+    pub(crate) timer: timer::Lazy,
     dma: Dma,
     memory: Memory,
     pub(crate) pad: Pad,
@@ -225,6 +225,7 @@ impl<S: ApuSampler> CpuBus for Hardware<S> {
         bus.set_addr_cpu(addr);
         let bus_val = self.memory.strobe_read(&mut bus);
         let val = self.read_byte(addr, bus_val);
+
         (val, early_interrupts)
     }
 

@@ -61,10 +61,14 @@ impl Lazy {
         }
     }
 
+    pub(crate) fn lazy_sys_timer(&self, extra_cycles: u32) -> u16 {
+        let cycles = self.banked_cycles.wrapping_add(extra_cycles);
+        self.timer.lazy_div(cycles)
+    }
+
     /// Calculates the timer's DIV register without running the timer.
     pub fn lazy_div(&self, extra_cycles: u32) -> u8 {
-        let cycles = self.banked_cycles.wrapping_add(extra_cycles);
-        (self.timer.lazy_div(cycles) >> 8) as u8
+        (self.lazy_sys_timer(extra_cycles) >> 8) as u8
     }
 
     #[must_use]
@@ -177,7 +181,8 @@ impl Timer {
             // Gekkio got access to per clock timings!
             // On another note, yeah, the clock starts 8 t-cycles before
             // the first byte of the boot-rom is fetched.
-            sys_timer: 8,
+            // This means that we need to set `sys_timer` to 4, because we execute a nop then fetch the first byte of boot rom.
+            sys_timer: 4,
             tick: 0,
         }
     }

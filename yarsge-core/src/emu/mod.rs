@@ -201,3 +201,42 @@ impl<S: ApuSampler, const BREAK_ON_LD_B_B: bool> GameBoy<S, BREAK_ON_LD_B_B> {
         self.hw.apu.sampler_mut()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::emu::apu::ApuSampler;
+    use crate::emu::cpu::Cpu;
+    use crate::emu::hardware::Hardware;
+    use crate::emu::memory::{Mbc, Memory};
+
+    struct SampleMute;
+    impl ApuSampler for SampleMute {
+        fn push_samples(&mut self, _samples: [f32; 2]) {}
+        fn push_mute(&mut self, _samples: usize) {}
+    }
+
+    #[test]
+    fn system_init() {
+        let mut dmg = super::GameBoy::<_, true> {
+            hw: Hardware::new(
+                Memory::new(Box::new([0x49; 0x150]), Box::new([0x40; 0x100]), Mbc::Mbc0),
+                SampleMute,
+            ),
+            cpu: Cpu::new(),
+            bank_ys: 0,
+        };
+
+        assert_eq!(dmg.cpu.regs.ir, 0x00);
+        assert_eq!(dmg.cpu.regs.pc.0, 0x0000);
+
+        // this should run a nop, causing the first byte of boot-rom to be fetched.
+        dmg.cpu.run(&mut dmg.hw);
+
+        assert_eq!(dmg.cpu.regs.ir, 0x40);
+        assert_eq!(dmg.cpu.regs.pc.0, 0x0001);
+
+        // after the first byte of bootrom has been read (when PC=0x01 and IR={boot_rom[0]}), the sys timer should very specifically have a value of 8.
+        //
+        assert_eq!(dmg.hw.timer.lazy_sys_timer(0), 8);
+    }
+}
