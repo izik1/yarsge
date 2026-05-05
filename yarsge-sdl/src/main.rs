@@ -125,6 +125,109 @@ struct Opt {
     no_time_control: bool,
 }
 
+#[cfg(target_os = "linux")]
+fn linux_nanosleep(start: Instant, time: Duration) {
+    fn clock_nanosleep(remaining: &libc::timespec) -> libc::timespec {
+        const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
+
+        let mut new_remaining = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+
+        // Safety: Assuming libc is compliant, the only thing we have to worry about is Rust.
+        // libc promises `remaining` won't be written to, but will be read, and it says `new_remaining` *might* be written to (it's underspecified on if it's read).
+        // `new_remaining` is valid for reads and writes, `remaining` is valid for reads.
+        let res = unsafe {
+            libc::clock_nanosleep(
+                CLOCK,
+                0,
+                std::ptr::from_ref(&remaining),
+                std::ptr::from_mut(&mut new_remaining),
+            )
+        };
+
+        match res {
+            0 => libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            },
+            libc::EFAULT => {
+                unreachable!();
+            }
+            libc::EINTR => {
+                // > If the call is interrupted by a signal handler, clock_nanosleep()
+                // > fails with the error EINTR.  In addition, if remain is not NULL,
+                // > and flags was not TIMER_ABSTIME, it returns the remaining unslept
+                // > time in remain.  This value can then be used to call
+                // > clock_nanosleep() again and complete a (relative) sleep.
+                // - `man clock_nanosleep(2)`
+                new_remaining
+            }
+            libc::EINVAL => {
+                panic!("Invalid timespec (`{remaining:?}`) or clock({CLOCK})");
+            }
+            libc::ENOTSUP => {
+                log::info!("fixme: no clock_nanosleep for `CLOCK_MONOTONIC/clock({CLOCK})`");
+                libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                }
+            }
+            res => {
+                panic!(
+                    "clock nanosleep for `CLOCK_MONOTONIC/clock({CLOCK})` failed with unknown error code `{res}`"
+                )
+            }
+        }
+    }
+
+    const ESTIMATED_NANOSLEEP_OVERHEAD: Duration = Duration::from_micros(100);
+
+    fn timespec_to_duration(ts: &libc::timespec) -> Duration {
+        Duration::new(ts.tv_sec.cast_unsigned(), ts.tv_nsec.cast_unsigned() as u32)
+    }
+
+    let ts_clock_res = {
+        let mut tmp = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 0,
+        };
+        unsafe { libc::clock_getres(libc::CLOCK_MONOTONIC, std::ptr::from_mut(&mut tmp)) };
+
+        tmp
+    };
+
+    let clock_res = timespec_to_duration(&ts_clock_res);
+
+    let remaining = time
+        .saturating_sub(start.elapsed())
+        .saturating_sub(clock_res)
+        .saturating_sub(ESTIMATED_NANOSLEEP_OVERHEAD);
+
+    if remaining == Duration::ZERO {
+        return;
+    };
+
+    let mut remaining = libc::timespec {
+        tv_sec: remaining.as_secs().cast_signed(),
+        tv_nsec: remaining.subsec_nanos().cast_signed() as i64,
+    };
+
+    loop {
+        remaining = clock_nanosleep(&remaining);
+
+        if remaining.tv_sec < ts_clock_res.tv_sec
+            || (remaining.tv_sec == ts_clock_res.tv_sec && remaining.tv_nsec < ts_clock_res.tv_nsec)
+        {
+            // we could use the `remaining` here, but I don't really trust it.
+            return;
+        }
+
+        std::hint::cold_path();
+    }
+}
+
 fn microsleep(start: Instant, time: Duration) {
     {
         let remaining = time.saturating_sub(start.elapsed());
@@ -138,27 +241,7 @@ fn microsleep(start: Instant, time: Duration) {
 
     // then use libc nano sleep (and windows high precision timers) to cut down what we can.
     #[cfg(target_os = "linux")]
-    loop {
-        let remaining = time.saturating_sub(start.elapsed());
-        if remaining < Duration::from_micros(1500) {
-            break;
-        }
-
-        unsafe {
-            let _ = libc::nanosleep(
-                std::ptr::from_ref(&libc::timespec {
-                    tv_sec: 0,
-                    tv_nsec: i64::from(
-                        remaining
-                            .saturating_sub(Duration::from_micros(500))
-                            .subsec_nanos()
-                            .cast_signed(),
-                    ),
-                }),
-                std::ptr::null_mut(),
-            );
-        }
-    }
+    linux_nanosleep(start, time);
 
     {
         let mut ticks: usize = 7;
