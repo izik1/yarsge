@@ -371,8 +371,8 @@ fn sdl_init(scale: u32) -> SdlContext {
 }
 
 make_period_tys! {
-    struct InputPoll(Duration::from_micros(500));
-    struct Display(Duration::from_micros(500));
+    struct InputPoll(Duration::from_micros(1000));
+    struct Display(Duration::from_micros(1000));
     struct AudioSink(Duration::from_millis(3));
 }
 
