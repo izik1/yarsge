@@ -31,6 +31,8 @@ macro_rules! make_period_tys {
 pub struct Statistics {
     pub next_report: Instant,
     pub total_microsleep_time: Duration,
+    /// Amount of time past when we asked to sleep that we ended up sleeping.
+    pub microsleep_slack_time: Duration,
     pub total_emulated_time: Duration,
     pub subframe: u64,
     pub display_frame: u64,
@@ -44,6 +46,7 @@ impl Statistics {
         Self {
             next_report: start + Self::PERIOD,
             total_microsleep_time: Duration::ZERO,
+            microsleep_slack_time: Duration::ZERO,
             total_emulated_time: Duration::ZERO,
             subframe: 0,
             display_frame: 0,
@@ -98,12 +101,19 @@ pub fn report_statistics(
 
     let elapsed = start.elapsed();
 
+    log::debug!(
+        target: "statistics",
+        "emu-time (factor: {:.6})",
+        stats.total_emulated_time.div_duration_f64(elapsed),
+    );
+
     // should be very close to 1 unless `no-time-control` is set`
     log::debug!(
         target: "statistics",
-        "micro_sleep_factor: {:.3}, emu time factor: {:.6}",
-        stats.total_microsleep_time.as_secs_f64() / elapsed.as_secs_f64(),
-        stats.total_emulated_time.as_secs_f64() / elapsed.as_secs_f64(),
+        "microsleep (factor: {:.3}, average: {:?}, slack: {:?})",
+        stats.total_microsleep_time.div_duration_f64(elapsed),
+        stats.total_microsleep_time.div_f64(stats.subframe as f64),
+        stats.microsleep_slack_time.div_f64(stats.subframe as f64),
     );
     log::debug!(
         target: "statistics",

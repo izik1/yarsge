@@ -127,6 +127,8 @@ struct Opt {
 
 #[cfg(target_os = "linux")]
 fn linux_nanosleep(start: Instant, time: Duration) {
+    use libc::timespec;
+
     fn clock_nanosleep(remaining: &libc::timespec) -> libc::timespec {
         const CLOCK: libc::clockid_t = libc::CLOCK_MONOTONIC;
 
@@ -182,20 +184,53 @@ fn linux_nanosleep(start: Instant, time: Duration) {
         }
     }
 
-    const ESTIMATED_NANOSLEEP_OVERHEAD: Duration = Duration::from_micros(100);
+    const ESTIMATED_NANOSLEEP_OVERHEAD: Duration = Duration::from_micros(70);
+
+    static NANOSLEEP_RES: std::sync::LazyLock<Option<timespec>> = std::sync::LazyLock::new(|| {
+        let ts_clock_res = {
+            let mut tmp = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            let res =
+                unsafe { libc::clock_getres(libc::CLOCK_MONOTONIC, std::ptr::from_mut(&mut tmp)) };
+
+            if res != 0 {
+                return None;
+            }
+
+            tmp
+        };
+
+        if ts_clock_res.tv_sec > 0 || ts_clock_res.tv_nsec > 10_000 {
+            return None;
+        }
+
+        let res = unsafe {
+            libc::clock_nanosleep(
+                libc::CLOCK_MONOTONIC,
+                0,
+                std::ptr::from_ref(&libc::timespec {
+                    tv_sec: 0,
+                    tv_nsec: 0,
+                }),
+                std::ptr::null_mut(),
+            )
+        };
+
+        if res != 0 {
+            return None;
+        }
+
+        Some(ts_clock_res)
+    });
 
     fn timespec_to_duration(ts: &libc::timespec) -> Duration {
         Duration::new(ts.tv_sec.cast_unsigned(), ts.tv_nsec.cast_unsigned() as u32)
     }
 
-    let ts_clock_res = {
-        let mut tmp = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        unsafe { libc::clock_getres(libc::CLOCK_MONOTONIC, std::ptr::from_mut(&mut tmp)) };
-
-        tmp
+    let Some(ts_clock_res) = &*NANOSLEEP_RES else {
+        return;
     };
 
     let clock_res = timespec_to_duration(&ts_clock_res);
@@ -228,7 +263,7 @@ fn linux_nanosleep(start: Instant, time: Duration) {
     }
 }
 
-fn microsleep(start: Instant, time: Duration) {
+fn microsleep(start: Instant, time: Duration) -> Instant {
     {
         let remaining = time.saturating_sub(start.elapsed());
         // windows moment
@@ -244,20 +279,18 @@ fn microsleep(start: Instant, time: Duration) {
     linux_nanosleep(start, time);
 
     {
-        let mut ticks: usize = 7;
+        let mut ticks: usize = 0;
 
         loop {
+            if ticks.is_multiple_of(8) {
+                let remaining = time.saturating_sub(start.elapsed());
+
+                if remaining < Duration::from_micros(50) {
+                    break;
+                }
+            }
+
             ticks += 1;
-            if !ticks.is_multiple_of(8) {
-                continue;
-            }
-
-            let remaining = time.saturating_sub(start.elapsed());
-
-            if remaining < Duration::from_micros(50) {
-                break;
-            }
-
             std::thread::yield_now();
             std::hint::spin_loop();
         }
@@ -267,7 +300,15 @@ fn microsleep(start: Instant, time: Duration) {
     // need to actually figure out how to do it, rpcs3 _has_ an implementation, but I can't use it (or presumably study it) due to license mismatches.
 
     let mut ticks: usize = 0;
-    while !ticks.is_multiple_of(8) || start.elapsed() < time {
+
+    loop {
+        if ticks.is_multiple_of(8) {
+            let now = Instant::now();
+            if now.saturating_duration_since(start) >= time {
+                return now;
+            }
+        }
+
         ticks += 1;
         std::hint::spin_loop();
     }
@@ -420,7 +461,7 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
     'running: loop {
         stats.subframe += 1;
 
-        let current_frame = std::time::Instant::now();
+        let current_frame = Instant::now();
 
         let current_frame = {
             let micro_sleep_time = intervals.next().saturating_duration_since(current_frame);
@@ -436,21 +477,21 @@ fn run(opt: &Opt) -> anyhow::Result<()> {
                         micro_sleep_time,
                         &mut stats.total_emulated_time,
                     );
-                    std::time::Instant::now()
+                    Instant::now()
                 }
-                false => {
-                    if micro_sleep_time >= Duration::from_nanos(500) {
-                        microsleep(current_frame, micro_sleep_time);
-                        stats.total_microsleep_time += micro_sleep_time;
-                        std::time::Instant::now()
-                    } else {
-                        current_frame
-                    }
+                false if micro_sleep_time >= Duration::from_nanos(500) => {
+                    let new_time = microsleep(current_frame, micro_sleep_time);
+                    stats.total_microsleep_time += micro_sleep_time;
+                    stats.microsleep_slack_time += new_time
+                        .saturating_duration_since(current_frame)
+                        .saturating_sub(micro_sleep_time);
+                    new_time
                 }
+                false => current_frame,
             }
         };
 
-        let delta_time: Duration = current_frame.duration_since(last_subframe);
+        let delta_time: Duration = current_frame.saturating_duration_since(last_subframe);
         gb.run(delta_time, &mut stats.total_emulated_time);
 
         last_subframe = current_frame;
